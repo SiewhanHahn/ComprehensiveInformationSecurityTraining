@@ -1,0 +1,181 @@
+{
+  "version": "2026-09-30.2",
+  "cities": {
+    "WUHAN": "武汉",
+    "GUANGZHOU": "广州",
+    "HONGKONG": "香港",
+    "SHANGHAI": "上海",
+    "HANGZHOU": "杭州",
+    "CHANGSHA": "长沙",
+    "NANCHANG": "南昌",
+    "NANNING": "南宁",
+    "ZHENGZHOU": "郑州"
+  },
+  "days": [
+    {
+      "city_code": "CHANGSHA",
+      "valid_date": "2024-02-04",
+      "models": {
+        "ecmwf_ifs025": 4.5,
+        "gfs_global": 5.2,
+        "icon_global": 2.4,
+        "gem_global": 18.6
+      },
+      "proxy_label_mm": 4.0
+    },
+    {
+      "city_code": "CHANGSHA",
+      "valid_date": "2024-02-06",
+      "models": {
+        "ecmwf_ifs025": 18.4,
+        "gfs_global": 15.0,
+        "icon_global": 30.2,
+        "gem_global": null
+      },
+      "proxy_label_mm": 15.0
+    },
+    {
+      "city_code": "CHANGSHA",
+      "valid_date": "2024-03-27",
+      "models": {
+        "ecmwf_ifs025": 32.7,
+        "gfs_global": 30.7,
+        "icon_global": 19.6,
+        "gem_global": 35.5
+      },
+      "proxy_label_mm": 29.6
+    },
+    {
+      "city_code": "HANGZHOU",
+      "valid_date": "2024-02-04",
+      "models": {
+        "ecmwf_ifs025": 15.6,
+        "gfs_global": 10.5,
+        "icon_global": 14.7,
+        "gem_global": 11.6
+      },
+      "proxy_label_mm": 12.7
+    },
+    {
+      "city_code": "HANGZHOU",
+      "valid_date": "2024-02-05",
+      "models": {
+        "ecmwf_ifs025": 0.2,
+        "gfs_global": 1.2,
+        "icon_global": 0.2,
+        "gem_global": 0.4
+      },
+      "proxy_label_mm": 1.1
+    },
+    {
+      "city_code": "HANGZHOU",
+      "valid_date": "2024-03-27",
+      "models": {
+        "ecmwf_ifs025": 30.9,
+        "gfs_global": 5.4,
+        "icon_global": 30.0,
+        "gem_global": 26.7
+      },
+      "proxy_label_mm": 25.6
+    },
+    {
+      "city_code": "NANCHANG",
+      "valid_date": "2024-02-04",
+      "models": {
+        "ecmwf_ifs025": 21.3,
+        "gfs_global": 32.9,
+        "icon_global": 21.1,
+        "gem_global": 29.9
+      },
+      "proxy_label_mm": 12.6
+    },
+    {
+      "city_code": "NANCHANG",
+      "valid_date": "2024-02-05",
+      "models": {
+        "ecmwf_ifs025": 9.7,
+        "gfs_global": 6.4,
+        "icon_global": 20.0,
+        "gem_global": 13.3
+      },
+      "proxy_label_mm": 8.3
+    },
+    {
+      "city_code": "NANCHANG",
+      "valid_date": "2024-02-21",
+      "models": {
+        "ecmwf_ifs025": 77.3,
+        "gfs_global": 22.7,
+        "icon_global": 43.5,
+        "gem_global": 60.4
+      },
+      "proxy_label_mm": 53.2
+    },
+    {
+      "city_code": "NANNING",
+      "valid_date": "2024-02-04",
+      "models": {
+        "ecmwf_ifs025": 10.5,
+        "gfs_global": 4.4,
+        "icon_global": 0.7,
+        "gem_global": 4.5
+      },
+      "proxy_label_mm": 2.5
+    },
+    {
+      "city_code": "NANNING",
+      "valid_date": "2024-03-09",
+      "models": {
+        "ecmwf_ifs025": 43.0,
+        "gfs_global": 20.5,
+        "icon_global": 2.9,
+        "gem_global": 13.0
+      },
+      "proxy_label_mm": 13.6
+    },
+    {
+      "city_code": "NANNING",
+      "valid_date": "2024-04-20",
+      "models": {
+        "ecmwf_ifs025": 53.9,
+        "gfs_global": 8.3,
+        "icon_global": 39.7,
+        "gem_global": 13.2
+      },
+      "proxy_label_mm": 64.0
+    },
+    {
+      "city_code": "SHANGHAI",
+      "valid_date": "2024-02-04",
+      "models": {
+        "ecmwf_ifs025": 15.0,
+        "gfs_global": 4.8,
+        "icon_global": 17.1,
+        "gem_global": 9.6
+      },
+      "proxy_label_mm": 11.1
+    },
+    {
+      "city_code": "SHANGHAI",
+      "valid_date": "2024-02-05",
+      "models": {
+        "ecmwf_ifs025": 0.0,
+        "gfs_global": 0.0,
+        "icon_global": 0.0,
+        "gem_global": 0.0
+      },
+      "proxy_label_mm": 0.0
+    },
+    {
+      "city_code": "SHANGHAI",
+      "valid_date": "2024-04-02",
+      "models": {
+        "ecmwf_ifs025": 10.5,
+        "gfs_global": 30.0,
+        "icon_global": 13.9,
+        "gem_global": 17.1
+      },
+      "proxy_label_mm": 36.8
+    }
+  ]
+}

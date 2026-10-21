@@ -1,0 +1,162 @@
+{
+  "site": "香港",
+  "period": {
+    "start": "2024-02-01",
+    "end": "2026-09-30"
+  },
+  "target": "ERA5 24h 累计降水 >= 10mm",
+  "models": [
+    "ecmwf_ifs025",
+    "gfs_global",
+    "icon_global",
+    "gem_global"
+  ],
+  "fusion_weights": {
+    "ecmwf_ifs025": 0.2774,
+    "gfs_global": 0.2645,
+    "icon_global": 0.2194,
+    "gem_global": 0.2387
+  },
+  "split": {
+    "train": [
+      "2024"
+    ],
+    "val": [
+      "2025"
+    ],
+    "test": [
+      "2026"
+    ]
+  },
+  "counts": {
+    "days": 961,
+    "train": 331,
+    "val": 363,
+    "test": 267,
+    "test_positives": 57
+  },
+  "results": {
+    "single:ecmwf_ifs025": {
+      "confusion": {
+        "tp": 42,
+        "fp": 20,
+        "fn": 15,
+        "tn": 190
+      },
+      "precision": 0.6774,
+      "recall": 0.7368,
+      "fpr": 0.0952,
+      "f1": 0.7059,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.9295,
+      "pr_auc": 0.7991
+    },
+    "single:gfs_global": {
+      "confusion": {
+        "tp": 33,
+        "fp": 10,
+        "fn": 24,
+        "tn": 200
+      },
+      "precision": 0.7674,
+      "recall": 0.5789,
+      "fpr": 0.0476,
+      "f1": 0.66,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.9168,
+      "pr_auc": 0.7871
+    },
+    "single:icon_global": {
+      "confusion": {
+        "tp": 31,
+        "fp": 15,
+        "fn": 26,
+        "tn": 195
+      },
+      "precision": 0.6739,
+      "recall": 0.5439,
+      "fpr": 0.0714,
+      "f1": 0.6019,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.9386,
+      "pr_auc": 0.7716
+    },
+    "single:gem_global": {
+      "confusion": {
+        "tp": 31,
+        "fp": 15,
+        "fn": 26,
+        "tn": 195
+      },
+      "precision": 0.6739,
+      "recall": 0.5439,
+      "fpr": 0.0714,
+      "f1": 0.6019,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.8946,
+      "pr_auc": 0.7042
+    },
+    "fusion:mean": {
+      "confusion": {
+        "tp": 39,
+        "fp": 14,
+        "fn": 18,
+        "tn": 196
+      },
+      "precision": 0.7358,
+      "recall": 0.6842,
+      "fpr": 0.0667,
+      "f1": 0.7091,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.9496,
+      "pr_auc": 0.8238
+    },
+    "fusion:median": {
+      "confusion": {
+        "tp": 34,
+        "fp": 11,
+        "fn": 23,
+        "tn": 199
+      },
+      "precision": 0.7556,
+      "recall": 0.5965,
+      "fpr": 0.0524,
+      "f1": 0.6667,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.943,
+      "pr_auc": 0.8228
+    },
+    "fusion:weighted": {
+      "confusion": {
+        "tp": 38,
+        "fp": 15,
+        "fn": 19,
+        "tn": 195
+      },
+      "precision": 0.717,
+      "recall": 0.6667,
+      "fpr": 0.0714,
+      "f1": 0.6909,
+      "positives": 57,
+      "negatives": 210,
+      "auc": 0.9495,
+      "pr_auc": 0.8268
+    }
+  },
+  "best_single": "single:ecmwf_ifs025",
+  "best_fusion": "fusion:mean",
+  "delta_vs_best_single_f1_points": 0.32,
+  "bootstrap_delta_f1": {
+    "delta_f1_points_mean": 0.25,
+    "ci95_low": -9.2,
+    "ci95_high": 9.45,
+    "prob_improve": 0.53,
+    "n_effective": 2000
+  }
+}

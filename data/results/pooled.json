@@ -1,0 +1,252 @@
+[
+  {
+    "sites": [
+      "武汉",
+      "广州",
+      "香港",
+      "上海",
+      "杭州",
+      "长沙",
+      "南昌",
+      "南宁",
+      "郑州"
+    ],
+    "threshold_mm_24h": 10.0,
+    "test_years": [
+      "2026"
+    ],
+    "models": [
+      "ecmwf_ifs025",
+      "gfs_global",
+      "icon_global",
+      "gem_global"
+    ],
+    "baseline_protocol": "single:ecmwf_ifs025",
+    "fusion_protocol": "fusion:mean",
+    "pooled": {
+      "n": 2403,
+      "positives": 406,
+      "baseline": {
+        "confusion": {
+          "tp": 319,
+          "fp": 130,
+          "fn": 87,
+          "tn": 1867
+        },
+        "precision": 0.7105,
+        "recall": 0.7857,
+        "fpr": 0.0651,
+        "f1": 0.7462,
+        "positives": 406,
+        "negatives": 1997,
+        "auc": 0.9586,
+        "pr_auc": 0.819
+      },
+      "fusion": {
+        "confusion": {
+          "tp": 333,
+          "fp": 104,
+          "fn": 73,
+          "tn": 1893
+        },
+        "precision": 0.762,
+        "recall": 0.8202,
+        "fpr": 0.0521,
+        "f1": 0.79,
+        "positives": 406,
+        "negatives": 1997,
+        "auc": 0.972,
+        "pr_auc": 0.876
+      }
+    },
+    "delta_f1_points": 4.38,
+    "bootstrap": {
+      "delta_f1_points_mean": 4.42,
+      "ci95_low": 1.57,
+      "ci95_high": 7.29,
+      "prob_improve": 0.998,
+      "n_effective": 2000
+    },
+    "per_site": {
+      "上海": {
+        "n": 267,
+        "positives": 39,
+        "baseline_f1": 0.8354,
+        "fusion_f1": 0.8493
+      },
+      "南宁": {
+        "n": 267,
+        "positives": 45,
+        "baseline_f1": 0.7021,
+        "fusion_f1": 0.7358
+      },
+      "南昌": {
+        "n": 267,
+        "positives": 44,
+        "baseline_f1": 0.7525,
+        "fusion_f1": 0.7629
+      },
+      "广州": {
+        "n": 267,
+        "positives": 71,
+        "baseline_f1": 0.7234,
+        "fusion_f1": 0.7692
+      },
+      "杭州": {
+        "n": 267,
+        "positives": 39,
+        "baseline_f1": 0.8,
+        "fusion_f1": 0.8571
+      },
+      "武汉": {
+        "n": 267,
+        "positives": 34,
+        "baseline_f1": 0.7324,
+        "fusion_f1": 0.8333
+      },
+      "郑州": {
+        "n": 267,
+        "positives": 25,
+        "baseline_f1": 0.7111,
+        "fusion_f1": 0.6667
+      },
+      "长沙": {
+        "n": 267,
+        "positives": 52,
+        "baseline_f1": 0.7652,
+        "fusion_f1": 0.9027
+      },
+      "香港": {
+        "n": 267,
+        "positives": 57,
+        "baseline_f1": 0.7059,
+        "fusion_f1": 0.7091
+      }
+    }
+  },
+  {
+    "sites": [
+      "武汉",
+      "广州",
+      "香港",
+      "上海",
+      "杭州",
+      "长沙",
+      "南昌",
+      "南宁",
+      "郑州"
+    ],
+    "threshold_mm_24h": 25.0,
+    "test_years": [
+      "2026"
+    ],
+    "models": [
+      "ecmwf_ifs025",
+      "gfs_global",
+      "icon_global",
+      "gem_global"
+    ],
+    "baseline_protocol": "single:ecmwf_ifs025",
+    "fusion_protocol": "fusion:mean",
+    "pooled": {
+      "n": 2403,
+      "positives": 124,
+      "baseline": {
+        "confusion": {
+          "tp": 84,
+          "fp": 72,
+          "fn": 40,
+          "tn": 2207
+        },
+        "precision": 0.5385,
+        "recall": 0.6774,
+        "fpr": 0.0316,
+        "f1": 0.6,
+        "positives": 124,
+        "negatives": 2279,
+        "auc": 0.9682,
+        "pr_auc": 0.688
+      },
+      "fusion": {
+        "confusion": {
+          "tp": 77,
+          "fp": 36,
+          "fn": 47,
+          "tn": 2243
+        },
+        "precision": 0.6814,
+        "recall": 0.621,
+        "fpr": 0.0158,
+        "f1": 0.6498,
+        "positives": 124,
+        "negatives": 2279,
+        "auc": 0.9702,
+        "pr_auc": 0.7136
+      }
+    },
+    "delta_f1_points": 4.98,
+    "bootstrap": {
+      "delta_f1_points_mean": 4.86,
+      "ci95_low": -2.21,
+      "ci95_high": 11.62,
+      "prob_improve": 0.923,
+      "n_effective": 2000
+    },
+    "per_site": {
+      "上海": {
+        "n": 267,
+        "positives": 10,
+        "baseline_f1": 0.4,
+        "fusion_f1": 0.7778
+      },
+      "南宁": {
+        "n": 267,
+        "positives": 12,
+        "baseline_f1": 0.5517,
+        "fusion_f1": 0.4
+      },
+      "南昌": {
+        "n": 267,
+        "positives": 12,
+        "baseline_f1": 0.6207,
+        "fusion_f1": 0.7586
+      },
+      "广州": {
+        "n": 267,
+        "positives": 17,
+        "baseline_f1": 0.6,
+        "fusion_f1": 0.6857
+      },
+      "杭州": {
+        "n": 267,
+        "positives": 14,
+        "baseline_f1": 0.6207,
+        "fusion_f1": 0.2857
+      },
+      "武汉": {
+        "n": 267,
+        "positives": 11,
+        "baseline_f1": 0.4828,
+        "fusion_f1": 0.6957
+      },
+      "郑州": {
+        "n": 267,
+        "positives": 8,
+        "baseline_f1": 0.5714,
+        "fusion_f1": 0.6667
+      },
+      "长沙": {
+        "n": 267,
+        "positives": 22,
+        "baseline_f1": 0.7083,
+        "fusion_f1": 0.7143
+      },
+      "香港": {
+        "n": 267,
+        "positives": 18,
+        "baseline_f1": 0.6667,
+        "fusion_f1": 0.7027
+      }
+    }
+  }
+]

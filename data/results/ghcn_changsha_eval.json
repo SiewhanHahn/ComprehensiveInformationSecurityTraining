@@ -1,0 +1,124 @@
+[
+  {
+    "site": "长沙",
+    "station": "CHM00057687",
+    "period": {
+      "from": "2024-02-04",
+      "to": "2026-09-30"
+    },
+    "threshold_mm_per_day": 10.0,
+    "models": [
+      "ecmwf_ifs025",
+      "gfs_global",
+      "icon_global",
+      "gem_global"
+    ],
+    "label": "NOAA GHCN-Daily PRCP station observation",
+    "counts": {
+      "common_days": 366,
+      "positives": 48,
+      "years": {
+        "2024": 309,
+        "2026": 57
+      }
+    },
+    "baseline": {
+      "confusion": {
+        "tp": 29,
+        "fp": 32,
+        "fn": 19,
+        "tn": 286
+      },
+      "precision": 0.4754,
+      "recall": 0.6042,
+      "fpr": 0.1006,
+      "f1": 0.5321,
+      "positives": 48,
+      "negatives": 318,
+      "auc": 0.8432,
+      "pr_auc": 0.5002
+    },
+    "fusion": {
+      "confusion": {
+        "tp": 30,
+        "fp": 37,
+        "fn": 18,
+        "tn": 281
+      },
+      "precision": 0.4478,
+      "recall": 0.625,
+      "fpr": 0.1164,
+      "f1": 0.5217,
+      "positives": 48,
+      "negatives": 318,
+      "auc": 0.8497,
+      "pr_auc": 0.5095
+    },
+    "delta_f1_points": -1.04,
+    "notes": [
+      "GHCN PRCP 为站点日累计，日界线可能与 Open-Meteo UTC 日累计不同。",
+      "结果用于独立历史交叉验证，不替换 ERA5 主实验标签。"
+    ]
+  },
+  {
+    "site": "长沙",
+    "station": "CHM00057687",
+    "period": {
+      "from": "2024-02-04",
+      "to": "2026-09-30"
+    },
+    "threshold_mm_per_day": 25.0,
+    "models": [
+      "ecmwf_ifs025",
+      "gfs_global",
+      "icon_global",
+      "gem_global"
+    ],
+    "label": "NOAA GHCN-Daily PRCP station observation",
+    "counts": {
+      "common_days": 366,
+      "positives": 22,
+      "years": {
+        "2024": 309,
+        "2026": 57
+      }
+    },
+    "baseline": {
+      "confusion": {
+        "tp": 11,
+        "fp": 20,
+        "fn": 11,
+        "tn": 324
+      },
+      "precision": 0.3548,
+      "recall": 0.5,
+      "fpr": 0.0581,
+      "f1": 0.4151,
+      "positives": 22,
+      "negatives": 344,
+      "auc": 0.8268,
+      "pr_auc": 0.4502
+    },
+    "fusion": {
+      "confusion": {
+        "tp": 10,
+        "fp": 10,
+        "fn": 12,
+        "tn": 334
+      },
+      "precision": 0.5,
+      "recall": 0.4545,
+      "fpr": 0.0291,
+      "f1": 0.4762,
+      "positives": 22,
+      "negatives": 344,
+      "auc": 0.8443,
+      "pr_auc": 0.4245
+    },
+    "delta_f1_points": 6.11,
+    "notes": [
+      "GHCN PRCP 为站点日累计，日界线可能与 Open-Meteo UTC 日累计不同。",
+      "结果用于独立历史交叉验证，不替换 ERA5 主实验标签。"
+    ]
+  }
+]

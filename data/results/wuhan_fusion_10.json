@@ -1,0 +1,155 @@
+{
+  "site": "武汉",
+  "period": {
+    "start": "2024-02-01",
+    "end": "2026-09-30"
+  },
+  "target": "ERA5 24h 累计降水 >= 10mm",
+  "models": [
+    "ecmwf_ifs025",
+    "gfs_global",
+    "icon_global",
+    "gem_global"
+  ],
+  "fusion_weights": {
+    "ecmwf_ifs025": 0.2526,
+    "gfs_global": 0.2211,
+    "icon_global": 0.2421,
+    "gem_global": 0.2842
+  },
+  "split": {
+    "train": [
+      "2024"
+    ],
+    "val": [
+      "2025"
+    ],
+    "test": [
+      "2026"
+    ]
+  },
+  "counts": {
+    "days": 961,
+    "train": 331,
+    "val": 363,
+    "test": 267,
+    "test_positives": 34
+  },
+  "results": {
+    "single:ecmwf_ifs025": {
+      "confusion": {
+        "tp": 26,
+        "fp": 11,
+        "fn": 8,
+        "tn": 222
+      },
+      "precision": 0.7027,
+      "recall": 0.7647,
+      "fpr": 0.0472,
+      "f1": 0.7324,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.973,
+      "pr_auc": 0.8215
+    },
+    "single:gfs_global": {
+      "confusion": {
+        "tp": 25,
+        "fp": 9,
+        "fn": 9,
+        "tn": 224
+      },
+      "precision": 0.7353,
+      "recall": 0.7353,
+      "fpr": 0.0386,
+      "f1": 0.7353,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.9506,
+      "pr_auc": 0.7848
+    },
+    "single:icon_global": {
+      "confusion": {
+        "tp": 29,
+        "fp": 10,
+        "fn": 5,
+        "tn": 223
+      },
+      "precision": 0.7436,
+      "recall": 0.8529,
+      "fpr": 0.0429,
+      "f1": 0.7945,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.9715,
+      "pr_auc": 0.8571
+    },
+    "single:gem_global": {
+      "confusion": {
+        "tp": 27,
+        "fp": 5,
+        "fn": 7,
+        "tn": 228
+      },
+      "precision": 0.8438,
+      "recall": 0.7941,
+      "fpr": 0.0215,
+      "f1": 0.8182,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.9621,
+      "pr_auc": 0.8441
+    },
+    "fusion:mean": {
+      "confusion": {
+        "tp": 30,
+        "fp": 8,
+        "fn": 4,
+        "tn": 225
+      },
+      "precision": 0.7895,
+      "recall": 0.8824,
+      "fpr": 0.0343,
+      "f1": 0.8333,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.9817,
+      "pr_auc": 0.9138
+    },
+    "fusion:median": {
+      "confusion": {
+        "tp": 30,
+        "fp": 6,
+        "fn": 4,
+        "tn": 227
+      },
+      "precision": 0.8333,
+      "recall": 0.8824,
+      "fpr": 0.0258,
+      "f1": 0.8571,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.9832,
+      "pr_auc": 0.9133
+    },
+    "fusion:weighted": {
+      "confusion": {
+        "tp": 30,
+        "fp": 8,
+        "fn": 4,
+        "tn": 225
+      },
+      "precision": 0.7895,
+      "recall": 0.8824,
+      "fpr": 0.0343,
+      "f1": 0.8333,
+      "positives": 34,
+      "negatives": 233,
+      "auc": 0.9817,
+      "pr_auc": 0.9132
+    }
+  },
+  "best_single": "single:gem_global",
+  "best_fusion": "fusion:median",
+  "delta_vs_best_single_f1_points": 3.89
+}

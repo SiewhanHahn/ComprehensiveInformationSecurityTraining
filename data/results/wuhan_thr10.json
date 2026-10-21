@@ -1,0 +1,80 @@
+{
+  "site": "武汉",
+  "period": {
+    "start": "2024-02-01",
+    "end": "2026-09-30"
+  },
+  "lead_days": 1,
+  "target": "ERA5 24h 累计降水 >= 10mm",
+  "split": {
+    "train": [
+      "2024"
+    ],
+    "val": [
+      "2025"
+    ],
+    "test": [
+      "2026"
+    ]
+  },
+  "counts": {
+    "total_days": 968,
+    "train": 334,
+    "val": 363,
+    "test": 271,
+    "test_positives": 36
+  },
+  "test_period": {
+    "from": "2026-01-01",
+    "to": "2026-09-30"
+  },
+  "baseline": {
+    "confusion": {
+      "tp": 27,
+      "fp": 9,
+      "fn": 9,
+      "tn": 226
+    },
+    "precision": 0.75,
+    "recall": 0.75,
+    "fpr": 0.0383,
+    "f1": 0.75,
+    "positives": 36,
+    "negatives": 235,
+    "auc": 0.9682,
+    "pr_auc": 0.7724,
+    "rule": "fc_sum >= 10mm"
+  },
+  "improved": {
+    "confusion": {
+      "tp": 33,
+      "fp": 32,
+      "fn": 3,
+      "tn": 203
+    },
+    "precision": 0.5077,
+    "recall": 0.9167,
+    "fpr": 0.1362,
+    "f1": 0.6535,
+    "positives": 36,
+    "negatives": 235,
+    "auc": 0.9556,
+    "pr_auc": 0.6797,
+    "calibrated_threshold": 0.6574
+  },
+  "delta": {
+    "f1_points": -9.65,
+    "recall_points": 16.67,
+    "fpr_points": 9.79
+  },
+  "feature_weights": {
+    "fc_sum": 1.1108,
+    "fc_max": 1.3795,
+    "rh_mean": 0.6231,
+    "cape_mean": -0.2464,
+    "dew_mean": -0.213,
+    "wind_mean": 0.4616,
+    "p_mean": -1.4702,
+    "t_mean": -0.4622
+  }
+}

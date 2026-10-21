@@ -1,0 +1,88 @@
+services:
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: weather_warning
+      MYSQL_USER: weather_app
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?set MYSQL_APP_PASSWORD}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8.10.2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    restart: "no"
+    environment:
+      DATABASE_URL: mysql+pymysql://weather_app:${MYSQL_APP_PASSWORD}@mysql:3306/weather_warning?charset=utf8mb4
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  seed:
+    build: .
+    restart: "no"
+    environment:
+      DATABASE_URL: mysql+pymysql://weather_app:${MYSQL_APP_PASSWORD}@mysql:3306/weather_warning?charset=utf8mb4
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?set DEMO_ADMIN_PASSWORD}
+      DEMO_ANALYST_PASSWORD: ${DEMO_ANALYST_PASSWORD:?set DEMO_ANALYST_PASSWORD}
+      DEMO_REVIEWER_PASSWORD: ${DEMO_REVIEWER_PASSWORD:?set DEMO_REVIEWER_PASSWORD}
+      DEMO_VIEWER_PASSWORD: ${DEMO_VIEWER_PASSWORD:?set DEMO_VIEWER_PASSWORD}
+    command: ["python", "-m", "backend.app.seed", "--sample", "data/sample/replay_sample.json"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql+pymysql://weather_app:${MYSQL_APP_PASSWORD}@mysql:3306/weather_warning?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
+      APP_ENV: development
+      COOKIE_SECURE: "false"
+    volumes:
+      - ./data/results:/app/data/results:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
