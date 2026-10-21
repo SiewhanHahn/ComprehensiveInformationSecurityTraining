@@ -10,6 +10,7 @@ const ERROR_ZH = {
   NOT_FOUND: '请求的资源不存在',
   PARTIAL_DATA: '数据不完整，无法创建正式预警',
   INVALID_STATE: '当前状态不允许此操作',
+  INVALID_PARAMETER: '请求参数不合法',
   CSRF: 'CSRF 校验失败，请刷新页面后重试',
   DEPENDENCY_UNAVAILABLE: '依赖服务不可用，请稍后重试'
 }

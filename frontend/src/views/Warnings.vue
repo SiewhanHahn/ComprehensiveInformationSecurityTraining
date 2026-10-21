@@ -7,6 +7,50 @@
       </div>
     </div>
 
+    <div v-if="hasReplayQuery" class="card">
+      <div class="card-head">
+        <h3 class="card-title">回放依据</h3>
+        <span class="card-subtitle">{{ preview?.city?.name || cityName(form.city) }} · {{ form.date }}</span>
+        <span v-if="preview" style="margin-left: auto">
+          <StatusBadge kind="dataStatus" :value="preview.data_status" />
+        </span>
+      </div>
+      <div v-if="previewLoading" class="skeleton skeleton-line" style="height: 80px"></div>
+      <div v-else-if="previewError" class="alert alert--error" role="alert">
+        <span class="alert-icon" aria-hidden="true">!</span>
+        <div>{{ previewError }}</div>
+      </div>
+      <template v-else-if="preview">
+        <div class="summary-grid">
+          <div class="summary-item">
+            <div class="summary-value">{{ preview.fused_mm == null ? '—' : preview.fused_mm }}</div>
+            <div class="summary-label">等权融合（mm）</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-value"><StatusBadge kind="risk" :value="preview.risk_level" /></div>
+            <div class="summary-label">教学风险等级</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-value">{{ preview.models.length }}</div>
+            <div class="summary-label">参与模式</div>
+          </div>
+        </div>
+        <div class="row" style="gap: 6px">
+          <span
+            v-for="m in preview.models"
+            :key="m.model"
+            class="badge badge--sm"
+            :class="m.precipitation_mm == null ? 'badge--danger' : 'badge--neutral'"
+          >
+            {{ modelLabel(m.model) }} {{ m.precipitation_mm == null ? '缺测' : m.precipitation_mm }}
+          </span>
+        </div>
+        <p v-if="preview.data_status !== 'COMPLETE'" class="muted" style="margin: 10px 0 0">
+          数据不完整，不能创建正式预警；请更换日期或城市。
+        </p>
+      </template>
+    </div>
+
     <div v-if="auth.hasAnyRole('ANALYST', 'ADMIN')" class="card">
       <div class="card-head">
         <h3 class="card-title">新建预警草稿</h3>
@@ -59,10 +103,11 @@
         </Transition>
 
         <div class="form-actions">
-          <button class="btn btn-primary" type="submit" :disabled="submitting">
+          <button class="btn btn-primary" type="submit" :disabled="submitting || !canCreate">
             <span v-if="submitting" class="spinner"></span>
             {{ submitting ? '创建中…' : '创建草稿' }}
           </button>
+          <span v-if="!canCreate" class="muted">当前回放数据不完整，无法创建</span>
         </div>
       </form>
     </div>
@@ -71,6 +116,21 @@
       <div class="card-head">
         <h3 class="card-title">预警列表</h3>
         <span class="card-subtitle">共 {{ warnings.length }} 条</span>
+      </div>
+
+      <div class="row" role="tablist" aria-label="预警状态筛选" style="gap: 6px; margin-bottom: 16px">
+        <button
+          v-for="tab in tabs"
+          :key="tab.value"
+          class="btn btn-sm"
+          :class="activeStatus === tab.value ? 'btn-primary' : 'btn-ghost'"
+          type="button"
+          role="tab"
+          :aria-selected="activeStatus === tab.value"
+          @click="switchStatus(tab.value)"
+        >
+          {{ tab.label }}
+        </button>
       </div>
 
       <Transition name="slide-fade">
@@ -124,14 +184,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from '../api'
 import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
-import { formatDate } from '../ui/labels'
+import { formatDate, modelLabel } from '../ui/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -142,6 +202,35 @@ const loading = ref(true)
 const loadError = ref('')
 const formError = ref('')
 const submitting = ref(false)
+const activeStatus = ref('')
+const preview = ref(null)
+const previewLoading = ref(false)
+const previewError = ref('')
+
+const isViewerOnly = computed(
+  () => auth.hasRole('VIEWER') && !auth.hasAnyRole('ADMIN', 'ANALYST', 'REVIEWER')
+)
+
+const tabs = computed(() => {
+  if (isViewerOnly.value) return [{ value: 'PUBLISHED', label: '已发布' }]
+  return [
+    { value: '', label: '全部' },
+    { value: 'DRAFT', label: '草稿' },
+    { value: 'PENDING_REVIEW', label: '待审核' },
+    { value: 'APPROVED', label: '已批准' },
+    { value: 'PUBLISHED', label: '已发布' },
+    { value: 'WITHDRAWN', label: '已撤回' },
+    { value: 'REJECTED', label: '已驳回' }
+  ]
+})
+
+const hasReplayQuery = computed(() =>
+  Boolean(route.query.city && route.query.date && route.query.threshold)
+)
+
+const canCreate = computed(
+  () => !preview.value || preview.value.data_status === 'COMPLETE'
+)
 
 const form = reactive({
   city: 'CHANGSHA',
@@ -161,7 +250,8 @@ async function loadWarnings() {
   loading.value = true
   loadError.value = ''
   try {
-    warnings.value = await apiFetch('/warnings')
+    const query = activeStatus.value ? `/warnings?status=${activeStatus.value}` : '/warnings'
+    warnings.value = await apiFetch(query)
   } catch (e) {
     loadError.value = e.message
   } finally {
@@ -169,20 +259,46 @@ async function loadWarnings() {
   }
 }
 
+function switchStatus(value) {
+  if (activeStatus.value === value) return
+  activeStatus.value = value
+  loadWarnings()
+}
+
+async function loadPreview() {
+  if (!hasReplayQuery.value) return
+  previewLoading.value = true
+  previewError.value = ''
+  try {
+    preview.value = await apiFetch(
+      `/replay?city_code=${route.query.city}&date=${route.query.date}&threshold_code=${route.query.threshold}`
+    )
+  } catch (e) {
+    previewError.value = e.message
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 onMounted(async () => {
   if (route.query.city) form.city = route.query.city
   if (route.query.date) form.date = route.query.date
   if (route.query.threshold) form.threshold = route.query.threshold
+  activeStatus.value = isViewerOnly.value ? 'PUBLISHED' : ''
 
   const [citiesResult] = await Promise.allSettled([apiFetch('/cities')])
   if (citiesResult.status === 'fulfilled') {
     cities.value = citiesResult.value
   }
-  await loadWarnings()
+  await Promise.all([loadPreview(), loadWarnings()])
 })
 
 async function create() {
   formError.value = ''
+  if (!canCreate.value) {
+    formError.value = '当前回放数据不完整，无法创建预警'
+    return
+  }
   if (!form.title.trim() || !form.area.trim() || !form.reason.trim()) {
     formError.value = '标题、影响区域、研判依据为必填项'
     return

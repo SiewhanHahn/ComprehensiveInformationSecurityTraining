@@ -1448,7 +1448,7 @@ tbody tr:last-child td {
 /* ============================================================
    响应式
    ============================================================ */
-@media (max-width: 960px) {
+@media (max-width: 1100px) {
   .nav {
     display: none;
     position: absolute;

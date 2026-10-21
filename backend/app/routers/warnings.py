@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -154,14 +154,32 @@ def create_warning(
     return _to_out(db, warning)
 
 
+WARNING_STATUSES = {
+    "DRAFT",
+    "PENDING_REVIEW",
+    "APPROVED",
+    "PUBLISHED",
+    "WITHDRAWN",
+    "REJECTED",
+}
+
+
 @router.get("/warnings", response_model=list[WarningOut])
 def list_warnings(
+    status: str | None = Query(None),
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),
 ):
+    if status is not None and status not in WARNING_STATUSES:
+        raise HTTPException(status_code=400, detail="INVALID_PARAMETER")
     stmt = select(Warning)
     if _viewer_only(current):
+        if status is not None and status != "PUBLISHED":
+            return []
         stmt = stmt.where(Warning.status == "PUBLISHED")
+    elif status is not None:
+        stmt = stmt.where(Warning.status == status)
+    stmt = stmt.order_by(Warning.id.desc())
     warnings = db.scalars(stmt).all()
     uids = {w.created_by for w in warnings}
     username_map = {u.id: u.username for u in db.scalars(select(User).where(User.id.in_(uids))).all()}

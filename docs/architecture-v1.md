@@ -6,27 +6,27 @@
 
 系统不直接承担真实应急发布职责。外部气象 API 是数据输入源，不是业务系统的持久化层；外部服务不可用时，系统应优先使用本地已导入的数据，并明确展示数据状态。
 
-当前仓库只有 Python 研究脚本和最小 FastAPI 骨架；前端、Redis 集成及完整的预警业务流程仍是规划目标。以下架构是目标设计，不代表已实现或通过部署验证。
+当前仓库已包含可运行的 FastAPI + Vue 3 + MySQL + Redis 系统：登录/RBAC/会话/CSRF、融合回放、指标对比、预警审批发布、反馈、审计与数据监测均已实现，并通过 Docker Compose 部署验证。本节描述实际架构，未实现部分单独标注。
 
 ### 1.1 实现状态与里程碑
 
 | 阶段 | 范围 | 当前状态 | 完成标志 |
 | --- | --- | --- | --- |
-| M0 基础设施 | Ubuntu VM、Docker CE、Compose、Python 3.14.4 | 已完成安装与版本核验 | `docker version`、`docker compose version` 正常 |
-| M1 数据与认证 | MySQL/Redis、Alembic、seed、登录/角色/会话 | 未实现 | 可登录，角色权限和审计生效 |
-| M2 融合与回放 | 导入冻结的预报/标签数据，融合计算、回放 API 和页面 | 研究脚本已有，服务化未实现 | 输入四模式可得到融合结果与指标页面 |
-| M3 预警闭环 | 草稿、提交、审批、发布、撤回、反馈、审计 | 数据库设计已有，API/页面未实现 | 一条预警完成全状态流转并留痕 |
-| M4 前端 | 登录、回放、指标、预警、审计页面 | 未开始 | 浏览器完成演示脚本 |
-| M5 测试与交付 | 自动化/手工测试、测试报告、README、压缩包 | 未开始 | `docs/test-report-v1.md` 有实测证据 |
+| M0 基础设施 | Ubuntu VM、Docker CE、Compose、Python 3.14.4 | 已完成 | `docker version`、`docker compose version` 正常 |
+| M1 数据与认证 | MySQL/Redis、Alembic、seed、登录/角色/会话 | 已完成 | 可登录，角色权限和审计生效 |
+| M2 融合与回放 | 导入冻结的预报/标签数据，融合计算、回放 API 和页面 | 已完成 | 输入四模式可得到融合结果与指标页面 |
+| M3 预警闭环 | 草稿、提交、审批、发布、撤回、反馈、审计 | 已完成 | 一条预警完成全状态流转并留痕 |
+| M4 前端 | 登录、监测、回放、指标、预警、审核、灾种、审计页面 | 已完成 | 浏览器完成演示脚本 |
+| M5 测试与交付 | 自动化/手工测试、测试报告、README、压缩包 | 进行中 | `docs/test-report-v1.md` 持续补充实测证据 |
 
-交付口径为“暴雨端到端 + 七类扩展框架”，详见 `docs/requirements-v1.md` §1.4。M0 已完成，M1~M5 是后续实现范围。
+交付口径为“暴雨端到端 + 七类扩展框架”，详见 `docs/requirements-v1.md` §1.4。M0~M4 已完成，M5 持续补充测试证据。
 
 ## 2. 技术选型
 
 | 层次 | 选型 | 选择理由 |
 | --- | --- | --- |
 | 主机 | Ubuntu 26.04 LTS，Docker Engine + Docker Compose 插件 | 统一 Linux 容器开发、运行环境 |
-| 浏览器 | Vue 3 + Vite（目标前端） | 适合快速构建状态清晰的业务页面；前端工程尚待实现 |
+| 浏览器 | Vue 3 + Vite | 适合快速构建状态清晰的业务页面；已实现全部页面 |
 | 前端容器 | 独立前端 Dockerfile + 静态 Web 服务 | 与 API 镜像分离构建和部署 |
 | HTTP API | FastAPI + Uvicorn，基于 Ubuntu 26.04 的 Python 3.14.4 容器 | Python 生态可复用现有融合和评估脚本 |
 | ORM | SQLAlchemy 2.x | 支持 MySQL 8.4、事务和类型化模型 |
@@ -92,7 +92,7 @@
 
 Redis 保存可重建、可过期的缓存，以及服务端 Session。业务事实、预报/观测记录、审批结果和审计日志必须持久化到 MySQL；清空 Redis 只应导致会话失效和缓存重建，不得丢失权威业务数据。
 
-MVP 认证采用服务端 Session：Session ID 放在 `HttpOnly`、`SameSite` Cookie 中，服务端从 Redis 读取会话；本地 HTTP 演示可临时关闭 `Secure`，对外访问必须启用 HTTPS。状态变更接口需要 CSRF 防护（SameSite 配合 CSRF token）。Redis 集成尚未实现，集成前 API 不得声称已在读写 Redis。
+MVP 认证采用服务端 Session：Session ID 放在 `HttpOnly`、`SameSite` Cookie 中，服务端从 Redis 读取会话；本地 HTTP 演示可临时关闭 `Secure`，对外访问必须启用 HTTPS。状态变更接口需要 CSRF 防护（SameSite 配合 CSRF token）。当前 API 已在读写 Redis 会话：登录写入、鉴权读取并滑动过期；Redis 不可用时返回 503。
 
 ### 4.7 API 与前端页面边界
 
@@ -101,25 +101,30 @@ MVP API 分组（详细请求/响应和错误码见 `docs/interface-design-v1.md
 | 分组 | 代表端点 | 允许角色 |
 | --- | --- | --- |
 | 认证 | `POST /auth/login`、`POST /auth/logout`、`GET /auth/me` | 全体/已登录 |
-| 数据回放 | `GET /cities`、`GET /replay`、`GET /replay/{replay_id}` | VIEWER 及以上 |
+| 数据回放 | `GET /cities`、`GET /replay` | VIEWER 及以上 |
+| 数据监测 | `GET /monitor/status` | 已登录 |
+| 灾种注册 | `GET /hazards` | 已登录 |
 | 实验指标 | `GET /metrics/experiments`、`GET /metrics/experiments/{version}` | VIEWER 及以上 |
-| 预警草稿 | `POST /warnings`、`PATCH /warnings/{public_id}`、`POST /warnings/{public_id}/submit` | ANALYST |
-| 审核发布 | `POST /warnings/{public_id}/review`、`POST /warnings/{public_id}/publish`、`POST /warnings/{public_id}/withdraw` | REVIEWER |
+| 预警查询 | `GET /warnings`、`GET /warnings?status=`、`GET /warnings/{public_id}` | 已登录（VIEWER 仅已发布） |
+| 预警草稿 | `POST /warnings`、`PATCH /warnings/{public_id}`、`POST /warnings/{public_id}/submit` | ANALYST/ADMIN |
+| 审核发布 | `POST /warnings/{public_id}/review`、`POST /warnings/{public_id}/publish`、`POST /warnings/{public_id}/withdraw` | REVIEWER/ADMIN |
 | 反馈 | `POST /warnings/{public_id}/feedback`、`GET /warnings/{public_id}/feedback` | ANALYST/ADMIN |
-| 审计 | `GET /audit-logs` | ADMIN |
-| 健康检查 | `GET /health`、`GET /health/db` | 无需认证 |
+| 审计 | `GET /audit-logs?page=&page_size=` | ADMIN |
+| 健康检查 | `GET /health`、`GET /health/db`、`GET /health/redis` | 无需认证 |
 
 前端页面清单：
 
 | 页面 | 核心内容 | 主要角色 |
 | --- | --- | --- |
 | 登录页 | 账号密码登录、错误提示 | 全体 |
-| 总览页 | 当前数据状态、最近预警、关键指标摘要 | 全体 |
-| 历史回放页 | 城市/日期/阈值选择，四模式输入、融合值、标签对照 | VIEWER 及以上 |
+| 总览页 | 关键指标摘要、最近预警、数据状态入口 | 全体 |
+| 数据监测页 | 数据源、数据集版本、导入时间、记录量、完整性 | 全体 |
+| 历史回放页 | 城市/日期/阈值选择，四模式输入、融合值、标签对照、研判进度 | VIEWER 及以上 |
 | 指标对比页 | 基线 vs 融合的混淆矩阵、F1、误报率、自举区间 | VIEWER 及以上 |
-| 预警编辑页 | 草稿、影响范围、研判依据、提交审核 | ANALYST |
-| 审核页 | 输入溯源、历史版本、批准/驳回意见 | REVIEWER |
-| 发布与反馈页 | 已发布预警、撤回、响应/反馈追加 | REVIEWER/ANALYST |
+| 预警管理页 | 草稿创建、状态筛选、预警列表 | ANALYST/ADMIN（列表全体） |
+| 预警详情页 | 闭环进度、影响范围、研判依据、提交/审批/发布/撤回、反馈 | 按角色 |
+| 审核工作台 | 待审核、待发布列表与快捷批准/发布 | REVIEWER/ADMIN |
+| 灾种覆盖页 | 八类灾种、实现状态、指标与数据源 | 全体 |
 | 审计页 | 登录、数据导入、状态变更和权限拒绝记录 | ADMIN |
 
 前端容器通过同源反向代理或明确的 API Base URL 调用后端；生产式部署应避免把数据库/Redis 暴露给浏览器。跨域仅在开发期按白名单开启，并允许携带 Session Cookie。
@@ -204,7 +209,7 @@ Ubuntu VM（SSH 管理；项目目录 ~/Projects/ComprehensiveInformationSecurit
 
 目标一键入口为 `docker compose up --build -d`。Compose 应按数据库健康 → 迁移 → seed → API 健康的顺序启动；前端仅在所需 API 配置就绪后提供访问。API 通过服务名 `mysql` 连接数据库，并在 Session 集成完成后通过 `redis:6379` 访问会话存储。MySQL/Redis 不默认映射到宿主机；对外仅开放明确需要的前端/API 演示入口，并优先绑定回环地址。
 
-详细实施、配置、秘密、备份和验收规划见 [Ubuntu Docker Compose 部署规划 V2](docker-deployment-plan.md)。Dockerfile 与 Compose 文件尚未创建，部署运行和一键启动均待实现、验证。
+详细实施、配置、秘密、备份和验收规划见 [Ubuntu Docker Compose 部署规划 V2](docker-deployment-plan.md)。`Dockerfile` 与 `compose.yaml` 已创建，一键启动、健康检查与持久化已在 VM 上验证。
 
 ## 8. 运行与恢复
 
@@ -227,4 +232,4 @@ Ubuntu VM（SSH 管理；项目目录 ~/Projects/ComprehensiveInformationSecurit
 - Session 登录、角色权限、CSRF 防护和审计记录通过测试并留存证据。
 - `docs/test-report-v1.md` 记录 AT-01~06 的实测结果；交付压缩包包含 README、Compose、Dockerfile、文档和冻结指标快照。
 
-以上验收尚未执行；本架构文档定义目标，不代表完整业务系统或容器已实现。
+上述验收已在 2026-10-20/21 的实测中执行，证据与命令见 `docs/test-report-v1.md`；未执行项（如 MySQL 备份恢复、浏览器逐页截图）在该报告中单独标注。

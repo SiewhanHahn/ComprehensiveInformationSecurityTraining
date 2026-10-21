@@ -66,7 +66,45 @@ export const DATA_STATUS = {
 }
 
 export const HAZARD_TYPE = {
-  RAINSTORM: '暴雨'
+  RAINSTORM: '暴雨',
+  TYPHOON: '台风',
+  HEATWAVE: '高温',
+  DROUGHT: '干旱',
+  THUNDERSTORM: '雷电',
+  FOG: '大雾',
+  FLASH_FLOOD: '山洪',
+  URBAN_WATERLOGGING: '城市内涝'
+}
+
+export const MODEL_LABELS = {
+  ecmwf_ifs025: 'ECMWF',
+  gfs_global: 'GFS',
+  icon_global: 'ICON',
+  gem_global: 'GEM'
+}
+
+export const DATASET_TYPE = {
+  FORECAST: '预报数据',
+  ERA5_LABEL: 'ERA5 代理标签',
+  OBSERVATION: '站点观测'
+}
+
+export const SOURCE_TYPE = {
+  FORECAST: '数值预报',
+  REANALYSIS: '再分析',
+  OBSERVATION: '站点观测'
+}
+
+export function modelLabel(code) {
+  return MODEL_LABELS[code] || code
+}
+
+export function datasetTypeLabel(code) {
+  return DATASET_TYPE[code] || code || '—'
+}
+
+export function sourceTypeLabel(code) {
+  return SOURCE_TYPE[code] || code || '—'
 }
 
 export function getMeta(map, value) {

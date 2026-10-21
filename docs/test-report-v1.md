@@ -164,6 +164,23 @@
 
 验证：`npm run build` 通过（43 modules）；审计接口 `page=1` 返回 id 80/79/78、`page=2` 返回 77/76/75，空 `resource_id`/`reason` 存在且前端有兜底；SPA 路由（含未知路径）均 200；构建产物含中文映射与「未达阈值」「未认证」等文案；后端日志无异常。
 
+## 6.6 Phase A：闭环呈现与文档对齐（2026-10-21）
+
+按 `docs/roadmap-v1.md` 的 A 档补齐「闭环看得见、8 类边界说得清、测试有证据」。
+
+| 类别 | 新增/修改 | 说明 |
+| --- | --- | --- |
+| 灾种 | `backend/app/hazards.py`、`GET /api/v1/hazards`、前端 `/hazards` | 8 类灾种注册表，1 类端到端 + 7 类扩展框架，页面明确标注 |
+| 监测 | `GET /api/v1/monitor/status`、前端 `/monitor` | 数据源、数据集版本、导入时间、记录量、模型齐全度；标注「历史快照，非实时接入」 |
+| 闭环 | `ClosedLoopStepper.vue` | 预警详情展示监测→预测→研判→预警→发布→响应→反馈；回放页展示前三段 |
+| 审核 | `/review` 工作台 | 待审核/待发布筛选 + 快捷批准/发布，复用现有状态机接口 |
+| 查询 | `GET /warnings?status=` | 服务端状态筛选；VIEWER 仍只能看到已发布；非法状态返回 400 |
+| 创建 | 预警管理页回放摘要 | 从回放带入时展示融合值/等级/模式，PARTIAL 时禁止创建 |
+| 文档 | `roadmap-v1.md`、`traceability-v1.md`、`AGENTS.md`、architecture/interface/database | 修正过期描述，补充需求—实现—测试对应关系 |
+| 测试 | `tests/test_rbac_matrix.py`、`tests/test_state_machine.py` | 角色矩阵、完整状态机、自审拒绝、REJECTED 重提交 |
+
+验证：`npm run build` 通过；`python -m py_compile` 通过；新增路由与接口待部署后在 VM 上执行自动化与手工冒烟（见 `test-report-v1.md` 后续更新）。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
@@ -173,3 +190,6 @@
 - 演示账号密码由本地 `.env` 提供，不进入仓库或交付包。
 - `GET /warnings` 仍为全量返回、无分页/上限；当前演示数据量小暂未改接口，数据增长后需补 `limit/offset`。
 - 本轮 UI 改版的浏览器逐页视觉与动效验收由用户人工执行（构建、路由、接口与中文映射已自动验证）。
+- 管理员用户管理 API（创建/停用/重置用户）尚未实现；演示账号由 seed 创建。详见 `traceability-v1.md` §4。
+- 七类扩展灾种仅登记数据源与判定指标，未接入数据、未做量化验证。
+- 监测页展示的是已导入快照，不含实时拉取与定时调度；发布不含短信/邮件等外部渠道。

@@ -29,6 +29,21 @@ docker compose ps
 - `reviewer_demo`（审核员，审批/发布/撤回）
 - `viewer_demo`（普通查看，只读已发布内容）
 
+## 版本选择
+
+完整路线、各档交付物与取用方式见 `docs/roadmap-v1.md`。
+
+- 最新稳定版：`main`
+- 答辩演示推荐：`v0.2.0-phase-a`（A 阶段验收后）
+- 回退到当前已验证快照：`v0.1.0-mvp`
+
+```bash
+git fetch --tags
+git tag -l
+git switch --detach v0.2.0-phase-a   # 只读查看某个版本
+git switch main                       # 回到最新稳定版
+```
+
 ## 量化结果（冻结指标）
 
 九城合并 · 测试年 2026 · n=2403 · 10mm/24h：

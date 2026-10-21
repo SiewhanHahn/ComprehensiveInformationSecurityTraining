@@ -62,7 +62,9 @@
           </span>
         </div>
 
-        <div class="table-wrap">
+        <ClosedLoopStepper :stages="replayStages" compact />
+
+        <div class="table-wrap" style="margin-top: 12px">
           <table class="table">
             <thead>
               <tr><th scope="col">模式</th><th scope="col">24h 累计降水 (mm)</th></tr>
@@ -110,10 +112,11 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiFetch } from '../api'
 import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
+import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
 
 const cities = ref([])
 const city = ref('CHANGSHA')
@@ -122,6 +125,22 @@ const threshold = ref('HEAVY')
 const result = ref(null)
 const loading = ref(false)
 const error = ref('')
+
+const replayStages = computed(() => {
+  const r = result.value
+  if (!r) return []
+  const complete = r.data_status === 'COMPLETE'
+  return [
+    { key: 'monitor', label: '监测', state: 'done', note: '已缓存快照' },
+    { key: 'forecast', label: '预测', state: 'done', note: `${r.models.length} 个模式` },
+    {
+      key: 'analysis',
+      label: '研判',
+      state: complete ? 'done' : 'current',
+      note: complete ? `${r.fused_mm} mm / ${r.risk_level ?? '未达阈值'}` : '数据不完整'
+    }
+  ]
+})
 
 onMounted(async () => {
   try {
