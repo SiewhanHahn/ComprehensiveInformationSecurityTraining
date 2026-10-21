@@ -181,6 +181,23 @@
 
 验证（2026-10-21，VM 实测）：`npm run build` 通过；`python -m py_compile` 通过；`/monitor`、`/hazards`、`/review` 路由均 200；`/api/v1/hazards` 返回 `total=8, implemented=1, framework=7`；`/api/v1/monitor/status` 返回 3 个数据源、4 个数据集、119 条预报、30 条代理标签、模型齐全度 `COMPLETE`；`/warnings?status=PENDING_REVIEW` 200、非法状态 400；viewer 访问 `/audit-logs` 403、`?status=DRAFT` 返回空；`pytest` 全量 **19 passed**（含新增 RBAC 矩阵与状态机测试）。
 
+## 6.7 前后端 code review（2026-10-21）
+
+分两轮通读 `backend/app/` 与 `frontend/src/`，修复确认的缺陷：
+
+| 侧 | 级别 | 问题 | 修复 |
+| --- | --- | --- | --- |
+| 后端 | 高 | 直接调 API 可创建空标题/区域/研判依据的预警 | `WarningCreate` 对必填字段 strip 并校验非空、限制长度 |
+| 后端 | 中 | 回放 `source.dataset_version` 误用内部自增 id | 改用 `Dataset.version` 业务版本号 |
+| 后端 | 中 | 监测完整性用全局模式并集，会误报 COMPLETE | 改为按城市统计模式覆盖 |
+| 后端 | 中 | 反馈返回时间戳用 `_now()` 而非库内值 | `commit` 后 `refresh` 读 `fb.created_at` |
+| 后端 | 低 | logout 删 cookie 未对齐 samesite/secure；`/auth/me` 无 None 防护 | 补齐；加 401 守卫 |
+| 前端 | 高 | FastAPI 422 的 detail 是数组，前端渲染成 `[object Object]` | `api.js` 识别数组 detail，映射中文「请求参数不合法」 |
+| 前端 | 中 | 驳回不填意见、反馈内容为空无前置提示 | `WarningDetail.vue` 前置校验并提示 |
+| 前端 | 低 | 动作后刷新失败会清空已加载数据 | 失败时保留现有数据 |
+
+验证：后端 `pytest` 19 passed；空标题/空研判 `POST /warnings` → 422；`source.dataset_version=2026-09-30.2`；`/monitor/status` 返回 `per_city` 且 `completeness=COMPLETE`；前端 `npm run build` 通过，产物含「驳回时必须填写审核意见」「反馈内容不能为空」「请求参数不合法」中文文案，路由全 200。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。

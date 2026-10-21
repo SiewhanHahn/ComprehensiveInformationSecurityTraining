@@ -290,7 +290,8 @@ async function load(showSkeleton = true) {
     w.value = await apiFetch(`/warnings/${route.params.publicId}`)
     feedbacks.value = await apiFetch(`/warnings/${route.params.publicId}/feedback`)
   } catch (e) {
-    w.value = null
+    // 动作成功后的刷新失败不置空，保留现有数据并提示
+    if (showSkeleton) w.value = null
     error.value = e.message
   } finally {
     loading.value = false
@@ -315,6 +316,10 @@ async function act(kind, decision) {
       await apiFetch(`/warnings/${id}/submit`, { method: 'POST' })
       notice.value = '已提交审核'
     } else if (kind === 'review') {
+      if (decision === 'REJECT' && !comment.value.trim()) {
+        error.value = '驳回时必须填写审核意见'
+        return
+      }
       await apiFetch(`/warnings/${id}/review`, {
         method: 'POST',
         body: JSON.stringify({ decision, comment: comment.value })
@@ -327,6 +332,10 @@ async function act(kind, decision) {
       await apiFetch(`/warnings/${id}/withdraw`, { method: 'POST' })
       notice.value = '已撤回'
     } else if (kind === 'feedback') {
+      if (!feedbackContent.value.trim()) {
+        error.value = '反馈内容不能为空'
+        return
+      }
       await apiFetch(`/warnings/${id}/feedback`, {
         method: 'POST',
         body: JSON.stringify({
