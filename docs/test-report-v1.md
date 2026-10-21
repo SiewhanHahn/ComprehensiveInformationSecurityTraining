@@ -179,7 +179,7 @@
 | 文档 | `roadmap-v1.md`、`traceability-v1.md`、`AGENTS.md`、architecture/interface/database | 修正过期描述，补充需求—实现—测试对应关系 |
 | 测试 | `tests/test_rbac_matrix.py`、`tests/test_state_machine.py` | 角色矩阵、完整状态机、自审拒绝、REJECTED 重提交 |
 
-验证：`npm run build` 通过；`python -m py_compile` 通过；新增路由与接口待部署后在 VM 上执行自动化与手工冒烟（见 `test-report-v1.md` 后续更新）。
+验证（2026-10-21，VM 实测）：`npm run build` 通过；`python -m py_compile` 通过；`/monitor`、`/hazards`、`/review` 路由均 200；`/api/v1/hazards` 返回 `total=8, implemented=1, framework=7`；`/api/v1/monitor/status` 返回 3 个数据源、4 个数据集、119 条预报、30 条代理标签、模型齐全度 `COMPLETE`；`/warnings?status=PENDING_REVIEW` 200、非法状态 400；viewer 访问 `/audit-logs` 403、`?status=DRAFT` 返回空；`pytest` 全量 **19 passed**（含新增 RBAC 矩阵与状态机测试）。
 
 ## 7. 未完成项与限制
 
