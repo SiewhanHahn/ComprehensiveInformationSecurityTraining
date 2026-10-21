@@ -8,6 +8,7 @@ settings = get_settings()
 
 
 def create_session(session_id: str, user_id: int, roles: list[str], csrf_token: str) -> None:
+    # roles 冗余存储仅为审计/诊断参考；鉴权以数据库实时角色为准（见 deps.get_current_user）
     payload = {
         "user_id": user_id,
         "roles": roles,

@@ -260,6 +260,8 @@ def review_warning(
         raise HTTPException(status_code=403, detail="SELF_REVIEW_FORBIDDEN")
     if w.status != "PENDING_REVIEW":
         raise HTTPException(status_code=409, detail="INVALID_STATE")
+    if body.decision == "REJECT" and not body.comment.strip():
+        raise HTTPException(status_code=422, detail="REJECT_REQUIRES_COMMENT")
 
     if body.decision == "APPROVE":
         w.status = "APPROVED"
@@ -351,8 +353,9 @@ def add_feedback(
         ip_address=client_ip(request), request_id=request_id(request),
     )
     db.commit()
+    db.refresh(fb)
     return FeedbackOut(
-        response_status=body.response_status, content=body.content, created_by=current.username, created_at=_now()
+        response_status=fb.response_status, content=fb.content, created_by=current.username, created_at=fb.created_at
     )
 
 

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER
 
@@ -106,10 +106,26 @@ class WarningCreate(BaseModel):
     city_code: str
     valid_date: date
     threshold_code: str
-    title: str
-    area_text: str
-    impact_text: str | None = None
+    title: str = Field(max_length=200)
+    area_text: str = Field(max_length=500)
+    impact_text: str | None = Field(default=None, max_length=2000)
     reasoning_text: str
+
+    @field_validator("title", "area_text", "reasoning_text")
+    @classmethod
+    def _strip_required(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("必填字段不能为空")
+        return v
+
+    @field_validator("impact_text")
+    @classmethod
+    def _strip_optional(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
 
 class WarningUpdate(BaseModel):
@@ -121,12 +137,13 @@ class WarningUpdate(BaseModel):
 
 class ReviewRequest(BaseModel):
     decision: str = Field(pattern="^(APPROVE|REJECT)$")
-    comment: str
+    # 批准可不填意见；驳回必须填写（在端点内校验）
+    comment: str = Field(max_length=1000)
 
 
 class FeedbackRequest(BaseModel):
     response_status: str = Field(pattern="^(RECEIVED|PROCESSING|COMPLETED)$")
-    content: str
+    content: str = Field(min_length=1, max_length=2000)
 
 
 class WarningOut(BaseModel):

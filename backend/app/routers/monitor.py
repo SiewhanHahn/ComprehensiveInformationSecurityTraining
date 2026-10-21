@@ -30,7 +30,23 @@ def monitor_status(
     models = sorted(db.scalars(select(ForecastRecord.model_code).distinct()).all())
     cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
-    completeness = "COMPLETE" if set(DEFAULT_MODELS).issubset(models) else "PARTIAL"
+    # 按城市统计实际覆盖的模式，避免“任一城市有该模式即视为齐全”的全局误判
+    per_city_rows = db.execute(
+        select(
+            ForecastRecord.city_code,
+            func.count(func.distinct(ForecastRecord.model_code)),
+        ).group_by(ForecastRecord.city_code)
+    ).all()
+    per_city = [
+        {"city_code": city, "model_count": count}
+        for city, count in per_city_rows
+    ]
+    expected = len(DEFAULT_MODELS)
+    completeness = (
+        "COMPLETE"
+        if per_city and all(count >= expected for _, count in per_city_rows)
+        else "PARTIAL"
+    )
 
     return {
         "mode": "SNAPSHOT",
@@ -68,6 +84,7 @@ def monitor_status(
             "models": models,
             "expected_models": DEFAULT_MODELS,
             "cities": cities,
+            "per_city": per_city,
             "completeness": completeness,
         },
     }
