@@ -44,16 +44,18 @@ defineProps({
   flex: 1 1 0;
   min-width: 108px;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
 }
 
 .stepper-item:not(:last-child)::after {
   content: "";
   position: absolute;
-  top: 13px;
-  left: 32px;
-  right: -6px;
+  top: 14px;
+  left: calc(50% + 14px);
+  width: calc(100% - 28px);
   height: 2px;
   background: #e2e8f0;
   border-radius: 2px;
@@ -101,6 +103,7 @@ defineProps({
 .stepper-body {
   display: flex;
   flex-direction: column;
+  align-items: center;
   min-width: 0;
   padding-top: 4px;
 }
@@ -139,8 +142,9 @@ defineProps({
 }
 
 .stepper--compact .stepper-item:not(:last-child)::after {
-  top: 11px;
-  left: 28px;
+  top: 12px;
+  left: calc(50% + 12px);
+  width: calc(100% - 24px);
 }
 
 .stepper--compact .stepper-title {
