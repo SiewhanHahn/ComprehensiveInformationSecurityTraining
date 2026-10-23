@@ -7,7 +7,7 @@ from redis.exceptions import RedisError
 
 from .config import get_settings
 from .db import check_database, get_redis
-from .routers import audit, auth, metrics, replay, warnings
+from .routers import audit, auth, hazards, metrics, monitor, replay, warnings
 from .session import read_session
 
 settings = get_settings()
@@ -23,6 +23,8 @@ app.include_router(replay.router, prefix="/api/v1", tags=["replay"])
 app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
 app.include_router(warnings.router, prefix="/api/v1", tags=["warnings"])
 app.include_router(audit.router, prefix="/api/v1", tags=["audit"])
+app.include_router(hazards.router, prefix="/api/v1", tags=["hazards"])
+app.include_router(monitor.router, prefix="/api/v1", tags=["monitor"])
 
 if settings.cors_origin_list:
     app.add_middleware(

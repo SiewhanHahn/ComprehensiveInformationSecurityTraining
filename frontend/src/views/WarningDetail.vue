@@ -16,6 +16,14 @@
 
     <template v-else>
       <div class="card">
+        <div class="card-head">
+          <h3 class="card-title">闭环进度</h3>
+          <span class="card-subtitle">监测 → 预测 → 研判 → 预警 → 发布 → 响应 → 反馈</span>
+        </div>
+        <ClosedLoopStepper :stages="stages" />
+      </div>
+
+      <div class="card">
         <div class="card-head" style="align-items: center">
           <h2 class="page-title" style="font-size: 24px">{{ w.title }}</h2>
           <StatusBadge :value="w.status" dot />
@@ -175,6 +183,7 @@ import { apiFetch } from '../api'
 import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
+import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
 import { HAZARD_TYPE, formatDate, formatDateTime, shortId } from '../ui/labels'
 
 const route = useRoute()
@@ -194,6 +203,78 @@ const isMine = computed(
   () => w.value && auth.user && w.value.created_by === auth.user.username
 )
 
+const stages = computed(() => {
+  const item = w.value
+  if (!item) return []
+  const s = item.status
+  const fb = [...feedbacks.value].sort((a, b) =>
+    String(a.created_at).localeCompare(String(b.created_at))
+  )
+  const latest = fb[fb.length - 1]
+  const hasFeedback = fb.length > 0
+  const completed = fb.some((f) => f.response_status === 'COMPLETED')
+
+  const warningState = s === 'DRAFT' || s === 'REJECTED' ? 'current' : 'done'
+  const publishState =
+    s === 'PUBLISHED' || s === 'WITHDRAWN'
+      ? 'done'
+      : s === 'PENDING_REVIEW' || s === 'APPROVED'
+        ? 'current'
+        : 'pending'
+  const responseState = hasFeedback ? 'done' : s === 'PUBLISHED' ? 'current' : 'pending'
+  const feedbackState = completed ? 'done' : hasFeedback ? 'current' : 'pending'
+
+  let publishTime = ''
+  let publishNote = ''
+  if (s === 'PENDING_REVIEW') {
+    publishNote = '待审核'
+  } else if (s === 'APPROVED') {
+    publishTime = formatDateTime(item.approved_at)
+    publishNote = '已批准，待发布'
+  } else if (s === 'PUBLISHED') {
+    publishTime = formatDateTime(item.published_at)
+    publishNote = '已发布'
+  } else if (s === 'WITHDRAWN') {
+    publishTime = formatDateTime(item.withdrawn_at)
+    publishNote = '已撤回'
+  }
+
+  return [
+    { key: 'monitor', label: '监测', state: 'done', note: '离线数据快照' },
+    { key: 'forecast', label: '预测', state: 'done', note: '四模式 24h' },
+    { key: 'analysis', label: '研判', state: 'done', note: `${item.fused_mm} mm` },
+    {
+      key: 'warning',
+      label: '预警',
+      state: warningState,
+      time: item.submitted_at ? formatDateTime(item.submitted_at) : '',
+      role: '分析员'
+    },
+    {
+      key: 'publish',
+      label: '发布',
+      state: publishState,
+      time: publishTime,
+      role: '审核员',
+      note: publishNote
+    },
+    {
+      key: 'response',
+      label: '响应',
+      state: responseState,
+      time: latest ? formatDateTime(latest.created_at) : '',
+      role: '分析员/管理员'
+    },
+    {
+      key: 'feedback',
+      label: '反馈',
+      state: feedbackState,
+      time: latest ? formatDateTime(latest.created_at) : '',
+      role: '分析员/管理员'
+    }
+  ]
+})
+
 function cityName(code) {
   return cities.value.find((c) => c.code === code)?.name || code || '—'
 }
@@ -209,7 +290,8 @@ async function load(showSkeleton = true) {
     w.value = await apiFetch(`/warnings/${route.params.publicId}`)
     feedbacks.value = await apiFetch(`/warnings/${route.params.publicId}/feedback`)
   } catch (e) {
-    w.value = null
+    // 动作成功后的刷新失败不置空，保留现有数据并提示
+    if (showSkeleton) w.value = null
     error.value = e.message
   } finally {
     loading.value = false
@@ -234,6 +316,10 @@ async function act(kind, decision) {
       await apiFetch(`/warnings/${id}/submit`, { method: 'POST' })
       notice.value = '已提交审核'
     } else if (kind === 'review') {
+      if (decision === 'REJECT' && !comment.value.trim()) {
+        error.value = '驳回时必须填写审核意见'
+        return
+      }
       await apiFetch(`/warnings/${id}/review`, {
         method: 'POST',
         body: JSON.stringify({ decision, comment: comment.value })
@@ -246,6 +332,10 @@ async function act(kind, decision) {
       await apiFetch(`/warnings/${id}/withdraw`, { method: 'POST' })
       notice.value = '已撤回'
     } else if (kind === 'feedback') {
+      if (!feedbackContent.value.trim()) {
+        error.value = '反馈内容不能为空'
+        return
+      }
       await apiFetch(`/warnings/${id}/feedback`, {
         method: 'POST',
         body: JSON.stringify({

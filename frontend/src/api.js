@@ -10,6 +10,8 @@ const ERROR_ZH = {
   NOT_FOUND: '请求的资源不存在',
   PARTIAL_DATA: '数据不完整，无法创建正式预警',
   INVALID_STATE: '当前状态不允许此操作',
+  INVALID_PARAMETER: '请求参数不合法',
+  REJECT_REQUIRES_COMMENT: '驳回时必须填写审核意见',
   CSRF: 'CSRF 校验失败，请刷新页面后重试',
   DEPENDENCY_UNAVAILABLE: '依赖服务不可用，请稍后重试'
 }
@@ -61,8 +63,16 @@ export async function apiFetch(path, options = {}) {
     if (resp.status === 204) return null
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) {
-      const code = data?.error?.code || data?.detail
-      const detail = ERROR_ZH[code] || data?.error?.message || data?.detail || `请求失败(${resp.status})`
+      // FastAPI 校验失败(422)返回 detail 数组；其它错误返回字符串 code
+      let code = data?.error?.code
+      let detail = data?.error?.message
+      if (Array.isArray(data?.detail)) {
+        code = ''
+        detail = '请求参数不合法（请检查输入）'
+      } else {
+        code = code || data?.detail
+        detail = ERROR_ZH[code] || detail || data?.detail || `请求失败(${resp.status})`
+      }
       const err = new Error(detail)
       err.status = resp.status
       err.code = code

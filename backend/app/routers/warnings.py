@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -154,14 +154,32 @@ def create_warning(
     return _to_out(db, warning)
 
 
+WARNING_STATUSES = {
+    "DRAFT",
+    "PENDING_REVIEW",
+    "APPROVED",
+    "PUBLISHED",
+    "WITHDRAWN",
+    "REJECTED",
+}
+
+
 @router.get("/warnings", response_model=list[WarningOut])
 def list_warnings(
+    status: str | None = Query(None),
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),
 ):
+    if status is not None and status not in WARNING_STATUSES:
+        raise HTTPException(status_code=400, detail="INVALID_PARAMETER")
     stmt = select(Warning)
     if _viewer_only(current):
+        if status is not None and status != "PUBLISHED":
+            return []
         stmt = stmt.where(Warning.status == "PUBLISHED")
+    elif status is not None:
+        stmt = stmt.where(Warning.status == status)
+    stmt = stmt.order_by(Warning.id.desc())
     warnings = db.scalars(stmt).all()
     uids = {w.created_by for w in warnings}
     username_map = {u.id: u.username for u in db.scalars(select(User).where(User.id.in_(uids))).all()}
@@ -242,6 +260,8 @@ def review_warning(
         raise HTTPException(status_code=403, detail="SELF_REVIEW_FORBIDDEN")
     if w.status != "PENDING_REVIEW":
         raise HTTPException(status_code=409, detail="INVALID_STATE")
+    if body.decision == "REJECT" and not body.comment.strip():
+        raise HTTPException(status_code=422, detail="REJECT_REQUIRES_COMMENT")
 
     if body.decision == "APPROVE":
         w.status = "APPROVED"
@@ -333,8 +353,9 @@ def add_feedback(
         ip_address=client_ip(request), request_id=request_id(request),
     )
     db.commit()
+    db.refresh(fb)
     return FeedbackOut(
-        response_status=body.response_status, content=body.content, created_by=current.username, created_at=_now()
+        response_status=fb.response_status, content=fb.content, created_by=current.username, created_at=fb.created_at
     )
 
 

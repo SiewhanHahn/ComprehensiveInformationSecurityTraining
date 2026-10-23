@@ -29,6 +29,7 @@ def _now() -> datetime:
 
 
 def _audit(db: Session, request: Request, action: str, result: str, actor_id=None, actor_role=None, reason=None):
+    # 注意：本函数内部会 commit，调用处不要在同一逻辑分支里再手动 commit（避免两次提交）
     add_audit(
         db,
         action=action,
@@ -108,8 +109,18 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db), 
     session_id = get_session_id(request)
     if session_id:
         delete_session(session_id)
-    response.delete_cookie(settings.session_cookie_name, path="/")
-    response.delete_cookie(settings.csrf_cookie_name, path="/")
+    response.delete_cookie(
+        settings.session_cookie_name,
+        path="/",
+        samesite=settings.cookie_samesite,
+        secure=settings.cookie_secure,
+    )
+    response.delete_cookie(
+        settings.csrf_cookie_name,
+        path="/",
+        samesite=settings.cookie_samesite,
+        secure=settings.cookie_secure,
+    )
     _audit(db, request, "LOGOUT", "SUCCESS", actor_id=current.id, actor_role=",".join(current.roles))
     return {"status": "ok"}
 
@@ -117,6 +128,8 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db), 
 @router.get("/auth/me", response_model=MeResponse)
 def me(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.id == current.id))
+    if user is None:
+        raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     return MeResponse(
         user=AuthUser(id=current.id, username=current.username, display_name=user.display_name, roles=current.roles)
     )

@@ -10,9 +10,9 @@ from ..schemas import CityOut, ModelValue, ReplaySource, ThresholdOut
 from ..security import new_public_id
 
 
-def _latest_dataset_id(db: Session, dataset_type: str) -> int | None:
+def _latest_dataset(db: Session, dataset_type: str) -> Dataset | None:
     return db.scalar(
-        select(Dataset.id)
+        select(Dataset)
         .where(Dataset.dataset_type == dataset_type, Dataset.quality_status == "READY")
         .order_by(Dataset.imported_at.desc(), Dataset.id.desc())
         .limit(1)
@@ -41,22 +41,19 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         return None
 
     start = _day_start(valid_date)
-    fc_dataset_id = _latest_dataset_id(db, "FORECAST")
+    fc_dataset = _latest_dataset(db, "FORECAST")
     stmt = select(ForecastRecord).where(
         ForecastRecord.city_code == city_code,
         ForecastRecord.valid_at == start,
         ForecastRecord.lead_hours == 24,
     )
-    if fc_dataset_id is not None:
-        stmt = stmt.where(ForecastRecord.dataset_id == fc_dataset_id)
+    if fc_dataset is not None:
+        stmt = stmt.where(ForecastRecord.dataset_id == fc_dataset.id)
     records = db.scalars(stmt).all()
 
     by_model: dict[str, Decimal] = {}
-    dataset_version: str | None = None
     for r in records:
         by_model[r.model_code] = r.precipitation_mm
-        if dataset_version is None and r.dataset_id is not None:
-            dataset_version = str(r.dataset_id)
 
     model_values: list[ModelValue] = []
     present: list[Decimal] = []
@@ -75,9 +72,9 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         ObservationRecord.observed_date == valid_date,
         ObservationRecord.observation_type == "ERA5_PROXY",
     )
-    obs_dataset_id = _latest_dataset_id(db, "ERA5_LABEL")
-    if obs_dataset_id is not None:
-        proxy_stmt = proxy_stmt.where(ObservationRecord.dataset_id == obs_dataset_id)
+    obs_dataset = _latest_dataset(db, "ERA5_LABEL")
+    if obs_dataset is not None:
+        proxy_stmt = proxy_stmt.where(ObservationRecord.dataset_id == obs_dataset.id)
     proxy = db.scalar(proxy_stmt)
 
     risk_level: str | None = None
@@ -99,5 +96,5 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         "proxy_label_mm": float(proxy) if proxy is not None else None,
         "risk_level": risk_level,
         "data_status": "COMPLETE" if complete else "PARTIAL",
-        "source": ReplaySource(dataset_version=f"sample-{dataset_version}" if dataset_version else "sample"),
+        "source": ReplaySource(dataset_version=fc_dataset.version if fc_dataset is not None else "sample"),
     }

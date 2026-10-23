@@ -84,10 +84,13 @@ const menuOpen = ref(false)
 const navItems = computed(() => {
   const items = [
     { path: '/', label: '总览' },
+    { path: '/monitor', label: '监测' },
     { path: '/replay', label: '历史回放' },
     { path: '/metrics', label: '指标对比' },
     { path: '/warnings', label: '预警管理' }
   ]
+  if (auth.hasAnyRole('REVIEWER', 'ADMIN')) items.push({ path: '/review', label: '审核' })
+  items.push({ path: '/hazards', label: '灾种' })
   if (auth.hasRole('ADMIN')) items.push({ path: '/audit', label: '审计' })
   return items
 })

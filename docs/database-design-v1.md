@@ -34,7 +34,7 @@
 ```text
 DRAFT -> PENDING_REVIEW
 PENDING_REVIEW -> APPROVED | REJECTED
-REJECTED -> DRAFT
+REJECTED -> PENDING_REVIEW（修改后重新提交）
 APPROVED -> PUBLISHED
 PUBLISHED -> WITHDRAWN
 ```
@@ -43,7 +43,7 @@ PUBLISHED -> WITHDRAWN
 
 ## 3. 表设计
 
-以下 15 张表为 MVP 目标结构，覆盖暴雨端到端闭环；当前 ORM/迁移尚未通过真实 MySQL 验证，不表示已建表。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
+以下 15 张表为 MVP 结构，覆盖暴雨端到端闭环；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0003` 已应用）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
 
 ### 3.1 users
 
