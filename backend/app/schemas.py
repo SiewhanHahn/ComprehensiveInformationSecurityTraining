@@ -129,10 +129,29 @@ class WarningCreate(BaseModel):
 
 
 class WarningUpdate(BaseModel):
-    title: str | None = None
-    area_text: str | None = None
-    impact_text: str | None = None
+    title: str | None = Field(default=None, max_length=200)
+    area_text: str | None = Field(default=None, max_length=500)
+    impact_text: str | None = Field(default=None, max_length=2000)
     reasoning_text: str | None = None
+
+    @field_validator("title", "area_text", "reasoning_text")
+    @classmethod
+    def _strip_required_if_provided(cls, v: str | None) -> str | None:
+        # 字段被显式提供时必须非空；未提供时校验器不会执行，保持“不修改”
+        if v is None:
+            raise ValueError("必填字段不能为空")
+        v = v.strip()
+        if not v:
+            raise ValueError("必填字段不能为空")
+        return v
+
+    @field_validator("impact_text")
+    @classmethod
+    def _strip_optional_update(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
 
 
 class ReviewRequest(BaseModel):
@@ -140,10 +159,23 @@ class ReviewRequest(BaseModel):
     # 批准可不填意见；驳回必须填写（在端点内校验）
     comment: str = Field(max_length=1000)
 
+    @field_validator("comment")
+    @classmethod
+    def _strip_comment(cls, v: str) -> str:
+        return v.strip()
+
 
 class FeedbackRequest(BaseModel):
     response_status: str = Field(pattern="^(RECEIVED|PROCESSING|COMPLETED)$")
-    content: str = Field(min_length=1, max_length=2000)
+    content: str = Field(max_length=2000)
+
+    @field_validator("content")
+    @classmethod
+    def _strip_content(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("反馈内容不能为空")
+        return v
 
 
 class WarningOut(BaseModel):

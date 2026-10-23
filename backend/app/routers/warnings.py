@@ -40,7 +40,14 @@ from ..services.replay import compute_replay, _get_threshold
 
 router = APIRouter()
 
-STATUS = ("DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "PUBLISHED", "WITHDRAWN")
+WARNING_STATUSES = {
+    "DRAFT",
+    "PENDING_REVIEW",
+    "APPROVED",
+    "PUBLISHED",
+    "WITHDRAWN",
+    "REJECTED",
+}
 
 
 def _viewer_only(current: CurrentUser) -> bool:
@@ -152,16 +159,6 @@ def create_warning(
     db.commit()
     db.refresh(warning)
     return _to_out(db, warning)
-
-
-WARNING_STATUSES = {
-    "DRAFT",
-    "PENDING_REVIEW",
-    "APPROVED",
-    "PUBLISHED",
-    "WITHDRAWN",
-    "REJECTED",
-}
 
 
 @router.get("/warnings", response_model=list[WarningOut])

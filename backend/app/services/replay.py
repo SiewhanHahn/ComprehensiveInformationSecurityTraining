@@ -10,7 +10,7 @@ from ..schemas import CityOut, ModelValue, ReplaySource, ThresholdOut
 from ..security import new_public_id
 
 
-def _latest_dataset(db: Session, dataset_type: str) -> Dataset | None:
+def latest_dataset(db: Session, dataset_type: str) -> Dataset | None:
     return db.scalar(
         select(Dataset)
         .where(Dataset.dataset_type == dataset_type, Dataset.quality_status == "READY")
@@ -41,7 +41,7 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         return None
 
     start = _day_start(valid_date)
-    fc_dataset = _latest_dataset(db, "FORECAST")
+    fc_dataset = latest_dataset(db, "FORECAST")
     stmt = select(ForecastRecord).where(
         ForecastRecord.city_code == city_code,
         ForecastRecord.valid_at == start,
@@ -72,7 +72,7 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         ObservationRecord.observed_date == valid_date,
         ObservationRecord.observation_type == "ERA5_PROXY",
     )
-    obs_dataset = _latest_dataset(db, "ERA5_LABEL")
+    obs_dataset = latest_dataset(db, "ERA5_LABEL")
     if obs_dataset is not None:
         proxy_stmt = proxy_stmt.where(ObservationRecord.dataset_id == obs_dataset.id)
     proxy = db.scalar(proxy_stmt)
