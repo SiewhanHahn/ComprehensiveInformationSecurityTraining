@@ -137,9 +137,10 @@ function cityName(code) {
 }
 
 onMounted(async () => {
-  const [citiesResult, metricsResult, warningsResult] = await Promise.allSettled([
+  const [citiesResult, metricsResult, detailResult, warningsResult] = await Promise.allSettled([
     apiFetch('/cities'),
     apiFetch('/metrics/experiments'),
+    apiFetch('/metrics/experiments/10mm'),
     apiFetch('/warnings')
   ])
 
@@ -152,13 +153,14 @@ onMounted(async () => {
     failed.push('城市列表')
   }
 
-  if (metricsResult.status === 'fulfilled') {
-    const ten = metricsResult.value.find((e) => e.threshold_mm === 10)
-    if (ten && ten.delta_f1 != null) {
-      f1Value.value = 0.7462 + ten.delta_f1 / 100
-    }
+  if (detailResult.status === 'fulfilled') {
+    f1Value.value = detailResult.value.fusion.f1
   } else {
     failed.push('指标数据')
+  }
+
+  if (metricsResult.status === 'rejected') {
+    failed.push('实验列表')
   }
 
   if (warningsResult.status === 'fulfilled') {

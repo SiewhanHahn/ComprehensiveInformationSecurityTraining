@@ -102,6 +102,13 @@
             {{ modelLabel(m) }}
           </span>
         </div>
+        <p v-if="coverage.partial_days > 0" class="muted" style="margin: 12px 0 0">
+          当前有 <strong>{{ coverage.partial_days }}</strong> 个城日缺少部分模式数据（如某日缺某模式），
+          该城日回放会标记为「数据不完整」，不影响其余完整样本的融合与预警。
+        </p>
+        <p v-if="coverage.dataset_version" class="muted" style="margin: 6px 0 0">
+          统计口径数据集版本：<span class="mono">{{ coverage.dataset_version }}</span>
+        </p>
       </div>
 
       <div class="card">
@@ -195,7 +202,7 @@ const forecastDisplay = useCountUp(forecastCount)
 const observationDisplay = useCountUp(observationCount)
 
 const coverage = computed(
-  () => status.value?.coverage || { models: [], expected_models: [], cities: [], completeness: 'PARTIAL' }
+  () => status.value?.coverage || { models: [], expected_models: [], cities: [], per_city: [], partial_days: 0, dataset_version: null, completeness: 'PARTIAL' }
 )
 
 async function load() {

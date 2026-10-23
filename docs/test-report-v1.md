@@ -216,6 +216,21 @@
 
 已知遗留（未改）：`ReviewOut.created_at` 用应用时间；CSRF 拒绝响应无 `X-Request-ID`；锁定账号的既有会话仍有效。
 
+## 6.9 A 档前端 code review（2026-10-23）
+
+对 A 档前端（监测页、总览、指标、审核工作台、闭环 Stepper 等）通读后修复：
+
+| 级别 | 问题 | 修复 |
+| --- | --- | --- |
+| 高 | 监测页完整性变 PARTIAL 后无解释 | 展示缺测城日数与数据集版本，说明不影响其余样本 |
+| 高 | 总览融合 F1 由硬编码基线 0.7462 反推 | 改用 `/metrics/experiments/10mm` 详情端点的 `fusion.f1` |
+| 中 | 指标页 ΔF1 硬编码「+」前缀，负值会显示 `+-x` | 按正负条件加前缀 |
+| 中 | 监测「已接入模式」用全库去重、与回放口径不一致 | 后端 `coverage.models` 改为仅统计最新数据集 |
+
+验证：`pytest` 19 passed；`/monitor/status` 返回 `models` 为最新数据集四模式、`partial_days=1`、`dataset_version=2026-09-30.2`、`completeness=PARTIAL`；`/metrics/experiments/10mm` 的 `fusion.f1=0.79`；前端构建通过。
+
+已记录未改：审核工作台批准硬编码意见、总览冻结指标表硬编码、GET 缓存全局不区分用户（仅缓存与用户无关的参考数据）、404 页 public。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
