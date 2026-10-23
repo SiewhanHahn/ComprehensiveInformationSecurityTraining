@@ -8,6 +8,7 @@ from ..cities import DEFAULT_MODELS
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import DataSource, Dataset, ForecastRecord, ObservationRecord
+from ..services.replay import latest_dataset
 
 router = APIRouter()
 
@@ -30,21 +31,35 @@ def monitor_status(
     models = sorted(db.scalars(select(ForecastRecord.model_code).distinct()).all())
     cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
-    # 按城市统计实际覆盖的模式，避免“任一城市有该模式即视为齐全”的全局误判
-    per_city_rows = db.execute(
+    # 与回放口径对齐：只统计最新 READY FORECAST 数据集
+    forecast_dataset = latest_dataset(db, "FORECAST")
+    expected = len(DEFAULT_MODELS)
+
+    per_city_stmt = select(
+        ForecastRecord.city_code,
+        func.count(func.distinct(ForecastRecord.model_code)),
+    ).group_by(ForecastRecord.city_code)
+    partial_stmt = (
         select(
             ForecastRecord.city_code,
-            func.count(func.distinct(ForecastRecord.model_code)),
-        ).group_by(ForecastRecord.city_code)
-    ).all()
+            ForecastRecord.valid_at,
+        )
+        .group_by(ForecastRecord.city_code, ForecastRecord.valid_at)
+        .having(func.count(func.distinct(ForecastRecord.model_code)) < expected)
+    )
+    if forecast_dataset is not None:
+        per_city_stmt = per_city_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
+        partial_stmt = partial_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
+
+    per_city_rows = db.execute(per_city_stmt).all()
     per_city = [
         {"city_code": city, "model_count": count}
         for city, count in per_city_rows
     ]
-    expected = len(DEFAULT_MODELS)
+    partial_days = len(db.execute(partial_stmt).all())
     completeness = (
         "COMPLETE"
-        if per_city and all(count >= expected for _, count in per_city_rows)
+        if per_city and partial_days == 0 and all(count >= expected for _, count in per_city_rows)
         else "PARTIAL"
     )
 
@@ -85,6 +100,8 @@ def monitor_status(
             "expected_models": DEFAULT_MODELS,
             "cities": cities,
             "per_city": per_city,
+            "partial_days": partial_days,
+            "dataset_version": forecast_dataset.version if forecast_dataset is not None else None,
             "completeness": completeness,
         },
     }

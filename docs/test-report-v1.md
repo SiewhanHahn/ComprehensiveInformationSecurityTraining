@@ -198,6 +198,24 @@
 
 验证：后端 `pytest` 19 passed；空标题/空研判 `POST /warnings` → 422；`source.dataset_version=2026-09-30.2`；`/monitor/status` 返回 `per_city` 且 `completeness=COMPLETE`；前端 `npm run build` 通过，产物含「驳回时必须填写审核意见」「反馈内容不能为空」「请求参数不合法」中文文案，路由全 200。
 
+## 6.8 A 档后端 code review（2026-10-23）
+
+对 A 档后端（灾种注册表、监测接口、状态筛选、字段校验、回放版本）通读后修复：
+
+| 级别 | 问题 | 修复 |
+| --- | --- | --- |
+| 高 | `WarningUpdate` 绕过创建校验，PATCH 可写入空标题/空研判；显式 `null` 触发 500 | 补 strip + 非空校验（提供时），显式 null 返回 422；补长度上限 |
+| 中 | `/monitor/status` 完整性统计跨全部数据集，且未按日校验，可能误报 COMPLETE | 对齐最新 READY FORECAST 数据集；新增 `partial_days` 按城日统计缺模式天数；全齐才 COMPLETE |
+| 低 | `STATUS` 与 `WARNING_STATUSES` 重复定义 | 删除死常量，统一 `WARNING_STATUSES` |
+| 低 | 反馈内容纯空格可通过 `min_length=1` | 增加 strip 后非空校验；审核意见同样 strip |
+
+验证（VM 实测）：
+- `pytest` **19 passed**。
+- `PATCH` 空标题 → **422**；`PATCH` 显式 `null` → **422**；合法标题 → **200**；空反馈 → **422**。
+- `/monitor/status` 返回 `partial_days=1`、`completeness=PARTIAL`。核对数据库确认是真实缺测：**长沙 2024-02-06 缺 GEM**（与 AT-01-3 一致），旧逻辑因跨数据集去重而误报 COMPLETE，新逻辑已纠正。
+
+已知遗留（未改）：`ReviewOut.created_at` 用应用时间；CSRF 拒绝响应无 `X-Request-ID`；锁定账号的既有会话仍有效。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
