@@ -134,7 +134,7 @@ git archive --format=tar.gz --prefix=ComprehensiveInformationSecurityTraining/ \
 
 | 项目 | 状态 |
 | --- | --- |
-| `main` | `v0.1.0-mvp`，UI 改造后的可运行版本 |
-| `phase-a` | A 档开发完成，自动化测试 19 passed，待浏览器人工验收 |
-| A 验收 | 待用户验收；通过后合并 `main` 并打 `v0.2.0-phase-a` |
-| B / C | 未开始，等待 A 验收后再决定 |
+| `main` | `v0.2.0-phase-a`（A 档合并后的最新稳定版） |
+| `phase-a` | 已合并，A 档收尾完成 |
+| A 验收 | 已通过（19 测试 + 浏览器人工验收） |
+| B / C | 未开始，下一档从 `main` 切 `phase-b` |
