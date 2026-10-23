@@ -28,13 +28,13 @@ def monitor_status(
     observation_count = db.scalar(select(func.count()).select_from(ObservationRecord)) or 0
     latest_valid_at = db.scalar(select(func.max(ForecastRecord.valid_at)))
     latest_observed_date = db.scalar(select(func.max(ObservationRecord.observed_date)))
-    models = sorted(db.scalars(select(ForecastRecord.model_code).distinct()).all())
     cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
     # 与回放口径对齐：只统计最新 READY FORECAST 数据集
     forecast_dataset = latest_dataset(db, "FORECAST")
     expected = len(DEFAULT_MODELS)
 
+    models_stmt = select(func.distinct(ForecastRecord.model_code))
     per_city_stmt = select(
         ForecastRecord.city_code,
         func.count(func.distinct(ForecastRecord.model_code)),
@@ -48,9 +48,11 @@ def monitor_status(
         .having(func.count(func.distinct(ForecastRecord.model_code)) < expected)
     )
     if forecast_dataset is not None:
+        models_stmt = models_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
         per_city_stmt = per_city_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
         partial_stmt = partial_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
 
+    models = sorted(db.scalars(models_stmt).all())
     per_city_rows = db.execute(per_city_stmt).all()
     per_city = [
         {"city_code": city, "model_count": count}

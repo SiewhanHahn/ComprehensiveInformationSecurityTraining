@@ -43,7 +43,7 @@
 
       <div class="summary-grid">
         <div class="summary-item">
-          <div class="summary-value success">+{{ detail.delta_f1 }}</div>
+          <div class="summary-value success">{{ (detail.delta_f1 >= 0 ? '+' : '') + detail.delta_f1 }}</div>
           <div class="summary-label">ΔF1（百分点）</div>
         </div>
         <div class="summary-item">
