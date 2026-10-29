@@ -11,9 +11,14 @@ const ERROR_ZH = {
   PARTIAL_DATA: '数据不完整，无法创建正式预警',
   INVALID_STATE: '当前状态不允许此操作',
   INVALID_PARAMETER: '请求参数不合法',
+  VALIDATION_ERROR: '请求参数不合法（请检查输入）',
   REJECT_REQUIRES_COMMENT: '驳回时必须填写审核意见',
   CSRF: 'CSRF 校验失败，请刷新页面后重试',
-  DEPENDENCY_UNAVAILABLE: '依赖服务不可用，请稍后重试'
+  DEPENDENCY_UNAVAILABLE: '依赖服务不可用，请稍后重试',
+  USERNAME_EXISTS: '用户名已存在',
+  SELF_DISABLE_FORBIDDEN: '不能停用当前登录账号',
+  SELF_ADMIN_REMOVAL_FORBIDDEN: '不能撤销当前登录账号的管理员角色',
+  LAST_ADMIN_REQUIRED: '系统至少需要一名管理员'
 }
 
 // 仅缓存静态参考数据，避免页面切换时重复请求后端；认证/预警/审计不缓存。
@@ -63,7 +68,7 @@ export async function apiFetch(path, options = {}) {
     if (resp.status === 204) return null
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) {
-      // FastAPI 校验失败(422)返回 detail 数组；其它错误返回字符串 code
+      // 后端统一返回 { error: { code, message, request_id } }；detail 分支仅兼容未经全局处理的旧格式
       let code = data?.error?.code
       let detail = data?.error?.message
       if (Array.isArray(data?.detail)) {

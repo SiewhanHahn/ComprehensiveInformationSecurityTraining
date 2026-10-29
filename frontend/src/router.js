@@ -13,6 +13,7 @@ const routes = [
   { path: '/review', component: () => import('./views/Review.vue'), meta: { roles: ['REVIEWER', 'ADMIN'] } },
   { path: '/hazards', component: () => import('./views/Hazards.vue') },
   { path: '/audit', component: () => import('./views/Audit.vue'), meta: { role: 'ADMIN' } },
+  { path: '/users', component: () => import('./views/Users.vue'), meta: { role: 'ADMIN' } },
   { path: '/:pathMatch(.*)*', component: () => import('./views/NotFound.vue'), meta: { public: true } }
 ]
 
