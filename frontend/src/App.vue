@@ -92,6 +92,7 @@ const navItems = computed(() => {
   if (auth.hasAnyRole('REVIEWER', 'ADMIN')) items.push({ path: '/review', label: '审核' })
   items.push({ path: '/hazards', label: '灾种' })
   if (auth.hasRole('ADMIN')) items.push({ path: '/audit', label: '审计' })
+  if (auth.hasRole('ADMIN')) items.push({ path: '/users', label: '用户管理' })
   return items
 })
 

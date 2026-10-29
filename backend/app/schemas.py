@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -26,6 +26,58 @@ class AuthResponse(BaseModel):
 
 class MeResponse(BaseModel):
     user: AuthUser
+
+
+RoleCode = Literal["ADMIN", "ANALYST", "REVIEWER", "VIEWER"]
+
+
+class UserRolesUpdate(BaseModel):
+    roles: list[RoleCode] = Field(min_length=1, max_length=4)
+
+    @field_validator("roles")
+    @classmethod
+    def unique_roles(cls, value: list[RoleCode]) -> list[RoleCode]:
+        return sorted(set(value))
+
+
+class UserPasswordReset(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def nonblank_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("密码不能为空白")
+        return value
+
+
+class UserCreate(UserRolesUpdate, UserPasswordReset):
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    display_name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def strip_display_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class UserStatusUpdate(BaseModel):
+    is_active: bool = Field(strict=True)
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    is_active: bool
+    roles: list[RoleCode]
+
+
+class UserPage(BaseModel):
+    items: list[UserOut]
+    total: int
+    page: int
+    page_size: int
 
 
 # ---- replay ----
