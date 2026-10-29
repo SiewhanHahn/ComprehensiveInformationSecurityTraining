@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,11 +17,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.mysql import BIGINT, DATETIME, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .clock import utcnow as _utcnow
 from .db import Base
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class TimestampMixin:

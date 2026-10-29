@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..cities import DEFAULT_MODELS
+from ..clock import utcnow
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import DataSource, Dataset, ForecastRecord, ObservationRecord
@@ -67,7 +68,7 @@ def monitor_status(
 
     return {
         "mode": "SNAPSHOT",
-        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        "generated_at": utcnow().isoformat(),
         "sources": [
             {
                 "code": s.code,

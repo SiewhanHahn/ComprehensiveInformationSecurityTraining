@@ -3,7 +3,7 @@ from pathlib import Path
 
 from backend.app.cities import CITIES, DEFAULT_MODELS
 from backend.app.deps import CurrentUser
-from backend.app.routers.warnings import _viewer_only
+from backend.app.services.warnings import is_viewer_only
 from backend.app.security import hash_password, new_public_id, verify_password
 from backend.app.services.metrics import get_experiment, list_experiments
 
@@ -57,8 +57,8 @@ def test_offline_sample_structure():
 
 
 def test_viewer_only():
-    assert _viewer_only(CurrentUser(1, "v", ["VIEWER"]))
-    assert not _viewer_only(CurrentUser(2, "a", ["ANALYST"]))
-    assert not _viewer_only(CurrentUser(3, "va", ["VIEWER", "ANALYST"]))
-    assert not _viewer_only(CurrentUser(4, "admin", ["ADMIN"]))
-    assert not _viewer_only(CurrentUser(5, "r", ["REVIEWER"]))
+    assert is_viewer_only(CurrentUser(1, "v", ["VIEWER"]))
+    assert not is_viewer_only(CurrentUser(2, "a", ["ANALYST"]))
+    assert not is_viewer_only(CurrentUser(3, "va", ["VIEWER", "ANALYST"]))
+    assert not is_viewer_only(CurrentUser(4, "admin", ["ADMIN"]))
+    assert not is_viewer_only(CurrentUser(5, "r", ["REVIEWER"]))

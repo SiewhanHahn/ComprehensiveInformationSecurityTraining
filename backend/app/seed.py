@@ -11,13 +11,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .clock import utcnow as _now
 from .db import SessionLocal
 from .models import (
     DataSource,
@@ -71,10 +72,6 @@ DEMO_ACCOUNTS = (
     ("reviewer_demo", "预警审核员", "REVIEWER", "DEMO_REVIEWER_PASSWORD"),
     ("viewer_demo", "普通查看用户", "VIEWER", "DEMO_VIEWER_PASSWORD"),
 )
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def seed_reference_data(session: Session) -> None:

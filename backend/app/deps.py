@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from fastapi import Cookie, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,8 +8,6 @@ from .config import get_settings
 from .db import get_db
 from .models import User
 from .session import read_session, touch_session
-
-settings = get_settings()
 
 ROLE_ADMIN = "ADMIN"
 ROLE_ANALYST = "ANALYST"
@@ -28,7 +26,7 @@ class CurrentUser:
 
 
 def get_session_id(request: Request) -> str | None:
-    return request.cookies.get(settings.session_cookie_name)
+    return request.cookies.get(get_settings().session_cookie_name)
 
 
 def client_ip(request: Request) -> str | None:

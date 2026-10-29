@@ -23,7 +23,7 @@ def _day_start(d: date) -> datetime:
     return datetime(d.year, d.month, d.day)
 
 
-def _get_threshold(db: Session, threshold_code: str) -> WarningThreshold | None:
+def get_threshold(db: Session, threshold_code: str) -> WarningThreshold | None:
     return db.scalar(
         select(WarningThreshold).where(
             WarningThreshold.hazard_type == "RAINSTORM",
@@ -36,7 +36,7 @@ def _get_threshold(db: Session, threshold_code: str) -> WarningThreshold | None:
 def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code: str) -> dict | None:
     if city_code not in CITIES:
         return None
-    threshold = _get_threshold(db, threshold_code)
+    threshold = get_threshold(db, threshold_code)
     if threshold is None:
         return None
 
