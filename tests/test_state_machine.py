@@ -119,7 +119,7 @@ def test_full_lifecycle_and_guards():
             json={"decision": "APPROVE", "comment": "self"},
         )
         assert self_review.status_code == 403
-        assert self_review.json()["detail"] == "SELF_REVIEW_FORBIDDEN"
+        assert self_review.json()["error"]["code"] == "SELF_REVIEW_FORBIDDEN"
 
         approve = reviewer.post(
             f"/api/v1/warnings/{public_id}/review",
