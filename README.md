@@ -24,7 +24,7 @@ docker compose ps
 
 演示账号由 `seed` 服务按 `.env` 中的 `DEMO_*_PASSWORD` 创建，密码不写死在代码或文档中。角色：
 
-- `admin_demo`（管理员，审计查询）
+- `admin_demo`（管理员，用户与角色管理、审计查询）
 - `analyst_demo`（分析员，创建/提交草稿）
 - `reviewer_demo`（审核员，审批/发布/撤回）
 - `viewer_demo`（普通查看，只读已发布内容）
@@ -33,8 +33,8 @@ docker compose ps
 
 完整路线、各档交付物与取用方式见 `docs/roadmap-v1.md`。
 
-- 最新稳定版：`main`
-- 答辩演示推荐：`v0.2.0-phase-a`（A 阶段验收后）
+- 最新稳定版：`main`（当前为 `v0.2.3-phase-a`）
+- 答辩演示推荐：`main` 上最新的 `v0.2.x-phase-a` 标签
 - 回退到当前已验证快照：`v0.1.0-mvp`
 
 ```bash

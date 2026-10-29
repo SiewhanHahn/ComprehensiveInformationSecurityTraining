@@ -2,13 +2,13 @@
 
 ## 1. 范围与约定
 
-本文定义 MVP（暴雨端到端 + 七类扩展框架）的 HTTP 接口。以下接口均已实现并通过实测；如与运行中的 OpenAPI 文档不一致，以实测行为并回写本文为准。
+本文定义 MVP（暴雨端到端 + 七类扩展框架）的 HTTP 接口。接口契约以当前代码和运行中的 OpenAPI 文档为准；实现状态与运行验证状态分开记录，未运行验证的行为不表述为实测通过。
 
 - Base URL：除健康检查外，其余路径均以 `/api/v1` 为前缀；健康检查为 `/health`、`/health/db`、`/health/redis`。
 - 数据格式：`application/json`；业务时间按 UTC 存储，前端按北京时间展示。
 - 认证：服务端 Session。登录成功后返回 `HttpOnly`、`SameSite` Cookie 与可读的 `ww_csrf` Cookie；浏览器不读取或保存密码。
 - 授权：服务端按角色检查，前端隐藏按钮不作为权限控制。
-- 分页：审计接口支持 `page`（从 1 开始）、`page_size`（默认 20，最大 100），返回当前页数组；当前未做总数统计，前端只提供上一页/下一页。
+- 分页：用户管理与审计接口支持 `page`（从 1 开始）、`page_size`（默认 20，最大 100），用户接口返回 `items`、`total`、`page`、`page_size`；审计接口返回当前页数组（当前未做总数统计）。
 - 错误格式：
 
 ```json
@@ -22,6 +22,7 @@
 ```
 
 - 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`422 VALIDATION_ERROR`、`503 DEPENDENCY_UNAVAILABLE`。
+- 所有业务接口（含未匹配路由的 404 和请求体校验失败的 422）由 `backend/app/main.py` 全局异常处理统一输出上述结构；`request_id` 与响应头 `X-Request-ID` 一致。422 不返回字段级明细，只返回 `VALIDATION_ERROR`。`/health/db`、`/health/redis` 失败时同样走该结构（`503 DEPENDENCY_UNAVAILABLE`）。
 - 所有状态变更接口校验 CSRF Token（开发环境可关闭，生产式演示必须开启）。
 
 ## 2. 认证
@@ -45,6 +46,22 @@
 ```
 
 登录失败统一返回 `401 INVALID_CREDENTIALS`，不区分用户名不存在或密码错误。连续失败应限速或临时锁定。
+
+## 2.1 用户管理（FR-02）
+
+以下接口挂载在 `/api/v1` 下，仅 `ADMIN` 可调用；服务端再次检查当前账号启用状态和实时角色，前端隐藏按钮不构成授权。写操作必须带 `X-CSRF-Token`，其值与登录响应 `csrf_token`/非 HttpOnly `ww_csrf` Cookie 一致；缺失或不匹配返回 `403 CSRF`。
+
+| 方法 | 路径 | 输入边界与说明 |
+| --- | --- | --- |
+| GET | `/users?page=1&page_size=20` | `page >= 1`，`1 <= page_size <= 100`；返回分页用户、启用状态和按代码排序的角色 |
+| POST | `/users` | `username`：3–64 位，仅 ASCII 字母、数字、`_`、`.`、`-`；`display_name`：去首尾空白后 1–100 字符；`password`：8–128 字符且不能全为空白；`roles`：1–4 个不重复的 `ADMIN/ANALYST/REVIEWER/VIEWER`；重名返回 `409 USERNAME_EXISTS` |
+| PATCH | `/users/{user_id}/status` | `is_active` 必须为严格布尔值；不能停用当前登录账号；停用活动中的最后一个管理员返回 `409 LAST_ADMIN_REQUIRED` |
+| PUT | `/users/{user_id}/roles` | `roles` 至少一个、最多四个且去重；不能移除当前登录账号的 `ADMIN`；不能移除活动中的最后一个管理员 |
+| POST | `/users/{user_id}/reset-password` | `password`：8–128 字符且不能全为空白；重置密码不注销已有 Session |
+
+用户响应仅包含 `id`、`username`、`display_name`、`is_active`、`roles`，不包含密码或密码哈希。创建返回 `201`，启停/角色更新返回 `200`，密码重置返回空响应 `204`。角色输入去重并按代码排序。
+
+用户不存在返回 `404 NOT_FOUND`，非管理员返回 `403 FORBIDDEN`。创建或更新角色时，若请求的任一角色在 `roles` 参考表中缺失（seed 不完整），返回 `503 DEPENDENCY_UNAVAILABLE` 并整体回滚，不会创建缺少角色的账号，也不会只授予部分角色。停用只改变 `User.is_active`：已有 Session 不被删除，但下次鉴权被拒绝；重新启用后，仍未过期的原 Session 可继续使用。Session 存储在 Redis，TTL 到期后需重新登录；API 重启不会主动删除 Redis 中仍未过期的 Session（是否能恢复取决于 Redis 持久性/可用性）。
 
 ## 3. 城市与历史回放
 
@@ -144,7 +161,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 | GET | `/health/db` | 公开 | 数据库连通性；不可用时返回 503，不泄露 DSN |
 | GET | `/health/redis` | 公开 | Redis 连通性；不可用时返回 503 |
 
-审计记录至少覆盖登录成功/失败、登出、用户/角色变更、数据导入、融合运行、草稿创建/修改、提交、审批、发布、撤回、反馈和权限拒绝。
+审计记录至少覆盖登录成功/失败、登出、用户/角色变更、数据导入、融合运行、草稿创建/修改、提交、审批、发布、撤回、反馈和权限拒绝。用户管理成功操作使用 `USER_CREATE`、`USER_STATUS_CHANGE`、`USER_ROLES_CHANGE`、`USER_PASSWORD_RESET`；资源类型为 `USER`，并记录管理员、原因、请求 ID 和客户端 IP。
 
 ## 7. 前端页面映射
 
@@ -160,9 +177,10 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 | 审核工作台 | `GET /warnings?status=PENDING_REVIEW`、`?status=APPROVED`、`/review`、`/publish` |
 | 灾种覆盖页 | `/hazards` |
 | 审计页 | `/audit-logs` |
+| 用户管理页（ADMIN） | `/users` 路由；`GET/POST /users`、`PUT /users/{user_id}/roles`、`PATCH /users/{user_id}/status`、`POST /users/{user_id}/reset-password` |
 
 上述预警路径中的 `{public_id}` 为不可猜测的公开标识，不接受数据库自增主键。浏览器通过同源反向代理或受控 API 地址访问；Cookie 请求仅允许可信来源。
 
 ## 8. 实现状态
 
-本文所述接口均已实现并通过自动化或手工测试，测试命令与结果见 `docs/test-report-v1.md` §6。运行中的 OpenAPI 文档可作为最终契约核对依据。
+用户管理路由、Pydantic 输入边界、服务端 ADMIN/RBAC、CSRF 中间件、USER_* 审计调用、`/users` 前端路由与页面已落在代码中；本文不替代运行验证，接口联调、停用/重启 Session 语义和浏览器流程的实测结果由 `docs/test-report-v1.md` 记录。其余接口的实现/验证状态同样以代码和测试报告分别核对。

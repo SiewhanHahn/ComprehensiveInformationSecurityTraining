@@ -7,10 +7,10 @@
 
 | 编号 | 需求摘要 | 实现落点 | 测试/证据 | 状态 |
 | --- | --- | --- | --- | --- |
-| FR-01 | 登录、密码哈希、会话失效 | `routers/auth.py`、`deps.py`、`session.py`、`security.py` | `test_units.py`、`test_integration.py`、`manual_round2.sh` | 已实现 |
-| FR-02 | 管理员创建/停用/重置用户与角色 | `models.py`（User/UserRole/is_active）、`seed.py` | `manual_round3.sh`（停用账号 401） | **部分**：无管理员用户管理 API |
-| FR-03 | 数据源、数据集、元数据 | `models.py`（DataSource/Dataset）、`seed.py`、`/monitor/status` | `/monitor/status` 实测、AT-01 | 已实现 |
-| FR-04 | 四模式等权融合与可追溯 | `services/replay.py`、`backend/fusion.py`、`pooled.py` | `/replay` COMPLETE/PARTIAL、`pooled.json` | 已实现 |
+| FR-01 | 登录、密码哈希、会话失效 | `routers/auth.py`、`deps.py`、`session.py`、`security.py` | 代码已实现；运行验证待补入 `test-report-v1.md` | 已实现，验证待完成 |
+| FR-02 | 管理员创建/停用/重置用户与角色 | `routers/users.py`、`schemas.py`、`models.py`（User/UserRole/is_active）、`frontend/src/views/Users.vue`、`frontend/src/router.js` | `test-report-v1.md` §6.10/§6.11：真实浏览器核心流程通过；审查修复后全套 34 项测试通过，含并发撤权/停用、审计异常回滚、缺失参考角色回滚、统一错误结构 | 已实现，核心流程已验证 |
+| FR-03 | 数据源、数据集、元数据 | `models.py`（DataSource/Dataset）、`seed.py`、`/monitor/status` | 代码已实现；运行验证待补入 `test-report-v1.md` | 已实现，验证待完成 |
+| FR-04 | 四模式等权融合与可追溯 | `services/replay.py`、`backend/fusion.py`、`pooled.py` | 代码已实现；运行验证待补入 `test-report-v1.md` | 已实现，验证待完成 |
 | FR-05 | 10/25/50mm 阈值与教学风险等级 | `seed.py`（WarningThreshold）、`services/replay.py` | `/replay` 三阈值实测 | 已实现 |
 | FR-06 | 历史回放（城市/日期/阈值） | `routers/replay.py`、`views/Replay.vue` | AT-01、`manual_round2.sh` | 已实现 |
 | FR-07 | 草稿、修改、提交审核 | `POST/PATCH /warnings`、`/submit`、`views/Warnings.vue` | `test_state_machine.py` | 已实现 |
@@ -43,7 +43,7 @@
 
 ## 4. 已知缺口（答辩时主动说明）
 
-1. **用户管理 API**：FR-02 只实现了账号/角色数据模型与 seed 初始化，未提供管理员增删改用户的前端与接口。
+1. **用户管理验证范围**：FR-02 已实现，独立环境的真实浏览器核心流程及权限、CSRF、审计验证见测试报告 §6.10；专项 pytest、并发保护和审计异常回滚已验证；API 重启与依赖服务故障尚未验证。重置密码不注销已有会话，重新启用后未过期会话可恢复。
 2. **七类灾种**：仅登记数据源与判定指标，未接入数据、未做量化验证；不得表述为已实现。
 3. **监测实时性**：`/monitor/status` 展示的是已导入快照，不是实时拉取；无定时调度。
 4. **发布渠道**：发布仅改变系统内状态并供查看，不调用短信/邮件/政务平台。
