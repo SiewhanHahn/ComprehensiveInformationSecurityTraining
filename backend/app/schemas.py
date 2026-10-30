@@ -250,6 +250,14 @@ class WarningOut(BaseModel):
     withdrawn_at: datetime | None
 
 
+class WarningDetailOut(WarningOut):
+    # 融合追溯：四模式输入、基线、代理标签与数据集版本（旧预警无输入明细时 models 为空）
+    baseline_mm: float | None
+    proxy_label_mm: float | None
+    dataset_version: str | None
+    models: list[ModelValue]
+
+
 class ReviewOut(BaseModel):
     decision: str
     comment: str

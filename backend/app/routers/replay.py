@@ -28,4 +28,16 @@ def replay(
     result = compute_replay(db, city_code, date, threshold_code)
     if result is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
-    return ReplayOut(**result)
+    return ReplayOut(
+        replay_id=result["replay_id"],
+        city=result["city"],
+        valid_date=result["valid_date"],
+        threshold=result["threshold"],
+        models=result["models"],
+        fused_mm=result["fused_mm"],
+        baseline_mm=result["baseline_mm"],
+        proxy_label_mm=result["proxy_label_mm"],
+        risk_level=result["risk_level"],
+        data_status=result["data_status"],
+        source=result["source"],
+    )

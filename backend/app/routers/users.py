@@ -4,11 +4,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps import ROLE_ADMIN, CurrentUser, client_ip, request_id, require_roles
+from ..deps import ROLE_ADMIN, CurrentUser, require_roles
 from ..models import Role, User, UserRole
 from ..schemas import UserCreate, UserOut, UserPage, UserPasswordReset, UserRolesUpdate, UserStatusUpdate
 from ..security import hash_password
-from ..services.audit import add_audit
+from ..services.audit import audit_context
 
 router = APIRouter(prefix="/users")
 admin_required = require_roles(ROLE_ADMIN)
@@ -50,9 +50,9 @@ def _out(db: Session, user: User) -> UserOut:
 
 
 def _audit(db: Session, current: CurrentUser, request: Request, user_id: int, action: str, reason: str | None = None):
-    add_audit(db, action=action, resource_type="USER", resource_id=str(user_id), result="SUCCESS",
-              actor_id=current.id, actor_role=ROLE_ADMIN, reason=reason,
-              request_id=request_id(request), ip_address=client_ip(request))
+    audit_context(request, db, current).record(
+        action, resource_type="USER", resource_id=str(user_id), reason=reason, actor_role=ROLE_ADMIN,
+    )
 
 
 def _require_other_admin(db: Session, admin: Role, user_id: int):

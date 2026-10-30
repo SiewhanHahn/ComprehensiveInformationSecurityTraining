@@ -73,10 +73,7 @@ def test_user_response_does_not_expose_password_fields():
 
 # ---- integration helpers -------------------------------------------------
 
-integration = pytest.mark.skipif(
-    os.environ.get("RUN_INTEGRATION") != "1",
-    reason="requires running MySQL/Redis/API",
-)
+integration = pytest.mark.integration
 
 
 def _admin_client():
@@ -98,28 +95,9 @@ def _admin_client():
 
 def _cleanup_users(usernames):
     """Delete only users created by this module, including their audit rows."""
-    from sqlalchemy import delete, select
+    from conftest import _delete_users
 
-    from backend.app.db import SessionLocal
-    from backend.app.models import AuditLog, User, UserRole
-
-    with SessionLocal() as db:
-        users = db.scalars(select(User).where(User.username.in_(list(usernames)))).all()
-        ids = [user.id for user in users]
-        if not ids:
-            return
-        db.execute(delete(UserRole).where(UserRole.user_id.in_(ids)))
-        db.execute(
-            delete(AuditLog).where(
-                (AuditLog.actor_id.in_(ids))
-                | (
-                    (AuditLog.resource_type == "USER")
-                    & AuditLog.resource_id.in_([str(user_id) for user_id in ids])
-                )
-            )
-        )
-        db.execute(delete(User).where(User.id.in_(ids)))
-        db.commit()
+    _delete_users(set(usernames))
 
 
 @integration
@@ -410,7 +388,7 @@ def test_audit_failure_rolls_back_user_change(monkeypatch, operation):
 
     from backend.app.db import SessionLocal
     from backend.app.models import AuditLog, User
-    from backend.app.routers import users
+    from backend.app.services import audit
 
     admin, csrf, _ = _admin_client()
     name = f"rollback_{uuid4().hex}"
@@ -429,7 +407,7 @@ def test_audit_failure_rolls_back_user_change(monkeypatch, operation):
             db.flush()
             raise RuntimeError("injected audit failure")
 
-        monkeypatch.setattr(users, "add_audit", fail_audit)
+        monkeypatch.setattr(audit, "add_audit", fail_audit)
         with pytest.raises(RuntimeError, match="injected audit failure"):
             if operation == "status":
                 admin.patch(f"/api/v1/users/{user_id}/status", headers={"X-CSRF-Token": csrf}, json={"is_active": False})

@@ -12,12 +12,15 @@ class Settings(BaseSettings):
 
     session_cookie_name: str = "ww_session"
     session_ttl_seconds: int = 3600
+    session_absolute_ttl_seconds: int = 28800
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
 
     csrf_cookie_name: str = "ww_csrf"
     max_login_attempts: int = 5
     lockout_seconds: int = 300
+    ip_login_attempts: int = 20
+    ip_lockout_seconds: int = 60
 
     cors_origins: str = ""
 

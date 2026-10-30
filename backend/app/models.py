@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,11 +17,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.mysql import BIGINT, DATETIME, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .clock import utcnow as _utcnow
 from .db import Base
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class TimestampMixin:
@@ -110,6 +107,23 @@ class Dataset(Base):
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (UniqueConstraint("source_id", "dataset_type", "version"),)
+
+
+class DatasetIssue(Base):
+    __tablename__ = "dataset_issues"
+
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    dataset_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("datasets.id"), nullable=False)
+    issue_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    city_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    valid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DATETIME(fsp=6), nullable=False, default=_utcnow, server_default=text("CURRENT_TIMESTAMP(6)")
+    )
+
+    __table_args__ = (Index("idx_dataset_issues_dataset", "dataset_id"),)
 
 
 class ForecastRecord(Base):

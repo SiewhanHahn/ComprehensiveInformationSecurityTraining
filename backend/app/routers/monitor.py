@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..cities import DEFAULT_MODELS
+from ..clock import utcnow
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import DataSource, Dataset, ForecastRecord, ObservationRecord
@@ -25,9 +26,14 @@ def monitor_status(
     sources = db.scalars(select(DataSource).order_by(DataSource.id)).all()
     datasets = db.scalars(select(Dataset).order_by(Dataset.id.desc())).all()
     forecast_count = db.scalar(select(func.count()).select_from(ForecastRecord)) or 0
-    observation_count = db.scalar(select(func.count()).select_from(ObservationRecord)) or 0
+    # 观测统计只含 ERA5 代理标签，避免与 GHCN 站点观测混称为同一种真值
+    observation_count = db.scalar(
+        select(func.count()).select_from(ObservationRecord).where(ObservationRecord.observation_type == "ERA5_PROXY")
+    ) or 0
     latest_valid_at = db.scalar(select(func.max(ForecastRecord.valid_at)))
-    latest_observed_date = db.scalar(select(func.max(ObservationRecord.observed_date)))
+    latest_observed_date = db.scalar(
+        select(func.max(ObservationRecord.observed_date)).where(ObservationRecord.observation_type == "ERA5_PROXY")
+    )
     cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
     # 与回放口径对齐：只统计最新 READY FORECAST 数据集
@@ -67,7 +73,7 @@ def monitor_status(
 
     return {
         "mode": "SNAPSHOT",
-        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        "generated_at": utcnow().isoformat(),
         "sources": [
             {
                 "code": s.code,

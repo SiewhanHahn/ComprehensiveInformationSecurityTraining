@@ -1,15 +1,16 @@
+import re
+import secrets
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import get_settings
 from .db import check_database, get_redis
-from .deps import request_id
+from .errors import code_for, error_response
 from .routers import audit, auth, hazards, metrics, monitor, replay, users, warnings
 from .session import read_session
 
@@ -40,15 +41,11 @@ if settings.cors_origin_list:
     )
 
 
-@app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
-    rid = request.headers.get("x-request-id") or uuid4().hex
-    request.state.request_id = rid
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = rid
-    return response
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{8,36}$")
 
 
+# Starlette 中后注册的中间件在外层：CSRF 先注册，请求号中间件后注册，
+# 保证 CSRF 拒绝的响应同样带 request_id / X-Request-ID。
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
     if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -64,16 +61,21 @@ async def csrf_middleware(request: Request, call_next):
             payload = read_session(session_id)
             expected = payload.get("csrf_token") if payload else None
         except Exception:
-            return JSONResponse(
-                status_code=503,
-                content={"error": {"code": "DEPENDENCY_UNAVAILABLE", "message": "会话存储不可用"}},
-            )
-    if not token or not expected or token != expected:
-        return JSONResponse(
-            status_code=403,
-            content={"error": {"code": "CSRF", "message": "缺少或错误的 CSRF Token"}},
-        )
+            return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
+    if not token or not expected or not secrets.compare_digest(token, expected):
+        return error_response(request, 403, "CSRF")
     return await call_next(request)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    # 只接受格式合规的上游请求号（写入审计 VARCHAR(36)），否则自行生成
+    incoming = request.headers.get("x-request-id", "")
+    rid = incoming if _REQUEST_ID.match(incoming) else uuid4().hex
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 
 @app.get("/health")
@@ -86,7 +88,7 @@ def database_health() -> dict[str, str]:
     try:
         check_database()
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="database unavailable") from exc
+        raise HTTPException(status_code=503, detail="DEPENDENCY_UNAVAILABLE") from exc
     return {"status": "ok", "database": "mysql"}
 
 
@@ -95,54 +97,21 @@ def redis_health() -> dict[str, str]:
     try:
         get_redis().ping()
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="redis unavailable") from exc
+        raise HTTPException(status_code=503, detail="DEPENDENCY_UNAVAILABLE") from exc
     return {"status": "ok", "redis": "up"}
 
 
 # Starlette 基类同时覆盖路由级 404/405；业务端点以大写错误码作为 detail
 @app.exception_handler(StarletteHTTPException)
 async def http_error_handler(request: Request, exc: StarletteHTTPException):
-    status_codes = {400: "INVALID_PARAMETER", 401: "UNAUTHENTICATED", 403: "FORBIDDEN", 404: "NOT_FOUND",
-                    503: "DEPENDENCY_UNAVAILABLE"}
-    detail = exc.detail if isinstance(exc.detail, str) else ""
-    code = detail if detail.replace("_", "").isalpha() and detail.isupper() else status_codes.get(exc.status_code, "HTTP_ERROR")
-    messages = {
-        "FORBIDDEN": "当前角色无权执行该操作",
-        "UNAUTHENTICATED": "未登录或会话已过期",
-        "NOT_FOUND": "请求的资源不存在",
-        "USERNAME_EXISTS": "用户名已存在",
-        "LAST_ADMIN_REQUIRED": "系统至少需要一名管理员",
-        "SELF_DISABLE_FORBIDDEN": "不能停用当前登录账号",
-        "SELF_ADMIN_REMOVAL_FORBIDDEN": "不能撤销当前登录账号的管理员角色",
-        "DEPENDENCY_UNAVAILABLE": "依赖服务不可用，请稍后重试",
-        "CSRF": "缺少或错误的 CSRF Token",
-        "SELF_REVIEW_FORBIDDEN": "不能审核自己创建的预警",
-        "PARTIAL_DATA": "数据不完整，无法创建正式预警",
-        "INVALID_STATE": "当前状态不允许此操作",
-        "INVALID_PARAMETER": "请求参数不合法",
-        "REJECT_REQUIRES_COMMENT": "驳回时必须填写审核意见",
-        "INVALID_CREDENTIALS": "用户名或密码错误",
-        "ACCOUNT_LOCKED": "账号已锁定，请稍后再试",
-        "ACCOUNT_DISABLED": "账号已停用",
-    }
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": {"code": code, "message": messages.get(code, code), "request_id": request_id(request)}},
-        headers=exc.headers,
-    )
+    return error_response(request, exc.status_code, code_for(exc.status_code, exc.detail), headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=422,
-        content={"error": {"code": "VALIDATION_ERROR", "message": "请求参数不合法（请检查输入）", "request_id": request_id(request)}},
-    )
+    return error_response(request, 422, "VALIDATION_ERROR")
 
 
 @app.exception_handler(RedisError)
 async def redis_error_handler(request: Request, exc: RedisError):
-    return JSONResponse(
-        status_code=503,
-        content={"error": {"code": "DEPENDENCY_UNAVAILABLE", "message": "会话存储不可用", "request_id": request_id(request)}},
-    )
+    return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")

@@ -21,7 +21,7 @@
 }
 ```
 
-- 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`422 VALIDATION_ERROR`、`503 DEPENDENCY_UNAVAILABLE`。
+- 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`422 VALIDATION_ERROR`、`429 LOGIN_RATE_LIMITED`、`503 DEPENDENCY_UNAVAILABLE`。
 - 所有业务接口（含未匹配路由的 404 和请求体校验失败的 422）由 `backend/app/main.py` 全局异常处理统一输出上述结构；`request_id` 与响应头 `X-Request-ID` 一致。422 不返回字段级明细，只返回 `VALIDATION_ERROR`。`/health/db`、`/health/redis` 失败时同样走该结构（`503 DEPENDENCY_UNAVAILABLE`）。
 - 所有状态变更接口校验 CSRF Token（开发环境可关闭，生产式演示必须开启）。
 
@@ -45,7 +45,7 @@
 {"user": {"id": "public-id", "username": "analyst_demo", "roles": ["ANALYST"]}}
 ```
 
-登录失败统一返回 `401 INVALID_CREDENTIALS`，不区分用户名不存在或密码错误。连续失败应限速或临时锁定。
+登录失败统一返回 `401 INVALID_CREDENTIALS`，不区分用户名不存在、密码错误或账号已锁定（锁定期间即使密码正确也返回该码，不泄露锁定状态）。仅当密码正确时才区分账号状态：停用返回 `401 ACCOUNT_DISABLED`。同一来源 IP 连续失败达到阈值（`IP_LOGIN_ATTEMPTS`，默认 20 次 / 60 秒）后返回 `429 LOGIN_RATE_LIMITED`；单账号连续失败达到 `MAX_LOGIN_ATTEMPTS`（默认 5 次）则临时锁定 `LOCKOUT_SECONDS`（默认 300 秒）。Session 同时受空闲 TTL（`SESSION_TTL_SECONDS`）与绝对 TTL（`SESSION_ABSOLUTE_TTL_SECONDS`）约束，超过绝对时长即使持续活跃也需重新登录。
 
 ## 2.1 用户管理（FR-02）
 
@@ -112,7 +112,7 @@
 | --- | --- | --- | --- |
 | POST | `/warnings` | ANALYST/ADMIN | 基于回放结果创建草稿 |
 | GET | `/warnings` | 已登录 | 列表；支持 `?status=` 筛选；普通用户只返回已发布内容 |
-| GET | `/warnings/{public_id}` | 已登录 | 详情与可执行动作 |
+| GET | `/warnings/{public_id}` | 已登录 | 详情（含融合追溯）与可执行动作 |
 | PATCH | `/warnings/{public_id}` | ANALYST/ADMIN（本人草稿） | 修改未提交草稿 |
 | POST | `/warnings/{public_id}/submit` | ANALYST/ADMIN（本人） | 提交审核，状态 `PENDING_REVIEW` |
 | POST | `/warnings/{public_id}/review` | REVIEWER/ADMIN | 批准/驳回，必须填写意见；不能审批自己创建的预警 |
@@ -147,6 +147,25 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 ```
 
 创建时后端会重新执行同一回放计算并落库，不直接信任前端传入的融合值；`PARTIAL` 数据返回 `409 PARTIAL_DATA`。
+
+`GET /warnings/{public_id}` 返回 `WarningDetailOut`，在列表字段基础上追加融合追溯（对外 API 只增不改，列表接口仍为 `WarningOut`）：
+
+```json
+{
+  "...": "与列表字段一致（public_id/status/title/fused_mm/risk_level 等）",
+  "baseline_mm": 32.7,
+  "proxy_label_mm": 29.6,
+  "dataset_version": "2026-09-30.2",
+  "models": [
+    {"model": "ECMWF", "precipitation_mm": 32.7},
+    {"model": "GFS", "precipitation_mm": 30.7},
+    {"model": "ICON", "precipitation_mm": 19.6},
+    {"model": "GEM", "precipitation_mm": 35.5}
+  ]
+}
+```
+
+`models` 为创建预警时写入 `fusion_inputs` 的四模式输入；早期未记录输入明细的预警 `models` 为空数组，其余追溯字段可能为 `null`。`baseline_mm` 为 ECMWF 基线，`proxy_label_mm` 为 ERA5 代理标签（仅评估用，不参与预警判定）。`POST /warnings` 与 `GET /warnings` 仍返回不含追溯字段的 `WarningOut`。
 
 阈值口径固定为：`MODERATE=10mm/BLUE`、`HEAVY=25mm/YELLOW`、`STORM=50mm/ORANGE`，与 `backend/app/seed.py` 一致。
 

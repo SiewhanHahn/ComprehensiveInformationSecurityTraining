@@ -154,6 +154,53 @@
 
       <div class="card">
         <div class="card-head">
+          <h3 class="card-title">融合追溯</h3>
+          <span class="card-subtitle">
+            {{ w.dataset_version ? '数据集 ' + w.dataset_version : '未记录数据集版本' }}
+          </span>
+        </div>
+
+        <div v-if="w.models && w.models.length" class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th scope="col">模式</th><th scope="col">24h 累计降水 (mm)</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in w.models" :key="m.model">
+                <td class="cell-primary">{{ m.model }}</td>
+                <td>{{ m.precipitation_mm == null ? '缺测' : m.precipitation_mm }}</td>
+              </tr>
+              <tr>
+                <td class="cell-primary">等权融合</td>
+                <td class="cell-accent">{{ w.fused_mm }}</td>
+              </tr>
+              <tr>
+                <td class="cell-primary">ECMWF 基线</td>
+                <td>{{ w.baseline_mm ?? '—' }}</td>
+              </tr>
+              <tr>
+                <td class="cell-primary">ERA5 代理标签</td>
+                <td>
+                  {{ w.proxy_label_mm ?? '—' }}
+                  <span class="muted">（再分析，非站点实测）</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <EmptyState
+          v-else
+          title="无融合输入明细"
+          description="该预警创建时未记录四模式输入（早期数据）。"
+          compact
+        />
+        <p class="muted" style="margin-top: 12px">
+          融合值为四模式 24h 累计降水等权平均；ERA5 代理标签仅用于评估，不参与预警判定。
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
           <h3 class="card-title">反馈记录</h3>
           <span class="card-subtitle">共 {{ feedbacks.length }} 条</span>
         </div>

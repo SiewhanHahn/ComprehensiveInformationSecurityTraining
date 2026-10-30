@@ -1,15 +1,13 @@
 from dataclasses import dataclass
 
-from fastapi import Cookie, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import get_db
 from .models import User
-from .session import read_session, touch_session
-
-settings = get_settings()
+from .session import delete_session, read_session, session_expired, touch_session
 
 ROLE_ADMIN = "ADMIN"
 ROLE_ANALYST = "ANALYST"
@@ -28,14 +26,11 @@ class CurrentUser:
 
 
 def get_session_id(request: Request) -> str | None:
-    return request.cookies.get(settings.session_cookie_name)
+    return request.cookies.get(get_settings().session_cookie_name)
 
 
 def client_ip(request: Request) -> str | None:
-    # nginx 反代下取 X-Forwarded-For 首跳（真实客户端）；无则回退 X-Real-IP / 直连地址
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    # 只信任 nginx 覆盖写入的 X-Real-IP（= $remote_addr）；X-Forwarded-For 首跳可被客户端伪造
     real = request.headers.get("x-real-ip")
     if real:
         return real.strip()
@@ -55,6 +50,9 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     payload = read_session(session_id)
     if payload is None:
+        raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
+    if session_expired(payload):
+        delete_session(session_id)
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     user_id = payload.get("user_id")
     if user_id is None:
