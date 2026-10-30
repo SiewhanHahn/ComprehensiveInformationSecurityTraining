@@ -25,6 +25,7 @@ MESSAGES: dict[str, str] = {
     "LOGIN_RATE_LIMITED": "尝试过于频繁，请稍后再试",
     # 预警
     "PARTIAL_DATA": "数据不完整，无法创建正式预警",
+    "THRESHOLD_NOT_REACHED": "融合值未达到所选阈值，无法创建预警",
     "SELF_REVIEW_FORBIDDEN": "不能审核自己创建的预警",
     "REJECT_REQUIRES_COMMENT": "驳回时必须填写审核意见",
     # 用户管理

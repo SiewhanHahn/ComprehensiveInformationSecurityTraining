@@ -182,6 +182,8 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     if compute["data_status"] != "COMPLETE":
         raise HTTPException(status_code=409, detail="PARTIAL_DATA")
+    if compute["risk_level"] is None:
+        raise HTTPException(status_code=409, detail="THRESHOLD_NOT_REACHED")
 
     threshold = compute["threshold_row"]
     inputs = compute["inputs"]

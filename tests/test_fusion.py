@@ -53,3 +53,20 @@ def test_partial_day_cannot_create_warning(login):
     # 缺 GEM 的一天数据不完整，禁止创建正式预警
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "PARTIAL_DATA"
+
+
+def test_complete_below_threshold_cannot_create_warning(login):
+    """COMPLETE 但融合值未达所选阈值：禁止创建（risk_level 为空）。"""
+    analyst, csrf = login("analyst_demo")
+    # 长沙 2024-03-27 四模式完整，融合 29.625mm < STORM(50mm)
+    payload = {
+        "city_code": "CHANGSHA",
+        "valid_date": "2024-03-27",
+        "threshold_code": "STORM",
+        "title": "fusion-below-threshold",
+        "area_text": "自动化测试",
+        "reasoning_text": "自动化测试",
+    }
+    resp = analyst.post("/api/v1/warnings", headers=csrf_headers(csrf), json=payload)
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "THRESHOLD_NOT_REACHED"
