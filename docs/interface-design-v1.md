@@ -146,7 +146,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 }
 ```
 
-创建时后端会重新执行同一回放计算并落库，不直接信任前端传入的融合值；`PARTIAL` 数据返回 `409 PARTIAL_DATA`。
+创建时后端会重新执行同一回放计算并落库，不直接信任前端传入的融合值；`PARTIAL` 数据返回 `409 PARTIAL_DATA`；COMPLETE 但融合值未达到所选阈值（`risk_level` 为空）返回 `409 THRESHOLD_NOT_REACHED`。
 
 `GET /warnings/{public_id}` 返回 `WarningDetailOut`，在列表字段基础上追加融合追溯（对外 API 只增不改，列表接口仍为 `WarningOut`）：
 

@@ -12,9 +12,9 @@ A B/S teaching demonstration for historical precipitation fusion and warning cre
 
 目标：B 档之前把 A 档精细打磨完（不要屎山；A 是 B 的地基）。答辩约 2026-12 下旬。**接手第一步：`git status` 核对，别丢未提交改动。**
 
-- 远程 `main` 已合并阶段 2（合并提交 `cb56c46`）；标签 `v0.2.4-phase-a` 指向已验证提交 `f9e1e5c`，两者 tree 相同。分支 `phase-a` 保留同内容。
-- 阶段 2 已在隔离环境 fr02 验证（未触碰演示部署）：迁移 `0004` 由 `0003` 升到 `0004` 成功；全量 pytest **43 passed**（新增 `test_fusion.py`，修正 `test_login.py`/`test_ingest.py` 两处此前未跑的断言）；前端审核工作台改为逐行填写意见、预警详情新增融合追溯；`npm run build` 通过；Playwright 浏览器复查 `ALL_PW_OK`。
-- **剩余**：**部署演示 VM 前先问用户**（目前仅隔离环境验证）；B 档从 `main` 切 `phase-b`，迁移顺延 `0005`。fr02 栈如不再用可 `docker compose -p fr02 stop`。
+- 远程 `main` 已合并阶段 2 并完成 A 档 code review 收口；`phase-a` 保留历史内容。
+- 阶段 2 已在隔离环境 fr02 验证（未触碰演示部署）：迁移 `0004` 由 `0003` 升到 `0004` 成功；全量 pytest **45 passed**（含 `test_fusion.py` 追溯、`test_login.py`/`test_ingest.py`）；前端审核工作台逐行意见、预警详情融合追溯、`ERROR_ZH` 兜底且后端文案优先；`npm run build` 通过；Playwright 复查 `ALL_PW_OK`。
+- **剩余**：**部署演示 VM 前先问用户**；B 档从 `main` 切 `phase-b`，迁移顺延 `0005`。fr02 栈如不再用可 `docker compose -p fr02 stop`。
 - **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）。
 
 ## Commands

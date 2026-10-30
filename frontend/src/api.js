@@ -8,6 +8,7 @@ const ERROR_ZH = {
   SELF_REVIEW_FORBIDDEN: '不能审核自己创建的预警',
   NOT_FOUND: '请求的资源不存在',
   PARTIAL_DATA: '数据不完整，无法创建正式预警',
+  THRESHOLD_NOT_REACHED: '融合值未达到所选阈值，无法创建预警',
   INVALID_STATE: '当前状态不允许此操作',
   INVALID_PARAMETER: '请求参数不合法',
   VALIDATION_ERROR: '请求参数不合法（请检查输入）',
