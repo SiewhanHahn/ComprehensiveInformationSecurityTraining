@@ -118,3 +118,47 @@ def test_import_is_idempotent():
     finally:
         with SessionLocal() as session:
             _cleanup_dataset(session, version)
+
+
+def test_same_date_multiple_cities_are_not_duplicates():
+    """同一日期不同城市是不同记录，不应被判为重复丢弃。"""
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset, ForecastRecord
+    from backend.app.services import ingest
+
+    version = f"test_ingest_cities_{uuid4().hex}"
+    models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}
+    days = [
+        {"city_code": "WUHAN", "valid_date": "2024-01-05", "models": models, "proxy_label_mm": 10.0},
+        {"city_code": "CHANGSHA", "valid_date": "2024-01-05", "models": models, "proxy_label_mm": 10.0},
+    ]
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"version": version, "days": days}, f)
+        path = Path(f.name)
+
+    try:
+        with SessionLocal() as session:
+            fc = _source_id(session, "OPEN_METEO_PREVIOUS_RUNS")
+            obs = _source_id(session, "OPEN_METEO_ERA5")
+            result = ingest.import_sample(session, path, fc, obs)
+
+        assert result["imported"] is True
+        assert result["issues"] == 0
+        assert result["forecast"] == 8
+
+        with SessionLocal() as session:
+            fc_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
+            )
+            assert fc_ds.quality_status == "READY"
+            cities = set(
+                session.scalars(
+                    select(ForecastRecord.city_code).where(ForecastRecord.dataset_id == fc_ds.id)
+                ).all()
+            )
+            assert cities == {"WUHAN", "CHANGSHA"}
+    finally:
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)

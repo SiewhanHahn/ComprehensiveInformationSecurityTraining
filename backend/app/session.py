@@ -36,7 +36,8 @@ def session_expired(payload: dict[str, Any]) -> bool:
     """绝对有效期：即使持续活动，超过上限也强制重新登录。"""
     created = payload.get("created_at")
     if not created:
-        return False
+        # 旧版本写入的会话没有 created_at，无法保证绝对时长，按过期处理以强制重登
+        return True
     try:
         start = datetime.fromisoformat(created)
     except ValueError:

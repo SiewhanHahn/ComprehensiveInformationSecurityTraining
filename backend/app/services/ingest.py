@@ -85,6 +85,7 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     fc_has_issue = False
     obs_has_issue = False
     seen: set[tuple[str, str, datetime, int]] = set()
+    seen_city_dates: set[tuple[str, date]] = set()
     all_dates: set[date] = set()
     last_date_by_city: dict[str, date] = {}
 
@@ -108,9 +109,10 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
         except (KeyError, ValueError, TypeError):
             issue(ISSUE_INVALID_DATE, city_code=city, detail=str(day.get("valid_date")))
             continue
-        if valid_date in all_dates:
+        if (city, valid_date) in seen_city_dates:
             issue(ISSUE_DUPLICATE, city_code=city, valid_date=valid_date, detail="城市+日期重复")
             continue
+        seen_city_dates.add((city, valid_date))
         all_dates.add(valid_date)
 
         previous = last_date_by_city.get(city)
