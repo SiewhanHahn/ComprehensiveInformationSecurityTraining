@@ -1210,6 +1210,13 @@ tbody tr:last-child td {
   min-width: 240px;
 }
 
+.review-comment {
+  width: 160px;
+  min-width: 120px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 .feedback-list {
   display: flex;
   flex-direction: column;

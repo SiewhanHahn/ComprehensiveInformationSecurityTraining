@@ -72,17 +72,33 @@
               <td><StatusBadge kind="risk" :value="w.risk_level" size="sm" /></td>
               <td><StatusBadge :value="w.status" size="sm" dot /></td>
               <td>
-                <div class="row" style="gap: 6px; flex-wrap: nowrap">
-                  <button
-                    v-if="activeTab === 'PENDING_REVIEW'"
-                    class="btn btn-primary btn-sm"
-                    type="button"
-                    :disabled="busyId === w.public_id"
-                    @click="approve(w)"
-                  >
-                    <span v-if="busyId === w.public_id" class="spinner"></span>
-                    批准
-                  </button>
+                <div class="row" style="gap: 6px; flex-wrap: nowrap; align-items: center">
+                  <template v-if="activeTab === 'PENDING_REVIEW'">
+                    <input
+                      v-model="comments[w.public_id]"
+                      class="review-comment"
+                      placeholder="审核意见（驳回必填）"
+                      :aria-label="'审核意见：' + w.title"
+                      :disabled="busyId === w.public_id"
+                    />
+                    <button
+                      class="btn btn-primary btn-sm"
+                      type="button"
+                      :disabled="busyId === w.public_id"
+                      @click="review(w, 'APPROVE')"
+                    >
+                      <span v-if="busyId === w.public_id" class="spinner"></span>
+                      批准
+                    </button>
+                    <button
+                      class="btn btn-danger btn-sm"
+                      type="button"
+                      :disabled="busyId === w.public_id"
+                      @click="review(w, 'REJECT')"
+                    >
+                      驳回
+                    </button>
+                  </template>
                   <button
                     v-if="activeTab === 'APPROVED'"
                     class="btn btn-primary btn-sm"
@@ -124,6 +140,7 @@ const loading = ref(true)
 const error = ref('')
 const notice = ref('')
 const busyId = ref('')
+const comments = ref({})
 
 function cityName(code) {
   return cities.value.find((c) => c.code === code)?.name || code || '—'
@@ -149,16 +166,22 @@ function switchTab(value) {
   load()
 }
 
-async function approve(w) {
+async function review(w, decision) {
+  const comment = (comments.value[w.public_id] || '').trim()
+  if (decision === 'REJECT' && !comment) {
+    error.value = '驳回时必须填写审核意见'
+    return
+  }
   error.value = ''
   notice.value = ''
   busyId.value = w.public_id
   try {
     await apiFetch(`/warnings/${w.public_id}/review`, {
       method: 'POST',
-      body: JSON.stringify({ decision: 'APPROVE', comment: '审核工作台批准' })
+      body: JSON.stringify({ decision, comment })
     })
-    notice.value = `已批准：${w.title}`
+    notice.value = decision === 'APPROVE' ? `已批准：${w.title}` : `已驳回：${w.title}`
+    delete comments.value[w.public_id]
     await load()
   } catch (e) {
     error.value = e.message
