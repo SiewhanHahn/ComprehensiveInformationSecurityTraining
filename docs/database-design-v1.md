@@ -43,7 +43,7 @@ PUBLISHED -> WITHDRAWN
 
 ## 3. 表设计
 
-以下 15 张表为 MVP 结构，覆盖暴雨端到端闭环；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0003` 已应用）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
+以下 16 张表为 MVP 结构，覆盖暴雨端到端闭环；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0004` 已应用，`0004` 新增 `dataset_issues`）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
 
 ### 3.1 users
 
@@ -269,6 +269,23 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 
 索引：`created_at`、`actor_id, created_at`、`resource_type, resource_id`。
 
+### 3.16 dataset_issues（迁移 `0004` 新增）
+
+记录一次数据导入中逐条发现的质量问题；问题的原始记录不写入业务表。
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| id | BIGINT UNSIGNED | PK | 主键 |
+| dataset_id | BIGINT UNSIGNED | FK, NOT NULL | 所属数据集 |
+| issue_type | VARCHAR(32) | NOT NULL | MISSING_MODEL/DUPLICATE/OUT_OF_ORDER/INVALID_VALUE/UNKNOWN_CITY/UNKNOWN_MODEL/INVALID_DATE |
+| city_code | VARCHAR(32) | NULL | 相关城市 |
+| model_code | VARCHAR(32) | NULL | 相关模式 |
+| valid_date | DATE | NULL | 相关日期 |
+| detail | VARCHAR(500) | NULL | 问题说明 |
+| created_at | DATETIME(6) | NOT NULL | 记录时间 |
+
+索引：`idx_dataset_issues_dataset (dataset_id)`。导入时缺测、重复、乱序、异常值、未知城市/模式/日期等问题逐条写入本表；对应的预报/观测记录不入库。含问题的数据集 `quality_status` 置为 `PARTIAL`（仍可用于回放），不置 `READY`。
+
 ## 4. 事务与约束
 
 - 预警状态变更使用 `SELECT ... FOR UPDATE` 锁定预警行，校验状态后更新。
@@ -276,7 +293,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 - 预警状态更新、审核记录和成功审计日志同一事务提交。
 - 任何异常回滚业务更新和审计成功记录。
 - 审计日志不提供删除和更新接口。
-- 数据导入使用批次 ID；失败批次标记 `FAILED`，不把部分数据标记为 `READY`。
+- 数据导入使用批次 ID；失败批次标记 `FAILED`，不把部分数据标记为 `READY`。逐条问题写入 `dataset_issues`，含问题的数据集标记 `PARTIAL`（仍可回放，但不能创建正式预警）。
 - 外键使用 `RESTRICT` 保护原始数据和审计关联；账号采用停用而非物理删除。
 
 ## 5. 初始化角色与数据源

@@ -31,7 +31,7 @@ docker compose build api frontend
 docker compose up -d api frontend
 ```
 
-Migrations (B phase may add `0004`):
+Migrations (A 收尾已含 `0004`；B 档顺延 `0005`):
 
 ```bash
 docker compose run --rm migrate
@@ -67,7 +67,7 @@ Do **not** use `docker compose down -v` (it deletes the MySQL volume).
 - `backend/app/routers/` — `auth`, `replay`, `metrics`, `warnings`, `audit`, `hazards`, `monitor`, `users` (ADMIN-only user/role management).
 - Errors: routers raise `HTTPException(detail="UPPER_SNAKE_CODE")`; global handlers in `main.py` emit `{"error": {"code", "message", "request_id"}}` for all endpoints (422 → `VALIDATION_ERROR`).
 - `backend/app/services/` — `replay.compute_replay`, `metrics` (mtime-cached `pooled.json`), `audit`.
-- `backend/app/models.py` — 15 tables; `backend/migrations/versions/` — Alembic `0001`~`0003`.
+- `backend/app/models.py` — 16 tables（含 `dataset_issues`）；`backend/migrations/versions/` — Alembic `0001`~`0004`。
 - `backend/app/hazards.py` — eight-hazard registry (`IMPLEMENTED` / `FRAMEWORK`).
 - `frontend/src/` — Vue 3 SPA. Shared: `ui/labels.js`, `ui/useCountUp.js`, `components/{StatusBadge,EmptyState,PaginationBar,TableSkeleton,ClosedLoopStepper}.vue`.
 - `frontend/src/views/` — Dashboard, Monitor, Replay, Metrics, Warnings, WarningDetail, Review, Hazards, Audit, Users, Login, NotFound.

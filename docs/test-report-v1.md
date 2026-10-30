@@ -274,6 +274,16 @@
 
 本次未在原演示部署上验证，生产 Nginx 镜像未重建。
 
+## 6.12 阶段 2 验证（2026-10-30，FR-01/03/04 + 前端两项）
+
+在隔离 `fr02` 环境（未触碰演示部署）验证阶段 2：
+
+- **迁移**：`docker compose -p fr02 run --rm migrate` 由 `0003_observation_unique_city` 升级到 `0004_dataset_issues`，成功创建 `dataset_issues` 表。
+- **后端全量**：同步 `backend/` 与 `tests/`，设置 `RUN_INTEGRATION=1` 和四个 `DEMO_*_PASSWORD`，执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **43 passed、2 warnings，耗时 7.80 秒**。新增 `tests/test_fusion.py`（详情返回四模式输入/基线/代理标签/数据集版本；PARTIAL 日禁止创建）。
+- **测试自身修正**（两处此前"已写未跑"的断言）：`test_ingest` 期望 `row_count` 由 7 改为 6（缺 GEM + 负值各少一条）；`test_login` 改为只比较 `error.code`/`error.message`，不再比较含 `request_id` 的整个对象。
+- **前端**：审核工作台改为逐行填写审核意见（驳回时客户端强制非空），预警详情新增「融合追溯」卡片展示四模式输入、基线、代理标签与数据集版本；`npm run build` 通过。
+- **浏览器复查**：本机 Vite → SSH 转发隔离 API，Chrome headless 驱动。分析师建单并提交 → 详情页显示 4 模式与基线/代理标签；审核员工作台空意见驳回被拦截，填入意见后批准成功；仅有的控制台错误为登录前 `/auth/me` 的 401 与 favicon 404，属预期资源请求。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
