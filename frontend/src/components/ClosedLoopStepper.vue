@@ -90,14 +90,14 @@ defineProps({
 .stepper-item.is-done .stepper-marker {
   background: var(--success);
   border-color: var(--success);
-  color: #fff;
+  color: #04121f;
 }
 
 .stepper-item.is-current .stepper-marker {
   background: var(--info-bg);
   border-color: var(--color-primary);
   color: var(--color-primary);
-  box-shadow: 0 0 0 4px rgb(46 90 154 / 0.12);
+  box-shadow: 0 0 0 4px rgba(53, 201, 230, 0.18);
 }
 
 .stepper-body {

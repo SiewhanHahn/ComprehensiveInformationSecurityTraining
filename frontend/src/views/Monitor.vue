@@ -111,6 +111,15 @@
         </p>
       </div>
 
+      <ChartPanel
+        title="覆盖完整度"
+        :subtitle="`各城已接入模式数 / 预期 ${coverage.expected_models.length || 4}`"
+        :option="coverageOption"
+        :height="240"
+        empty-text="暂无覆盖数据"
+        aria-label="各城市模式覆盖完整度条形图"
+      />
+
       <div class="card">
         <div class="card-head">
           <h3 class="card-title">数据源</h3>
@@ -189,10 +198,13 @@ import { computed, onMounted, ref } from 'vue'
 import { apiFetch } from '../api'
 import StatusBadge from '../components/StatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
+import ChartPanel from '../components/ChartPanel.vue'
 import { useCountUp } from '../ui/useCountUp'
 import { datasetTypeLabel, formatDate, formatDateTime, modelLabel, sourceTypeLabel } from '../ui/labels'
+import { coverageBar } from '../charts/options'
 
 const status = ref(null)
+const cityNames = ref({})
 const loading = ref(true)
 const error = ref('')
 
@@ -205,13 +217,28 @@ const coverage = computed(
   () => status.value?.coverage || { models: [], expected_models: [], cities: [], per_city: [], partial_days: 0, dataset_version: null, completeness: 'PARTIAL' }
 )
 
+const coverageOption = computed(() => {
+  const perCity = coverage.value.per_city || []
+  if (!perCity.length) return null
+  const expected = coverage.value.expected_models.length || 4
+  return coverageBar(perCity, expected, (code) => cityNames.value[code] || code)
+})
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    status.value = await apiFetch('/monitor/status')
+    const [statusResult, citiesResult] = await Promise.allSettled([
+      apiFetch('/monitor/status'),
+      apiFetch('/cities')
+    ])
+    if (statusResult.status !== 'fulfilled') throw statusResult.reason
+    status.value = statusResult.value
     forecastCount.value = status.value.records.forecast
     observationCount.value = status.value.records.observation
+    if (citiesResult.status === 'fulfilled') {
+      cityNames.value = Object.fromEntries(citiesResult.value.map((c) => [c.code, c.name]))
+    }
   } catch (e) {
     error.value = e.message
   } finally {

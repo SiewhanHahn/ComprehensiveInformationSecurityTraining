@@ -64,6 +64,24 @@
 
         <ClosedLoopStepper :stages="replayStages" compact />
 
+        <div class="chart-grid" style="margin-top: 12px">
+          <ChartPanel
+            title="四模式降水"
+            :subtitle="`${result.city.name} · ${result.valid_date} · 24h`"
+            :option="modelBarOption"
+            :height="260"
+            aria-label="四模式 24 小时累计降水柱状图"
+          />
+          <ChartPanel
+            title="模式形态"
+            subtitle="四模式降水雷达"
+            :option="modelRadarOption"
+            :height="260"
+            empty-text="数据不完整，不展示雷达"
+            aria-label="四模式降水雷达图"
+          />
+        </div>
+
         <div class="table-wrap" style="margin-top: 12px">
           <table class="table">
             <thead>
@@ -117,6 +135,8 @@ import { apiFetch } from '../api'
 import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
 import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
+import ChartPanel from '../components/ChartPanel.vue'
+import { modelBar, modelRadar } from '../charts/options'
 
 const cities = ref([])
 const city = ref('CHANGSHA')
@@ -125,6 +145,22 @@ const threshold = ref('HEAVY')
 const result = ref(null)
 const loading = ref(false)
 const error = ref('')
+
+const modelBarOption = computed(() => {
+  const r = result.value
+  if (!r?.models?.length) return null
+  return modelBar(r.models, {
+    baseline: r.baseline_mm,
+    proxy: r.proxy_label_mm,
+    thresholdMm: r.threshold?.threshold_mm
+  })
+})
+
+const modelRadarOption = computed(() => {
+  const r = result.value
+  if (!r?.models?.length || r.data_status !== 'COMPLETE') return null
+  return modelRadar(r.models)
+})
 
 const replayStages = computed(() => {
   const r = result.value

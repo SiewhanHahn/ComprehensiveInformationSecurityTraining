@@ -56,6 +56,14 @@
         </div>
       </div>
 
+      <ChartPanel
+        title="指标形态"
+        subtitle="基线 ECMWF vs 四模式融合 · 误报抑制 = 1 − 误报率"
+        :option="radarOption"
+        :height="300"
+        aria-label="基线与融合模型指标雷达图"
+      />
+
       <div class="table-wrap">
         <table class="table">
           <thead>
@@ -79,14 +87,20 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiFetch } from '../api'
+import ChartPanel from '../components/ChartPanel.vue'
+import { baselineRadar } from '../charts/options'
 
 const experiments = ref([])
 const version = ref('10mm')
 const detail = ref(null)
 const loading = ref(true)
 const error = ref('')
+
+const radarOption = computed(() =>
+  detail.value ? baselineRadar(detail.value.baseline, detail.value.fusion) : null
+)
 
 onMounted(async () => {
   try {

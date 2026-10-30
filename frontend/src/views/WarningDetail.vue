@@ -194,6 +194,16 @@
           description="该预警创建时未记录四模式输入（早期数据）。"
           compact
         />
+
+        <ChartPanel
+          v-if="w.models && w.models.length"
+          title="四模式输入"
+          subtitle="柱高为 24h 累计降水；虚线为基线与代理标签"
+          :option="modelBarOption"
+          :height="250"
+          aria-label="四模式降水与基线、代理标签对比柱状图"
+        />
+
         <p class="muted" style="margin-top: 12px">
           融合值为四模式 24h 累计降水等权平均；ERA5 代理标签仅用于评估，不参与预警判定。
         </p>
@@ -231,6 +241,8 @@ import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
+import ChartPanel from '../components/ChartPanel.vue'
+import { modelBar } from '../charts/options'
 import { HAZARD_TYPE, formatDate, formatDateTime, shortId } from '../ui/labels'
 
 const route = useRoute()
@@ -249,6 +261,15 @@ const feedbackContent = ref('')
 const isMine = computed(
   () => w.value && auth.user && w.value.created_by === auth.user.username
 )
+
+const modelBarOption = computed(() => {
+  const item = w.value
+  if (!item?.models?.length) return null
+  return modelBar(item.models, {
+    baseline: item.baseline_mm,
+    proxy: item.proxy_label_mm
+  })
+})
 
 const stages = computed(() => {
   const item = w.value
