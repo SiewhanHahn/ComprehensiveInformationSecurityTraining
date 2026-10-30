@@ -2,7 +2,6 @@ import { auth } from './auth'
 
 const ERROR_ZH = {
   INVALID_CREDENTIALS: '用户名或密码错误',
-  ACCOUNT_LOCKED: '账号已锁定，请稍后再试',
   ACCOUNT_DISABLED: '账号已停用',
   UNAUTHENTICATED: '未登录或会话已过期',
   FORBIDDEN: '无权限执行此操作',
@@ -76,7 +75,8 @@ export async function apiFetch(path, options = {}) {
         detail = '请求参数不合法（请检查输入）'
       } else {
         code = code || data?.detail
-        detail = ERROR_ZH[code] || detail || data?.detail || `请求失败(${resp.status})`
+        // 后端 message 为准，ERROR_ZH 仅在没有后端文案时兜底
+        detail = detail || ERROR_ZH[code] || data?.detail || `请求失败(${resp.status})`
       }
       const err = new Error(detail)
       err.status = resp.status
