@@ -125,8 +125,8 @@ onMounted(load)
 
 <style scoped>
 .hazard-card--implemented {
-  border-color: #a7f3d0;
-  box-shadow: 0 10px 28px -20px rgb(5 150 105 / 0.5);
+  border-color: var(--success-border);
+  box-shadow: none;
 }
 
 .hazard-row {
@@ -140,7 +140,7 @@ onMounted(load)
   margin: 0;
   padding-left: 18px;
   font-size: 13px;
-  color: #475569;
+  color: var(--color-text-secondary);
 }
 
 .hazard-list li {
@@ -150,6 +150,6 @@ onMounted(load)
 .hazard-note {
   margin: 12px 0 0;
   padding-top: 10px;
-  border-top: 1px dashed #e2e8f0;
+  border-top: 1px dashed var(--color-border);
 }
 </style>

@@ -57,12 +57,12 @@ defineProps({
   left: calc(50% + 14px);
   width: calc(100% - 28px);
   height: 2px;
-  background: #e2e8f0;
+  background: var(--color-border);
   border-radius: 2px;
 }
 
 .stepper-item.is-done:not(:last-child)::after {
-  background: #a7f3d0;
+  background: var(--success-border);
 }
 
 .stepper-marker {
@@ -70,15 +70,15 @@ defineProps({
   z-index: 1;
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: 2px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 600;
-  background: #f1f5f9;
-  color: #94a3b8;
-  border: 2px solid #e2e8f0;
+  background: var(--color-surface-soft);
+  color: var(--color-text-faint);
+  border: 1px solid var(--color-border);
   transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
@@ -88,16 +88,16 @@ defineProps({
 }
 
 .stepper-item.is-done .stepper-marker {
-  background: #059669;
-  border-color: #059669;
+  background: var(--success);
+  border-color: var(--success);
   color: #fff;
 }
 
 .stepper-item.is-current .stepper-marker {
-  background: #eff6ff;
-  border-color: #2563eb;
-  color: #2563eb;
-  box-shadow: 0 0 0 4px rgb(37 99 235 / 0.12);
+  background: var(--info-bg);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 0 0 4px rgb(46 90 154 / 0.12);
 }
 
 .stepper-body {
@@ -111,23 +111,23 @@ defineProps({
 .stepper-title {
   font-size: 13px;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text-secondary);
 }
 
 .stepper-item.is-done .stepper-title,
 .stepper-item.is-current .stepper-title {
-  color: #0f172a;
+  color: var(--color-text);
 }
 
 .stepper-meta {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--color-text-faint);
   white-space: nowrap;
 }
 
 .stepper-note {
   font-size: 11px;
-  color: #64748b;
+  color: var(--color-text-muted);
   white-space: normal;
 }
 

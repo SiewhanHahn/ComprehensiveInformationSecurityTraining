@@ -28,7 +28,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <span class="stat-icon stat-icon--violet" aria-hidden="true">
+        <span class="stat-icon stat-icon--orange" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M4 19V5M4 19h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
             <path d="m7 15 4-5 3 3 5-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
@@ -40,7 +40,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <span class="stat-icon stat-icon--amber" aria-hidden="true">
+        <span class="stat-icon stat-icon--red" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M12 3 2.8 19h18.4L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
             <path d="M12 9v5M12 17h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />

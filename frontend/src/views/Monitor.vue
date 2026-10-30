@@ -45,7 +45,7 @@
           </div>
         </div>
         <div class="stat-card">
-          <span class="stat-icon stat-icon--violet" aria-hidden="true">
+          <span class="stat-icon stat-icon--orange" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M5 19V9m7 10V5m7 14v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
             </svg>
@@ -56,7 +56,7 @@
           </div>
         </div>
         <div class="stat-card">
-          <span class="stat-icon stat-icon--amber" aria-hidden="true">
+          <span class="stat-icon stat-icon--red" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
               <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7" />

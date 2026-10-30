@@ -5,33 +5,54 @@
     <header v-if="auth.user" class="topbar">
       <div class="topbar-inner">
         <router-link class="brand" to="/" aria-label="返回总览">
-          <span class="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path
-                d="M7 17.5a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17.2 8.6 4.5 4.5 0 0 1 17 17.5H7Z"
-                stroke="currentColor"
-                stroke-width="1.6"
-                stroke-linejoin="round"
-              />
-              <path d="M12 11.5v4M10.4 14l1.6 1.6 1.6-1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </span>
+          <span class="brand-mark" aria-hidden="true">汛</span>
           <span class="brand-text">
             <span class="brand-title">气象灾害预警系统</span>
             <span class="brand-sub">多源融合决策支持</span>
+            <span class="brand-signal" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+            </span>
           </span>
         </router-link>
 
         <nav id="main-nav" class="nav" :class="{ 'is-open': menuOpen }" aria-label="主导航">
-          <router-link
-            v-for="item in navItems"
-            :key="item.path"
-            :to="item.path"
-            class="nav-link"
-            :class="{ 'is-active': isActive(item.path) }"
+          <div
+            v-for="group in navGroups"
+            :key="group.label"
+            class="nav-item"
+            :class="{ 'is-active': isGroupActive(group) }"
           >
-            {{ item.label }}
-          </router-link>
+            <router-link
+              v-if="!group.children"
+              :to="group.path"
+              class="nav-link"
+              :class="{ 'is-active': isGroupActive(group) }"
+            >
+              {{ group.label }}
+            </router-link>
+            <template v-else>
+              <button
+                class="nav-link nav-link--group"
+                type="button"
+                :aria-expanded="groupOpen === group.label"
+                aria-haspopup="true"
+                @click="toggleGroup(group.label)"
+              >
+                {{ group.label }}
+              </button>
+              <div class="nav-dropdown">
+                <router-link
+                  v-for="child in group.children"
+                  :key="child.path"
+                  :to="child.path"
+                  class="nav-link"
+                  :class="{ 'is-active': isActive(child.path) }"
+                >
+                  {{ child.label }}
+                </router-link>
+              </div>
+            </template>
+          </div>
         </nav>
 
         <button
@@ -80,20 +101,41 @@ import { roleLabel } from './ui/labels'
 const router = useRouter()
 const route = useRoute()
 const menuOpen = ref(false)
+const groupOpen = ref('')
 
-const navItems = computed(() => {
-  const items = [
-    { path: '/', label: '总览' },
-    { path: '/monitor', label: '监测' },
-    { path: '/replay', label: '历史回放' },
-    { path: '/metrics', label: '指标对比' },
-    { path: '/warnings', label: '预警管理' }
+const navGroups = computed(() => {
+  const groups = [
+    { label: '总览', path: '/' },
+    {
+      label: '数据',
+      path: '/monitor',
+      children: [
+        { path: '/monitor', label: '监测' },
+        { path: '/replay', label: '历史回放' },
+        { path: '/metrics', label: '指标对比' }
+      ]
+    },
+    {
+      label: '预警',
+      path: '/warnings',
+      children: [
+        { path: '/warnings', label: '预警管理' },
+        { path: '/review', label: '审核' },
+        { path: '/hazards', label: '灾种' }
+      ]
+    }
   ]
-  if (auth.hasAnyRole('REVIEWER', 'ADMIN')) items.push({ path: '/review', label: '审核' })
-  items.push({ path: '/hazards', label: '灾种' })
-  if (auth.hasRole('ADMIN')) items.push({ path: '/audit', label: '审计' })
-  if (auth.hasRole('ADMIN')) items.push({ path: '/users', label: '用户管理' })
-  return items
+  if (auth.hasRole('ADMIN')) {
+    groups.push({
+      label: '管理',
+      path: '/audit',
+      children: [
+        { path: '/audit', label: '审计' },
+        { path: '/users', label: '用户管理' }
+      ]
+    })
+  }
+  return groups
 })
 
 const rolesText = computed(() =>
@@ -110,10 +152,20 @@ function isActive(path) {
   return route.path === path || route.path.startsWith(path + '/')
 }
 
+function isGroupActive(group) {
+  if (!group.children) return isActive(group.path)
+  return group.children.some((c) => isActive(c.path))
+}
+
+function toggleGroup(label) {
+  groupOpen.value = groupOpen.value === label ? '' : label
+}
+
 watch(
   () => route.path,
   () => {
     menuOpen.value = false
+    groupOpen.value = ''
   }
 )
 

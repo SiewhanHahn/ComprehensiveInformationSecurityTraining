@@ -2,21 +2,19 @@
   <div class="login-page">
     <div class="login-card">
       <div class="login-brand">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path
-              d="M7 17.5a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17.2 8.6 4.5 4.5 0 0 1 17 17.5H7Z"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linejoin="round"
-            />
-            <path d="M12 11.5v4M10.4 14l1.6 1.6 1.6-1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </span>
+        <span class="brand-mark" aria-hidden="true">汛</span>
         <div>
           <div class="login-title">气象灾害预警系统</div>
           <div class="login-sub">多源融合决策支持平台</div>
         </div>
+      </div>
+
+      <div class="signal-legend" aria-label="预警信号等级">
+        <span class="signal-key signal-key--blue">蓝</span>
+        <span class="signal-key signal-key--yellow">黄</span>
+        <span class="signal-key signal-key--orange">橙</span>
+        <span class="signal-key signal-key--red">红</span>
+        <span class="signal-note">四级信号 · 本系统接入蓝 / 黄 / 橙</span>
       </div>
 
       <form @submit.prevent="submit">
