@@ -11,6 +11,7 @@ from ..schemas import (
     ReviewOut,
     ReviewRequest,
     WarningCreate,
+    WarningDetailOut,
     WarningOut,
     WarningUpdate,
 )
@@ -49,14 +50,14 @@ def list_warnings(
     return svc.to_out_list(db, svc.list_warnings(db, current, status))
 
 
-@router.get("/warnings/{public_id}", response_model=WarningOut)
+@router.get("/warnings/{public_id}", response_model=WarningDetailOut)
 def get_warning(
     public_id: str,
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),
 ):
     w = svc.get_visible_warning(db, public_id, current)
-    return svc.to_out(w, svc.usernames(db, {w.created_by}))
+    return svc.to_detail_out(db, w, svc.usernames(db, {w.created_by}))
 
 
 @router.patch("/warnings/{public_id}", response_model=WarningOut)

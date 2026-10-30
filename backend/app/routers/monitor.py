@@ -26,9 +26,14 @@ def monitor_status(
     sources = db.scalars(select(DataSource).order_by(DataSource.id)).all()
     datasets = db.scalars(select(Dataset).order_by(Dataset.id.desc())).all()
     forecast_count = db.scalar(select(func.count()).select_from(ForecastRecord)) or 0
-    observation_count = db.scalar(select(func.count()).select_from(ObservationRecord)) or 0
+    # 观测统计只含 ERA5 代理标签，避免与 GHCN 站点观测混称为同一种真值
+    observation_count = db.scalar(
+        select(func.count()).select_from(ObservationRecord).where(ObservationRecord.observation_type == "ERA5_PROXY")
+    ) or 0
     latest_valid_at = db.scalar(select(func.max(ForecastRecord.valid_at)))
-    latest_observed_date = db.scalar(select(func.max(ObservationRecord.observed_date)))
+    latest_observed_date = db.scalar(
+        select(func.max(ObservationRecord.observed_date)).where(ObservationRecord.observation_type == "ERA5_PROXY")
+    )
     cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
     # 与回放口径对齐：只统计最新 READY FORECAST 数据集

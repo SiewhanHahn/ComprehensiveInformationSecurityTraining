@@ -1,6 +1,8 @@
 import json
+from datetime import datetime
 from typing import Any
 
+from .clock import utcnow
 from .config import get_settings
 from .db import get_redis
 
@@ -15,6 +17,7 @@ def create_session(session_id: str, user_id: int, roles: list[str], csrf_token: 
         "user_id": user_id,
         "roles": roles,
         "csrf_token": csrf_token,
+        "created_at": utcnow().isoformat(),
     }
     get_redis().setex(_key(session_id), get_settings().session_ttl_seconds, json.dumps(payload))
 
@@ -27,6 +30,18 @@ def read_session(session_id: str) -> dict[str, Any] | None:
         return json.loads(raw)
     except json.JSONDecodeError:
         return None
+
+
+def session_expired(payload: dict[str, Any]) -> bool:
+    """绝对有效期：即使持续活动，超过上限也强制重新登录。"""
+    created = payload.get("created_at")
+    if not created:
+        return False
+    try:
+        start = datetime.fromisoformat(created)
+    except ValueError:
+        return True
+    return (utcnow() - start).total_seconds() > get_settings().session_absolute_ttl_seconds
 
 
 def touch_session(session_id: str) -> None:

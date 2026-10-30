@@ -21,8 +21,8 @@ MESSAGES: dict[str, str] = {
     "HTTP_ERROR": "请求失败",
     # 认证
     "INVALID_CREDENTIALS": "用户名或密码错误",
-    "ACCOUNT_LOCKED": "账号已锁定，请稍后再试",
     "ACCOUNT_DISABLED": "账号已停用",
+    "LOGIN_RATE_LIMITED": "尝试过于频繁，请稍后再试",
     # 预警
     "PARTIAL_DATA": "数据不完整，无法创建正式预警",
     "SELF_REVIEW_FORBIDDEN": "不能审核自己创建的预警",

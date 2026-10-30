@@ -7,16 +7,17 @@
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..cities import DEFAULT_MODELS
+from ..cities import MODEL_DISPLAY
 from ..clock import utcnow
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER, CurrentUser
-from ..models import FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
-from ..schemas import FeedbackRequest, WarningCreate, WarningOut, WarningUpdate
+from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
+from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
 from ..security import new_public_id
 from .audit import AuditContext
 from .replay import compute_replay, get_threshold
@@ -133,6 +134,40 @@ def to_out_list(db: Session, warnings: list[Warning]) -> list[WarningOut]:
     return [to_out(w, names) for w in warnings]
 
 
+def to_detail_out(db: Session, w: Warning, names: dict[int, str]) -> WarningDetailOut:
+    """预警详情：在列表字段基础上附带融合追溯（四模式输入、基线、代理标签、数据集版本）。"""
+    base = to_out(w, names)
+    result = w.warning_result
+    baseline_mm = None
+    proxy_label_mm = None
+    dataset_version = None
+    models: list[ModelValue] = []
+    if result is not None:
+        baseline_mm = float(result.baseline_mm) if result.baseline_mm is not None else None
+        proxy_label_mm = float(result.proxy_label_mm) if result.proxy_label_mm is not None else None
+        inputs = db.scalars(
+            select(FusionInput).where(FusionInput.fusion_run_id == result.fusion_run_id)
+        ).all()
+        models = [
+            ModelValue(model=MODEL_DISPLAY.get(i.model_code, i.model_code), precipitation_mm=float(i.value_mm))
+            for i in inputs
+        ]
+        if inputs:
+            dataset_version = db.scalar(
+                select(Dataset.version)
+                .join(ForecastRecord, ForecastRecord.dataset_id == Dataset.id)
+                .where(ForecastRecord.id.in_([i.forecast_record_id for i in inputs]))
+                .limit(1)
+            )
+    return WarningDetailOut(
+        **base.model_dump(),
+        baseline_mm=baseline_mm,
+        proxy_label_mm=proxy_label_mm,
+        dataset_version=dataset_version,
+        models=models,
+    )
+
+
 def list_feedback(db: Session, w: Warning) -> list[WarningFeedback]:
     stmt = select(WarningFeedback).where(WarningFeedback.warning_id == w.id).order_by(WarningFeedback.id)
     return list(db.scalars(stmt).all())
@@ -149,18 +184,30 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
         raise HTTPException(status_code=409, detail="PARTIAL_DATA")
 
     threshold = get_threshold(db, body.threshold_code)
+    inputs = compute["inputs"]
+    weight = round(1 / len(inputs), 4) if inputs else 0
     fusion_run = FusionRun(
         algorithm_version="v1",
         method="EQUAL_MEAN",
         lead_hours=24,
-        weights_json={m: 0.25 for m in DEFAULT_MODELS},
-        input_count=len(DEFAULT_MODELS),
+        weights_json={i["model_code"]: weight for i in inputs},
+        input_count=len(inputs),
         status="SUCCESS",
         executed_at=utcnow(),
         created_by=actor.id,
     )
     db.add(fusion_run)
     db.flush()
+
+    for item in inputs:
+        db.add(
+            FusionInput(
+                fusion_run_id=fusion_run.id,
+                forecast_record_id=item["forecast_record_id"],
+                model_code=item["model_code"],
+                value_mm=Decimal(str(item["value_mm"])),
+            )
+        )
 
     result = WarningResult(
         fusion_run_id=fusion_run.id,

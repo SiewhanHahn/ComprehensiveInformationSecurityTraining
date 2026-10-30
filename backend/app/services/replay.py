@@ -11,9 +11,10 @@ from ..security import new_public_id
 
 
 def latest_dataset(db: Session, dataset_type: str) -> Dataset | None:
+    # PARTIAL 数据集仍可用于回放（缺测按数据不完整处理）；只排除 FAILED 批次
     return db.scalar(
         select(Dataset)
-        .where(Dataset.dataset_type == dataset_type, Dataset.quality_status == "READY")
+        .where(Dataset.dataset_type == dataset_type, Dataset.quality_status != "FAILED")
         .order_by(Dataset.imported_at.desc(), Dataset.id.desc())
         .limit(1)
     )
@@ -51,21 +52,23 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         stmt = stmt.where(ForecastRecord.dataset_id == fc_dataset.id)
     records = db.scalars(stmt).all()
 
-    by_model: dict[str, Decimal] = {}
+    by_model: dict[str, ForecastRecord] = {}
     for r in records:
-        by_model[r.model_code] = r.precipitation_mm
+        by_model[r.model_code] = r
 
     model_values: list[ModelValue] = []
-    present: list[Decimal] = []
+    present: list[ForecastRecord] = []
     for model in DEFAULT_MODELS:
-        val = by_model.get(model)
+        rec = by_model.get(model)
+        val = rec.precipitation_mm if rec is not None else None
         model_values.append(ModelValue(model=MODEL_DISPLAY[model], precipitation_mm=float(val) if val is not None else None))
-        if val is not None:
-            present.append(val)
+        if rec is not None:
+            present.append(rec)
 
     complete = len(present) == len(DEFAULT_MODELS)
-    fused = float(sum(present) / len(present)) if present else 0.0
-    baseline = float(by_model["ecmwf_ifs025"]) if by_model.get("ecmwf_ifs025") is not None else None
+    fused = float(sum(r.precipitation_mm for r in present) / len(present)) if present else 0.0
+    ecmwf = by_model.get("ecmwf_ifs025")
+    baseline = float(ecmwf.precipitation_mm) if ecmwf is not None else None
 
     proxy_stmt = select(ObservationRecord.precipitation_mm).where(
         ObservationRecord.city_code == city_code,
@@ -97,4 +100,8 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
         "risk_level": risk_level,
         "data_status": "COMPLETE" if complete else "PARTIAL",
         "source": ReplaySource(dataset_version=fc_dataset.version if fc_dataset is not None else "sample"),
+        "inputs": [
+            {"forecast_record_id": r.id, "model_code": r.model_code, "value_mm": float(r.precipitation_mm)}
+            for r in present
+        ],
     }

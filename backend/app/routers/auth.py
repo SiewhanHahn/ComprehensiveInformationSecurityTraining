@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..clock import utcnow
 from ..config import get_settings
-from ..db import get_db
+from ..db import get_db, get_redis
 from ..deps import CurrentUser, client_ip, get_current_user, get_session_id, request_id
 from ..models import User
 from ..schemas import AuthResponse, AuthUser, LoginRequest, MeResponse
@@ -47,14 +47,38 @@ def _deny(db: Session, request: Request, code: str, reason: str, actor_id: int |
     raise HTTPException(status_code=401, detail=code)
 
 
+def _ip_rate_key(ip: str) -> str:
+    return f"login:fail:{ip}"
+
+
+def _ip_rate_limited(ip: str | None) -> bool:
+    """按来源 IP 的失败计数是否已达阈值。只读，不递增。"""
+    if not ip:
+        return False
+    count = get_redis().get(_ip_rate_key(ip))
+    return count is not None and int(count) >= get_settings().ip_login_attempts
+
+
+def _record_ip_failure(ip: str | None) -> None:
+    """登录失败时递增来源 IP 的失败计数，防止对已知账号的锁号与爆破。"""
+    if not ip:
+        return
+    redis = get_redis()
+    key = _ip_rate_key(ip)
+    count = redis.incr(key)
+    if count == 1:
+        redis.expire(key, get_settings().ip_lockout_seconds)
+
+
+def _clear_ip_rate(ip: str | None) -> None:
+    if ip:
+        get_redis().delete(_ip_rate_key(ip))
+
+
 def _set_cookies(response: Response, session_id: str, csrf_token: str) -> None:
     settings = get_settings()
-    common = dict(
-        samesite=settings.cookie_samesite,
-        secure=settings.cookie_secure,
-        max_age=settings.session_ttl_seconds,
-        path="/",
-    )
+    # 会话 Cookie 不设 max_age（浏览器会话级）；服务端由 Redis 空闲 TTL + 绝对 TTL 控制
+    common = dict(samesite=settings.cookie_samesite, secure=settings.cookie_secure, path="/")
     response.set_cookie(settings.session_cookie_name, session_id, httponly=True, **common)
     # 供前端 JS 读取的 CSRF token（非 HttpOnly），刷新页面后仍可回退恢复
     response.set_cookie(settings.csrf_cookie_name, csrf_token, httponly=False, **common)
@@ -68,24 +92,31 @@ def _clear_cookies(response: Response) -> None:
 
 @router.post("/auth/login", response_model=AuthResponse)
 def login(body: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    ip = client_ip(request)
+    if _ip_rate_limited(ip):
+        raise HTTPException(status_code=429, detail="LOGIN_RATE_LIMITED")
+
     settings = get_settings()
     user = db.scalar(select(User).where(User.username == body.username))
     if user is None:
         verify_password(body.password, _dummy_password_hash())
+        _record_ip_failure(ip)
         _deny(db, request, "INVALID_CREDENTIALS", "unknown user")
 
-    if user.locked_until is not None and user.locked_until > utcnow():
-        _deny(db, request, "ACCOUNT_LOCKED", "locked", actor_id=user.id)
-
-    if not user.is_active:
-        _deny(db, request, "ACCOUNT_DISABLED", "disabled", actor_id=user.id)
-
+    # 已存在用户一律先校验密码，抹平锁定/停用/错误密码之间的时序差异，也不泄露账号状态
     if not verify_password(body.password, user.password_hash):
         user.failed_login_count += 1
         if user.failed_login_count >= settings.max_login_attempts:
             user.locked_until = utcnow() + timedelta(seconds=settings.lockout_seconds)
             user.failed_login_count = 0
+        _record_ip_failure(ip)
         _deny(db, request, "INVALID_CREDENTIALS", "bad password", actor_id=user.id)
+
+    # 密码正确后才区分状态：锁定仍返回统一失败；停用才单独提示（密码已证明本人）
+    if user.locked_until is not None and user.locked_until > utcnow():
+        _deny(db, request, "INVALID_CREDENTIALS", "locked", actor_id=user.id)
+    if not user.is_active:
+        _deny(db, request, "ACCOUNT_DISABLED", "disabled", actor_id=user.id)
 
     user.failed_login_count = 0
     user.locked_until = None
@@ -95,6 +126,7 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
     create_session(session_id, user.id, roles, csrf_token)
     _audit(db, request, "LOGIN_SUCCESS", "SUCCESS", actor_id=user.id, actor_role=",".join(roles))
     db.commit()
+    _clear_ip_rate(ip)
 
     _set_cookies(response, session_id, csrf_token)
     return AuthResponse(

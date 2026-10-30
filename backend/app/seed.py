@@ -9,10 +9,7 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import select
@@ -20,17 +17,9 @@ from sqlalchemy.orm import Session
 
 from .clock import utcnow as _now
 from .db import SessionLocal
-from .models import (
-    DataSource,
-    Dataset,
-    ForecastRecord,
-    ObservationRecord,
-    Role,
-    User,
-    UserRole,
-    WarningThreshold,
-)
+from .models import DataSource, Role, User, UserRole, WarningThreshold
 from .security import hash_password
+from .services import ingest
 
 ROLES = {
     "ADMIN": "系统管理员",
@@ -143,82 +132,16 @@ def _source_id(session: Session, code: str) -> int:
 
 
 def import_sample(session: Session, path: Path) -> None:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    version = data.get("version", "sample")
-    days = data.get("days", [])
-
-    if not days:
-        print("[seed] 样本为空，跳过导入")
-        return
-
-    existing = session.scalar(
-        select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
-    )
-    if existing is not None:
-        print(f"[seed] 样本 {version} 已导入，跳过")
-        return
-
-    dates = sorted({date.fromisoformat(d["valid_date"]) for d in days})
     fc_source = _source_id(session, "OPEN_METEO_PREVIOUS_RUNS")
     obs_source = _source_id(session, "OPEN_METEO_ERA5")
-
-    fc_dataset = Dataset(
-        source_id=fc_source,
-        dataset_type="FORECAST",
-        version=version,
-        period_start=dates[0],
-        period_end=dates[-1],
-        quality_status="READY",
-        imported_at=_now(),
+    result = ingest.import_sample(session, path, fc_source, obs_source)
+    if not result["imported"]:
+        print("[seed] 样本已导入或为空，跳过")
+        return
+    print(
+        f"[seed] 导入 {result['forecast']} 条预报记录、{result['observation']} 条代理标签记录、"
+        f"{result['issues']} 条质量问题"
     )
-    obs_dataset = Dataset(
-        source_id=obs_source,
-        dataset_type="ERA5_LABEL",
-        version=version,
-        period_start=dates[0],
-        period_end=dates[-1],
-        quality_status="READY",
-        imported_at=_now(),
-    )
-    session.add_all([fc_dataset, obs_dataset])
-    session.flush()
-
-    n_fc = 0
-    n_obs = 0
-    for d in days:
-        city = d["city_code"]
-        day = date.fromisoformat(d["valid_date"])
-        valid_at = datetime(day.year, day.month, day.day)
-        models = d.get("models", {})
-        for model_code, mm in models.items():
-            if mm is None:
-                continue
-            session.add(
-                ForecastRecord(
-                    dataset_id=fc_dataset.id,
-                    city_code=city,
-                    model_code=model_code,
-                    valid_at=valid_at,
-                    lead_hours=24,
-                    precipitation_mm=Decimal(str(mm)),
-                    is_complete=True,
-                )
-            )
-            n_fc += 1
-        if d.get("proxy_label_mm") is not None:
-            session.add(
-                ObservationRecord(
-                    dataset_id=obs_dataset.id,
-                    city_code=city,
-                    observation_type="ERA5_PROXY",
-                    observed_date=day,
-                    precipitation_mm=Decimal(str(d["proxy_label_mm"])),
-                    quality_flag="OK",
-                )
-            )
-            n_obs += 1
-    session.commit()
-    print(f"[seed] 导入 {n_fc} 条预报记录、{n_obs} 条代理标签记录")
 
 
 def main() -> None:
