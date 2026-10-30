@@ -26,7 +26,6 @@ reviewer_required = require_roles(ROLE_REVIEWER, ROLE_ADMIN)
 
 def _respond(db: Session, w) -> WarningOut:
     db.commit()
-    db.refresh(w)
     return svc.to_out(w, svc.usernames(db, {w.created_by}))
 
 

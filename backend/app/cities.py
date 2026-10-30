@@ -18,3 +18,6 @@ MODEL_DISPLAY: dict[str, str] = {
 }
 
 DEFAULT_MODELS: list[str] = ["ecmwf_ifs025", "gfs_global", "icon_global", "gem_global"]
+
+# 协议固定提前量（见 docs/data-and-method.md）：24 小时
+LEAD_HOURS: int = 24

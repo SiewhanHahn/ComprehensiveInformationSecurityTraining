@@ -9,11 +9,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..cities import CITIES, DEFAULT_MODELS
+from ..cities import CITIES, DEFAULT_MODELS, LEAD_HOURS
 from ..clock import utcnow
 from ..models import Dataset, DatasetIssue, ForecastRecord, ObservationRecord
 
-LEAD_HOURS = 24
 MAX_PRECIP_MM = 2000.0  # 日累计降水物理上不可能超过的保守上限
 
 ISSUE_MISSING_MODEL = "MISSING_MODEL"

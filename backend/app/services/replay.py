@@ -1,10 +1,9 @@
 from datetime import date, datetime
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..cities import CITIES, DEFAULT_MODELS, MODEL_DISPLAY
+from ..cities import CITIES, DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY
 from ..models import Dataset, ForecastRecord, ObservationRecord, WarningThreshold
 from ..schemas import CityOut, ModelValue, ReplaySource, ThresholdOut
 from ..security import new_public_id
@@ -46,7 +45,7 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
     stmt = select(ForecastRecord).where(
         ForecastRecord.city_code == city_code,
         ForecastRecord.valid_at == start,
-        ForecastRecord.lead_hours == 24,
+        ForecastRecord.lead_hours == LEAD_HOURS,
     )
     if fc_dataset is not None:
         stmt = stmt.where(ForecastRecord.dataset_id == fc_dataset.id)
@@ -104,4 +103,5 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
             {"forecast_record_id": r.id, "model_code": r.model_code, "value_mm": float(r.precipitation_mm)}
             for r in present
         ],
+        "threshold_row": threshold,
     }

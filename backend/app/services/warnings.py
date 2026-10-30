@@ -13,14 +13,14 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..cities import MODEL_DISPLAY
+from ..cities import LEAD_HOURS, MODEL_DISPLAY
 from ..clock import utcnow
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER, CurrentUser
 from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
 from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
 from ..security import new_public_id
 from .audit import AuditContext
-from .replay import compute_replay, get_threshold
+from .replay import compute_replay
 
 DRAFT = "DRAFT"
 PENDING_REVIEW = "PENDING_REVIEW"
@@ -183,13 +183,13 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
     if compute["data_status"] != "COMPLETE":
         raise HTTPException(status_code=409, detail="PARTIAL_DATA")
 
-    threshold = get_threshold(db, body.threshold_code)
+    threshold = compute["threshold_row"]
     inputs = compute["inputs"]
     weight = round(1 / len(inputs), 4) if inputs else 0
     fusion_run = FusionRun(
         algorithm_version="v1",
         method="EQUAL_MEAN",
-        lead_hours=24,
+        lead_hours=LEAD_HOURS,
         weights_json={i["model_code"]: weight for i in inputs},
         input_count=len(inputs),
         status="SUCCESS",
