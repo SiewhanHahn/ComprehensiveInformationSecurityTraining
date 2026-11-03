@@ -1,0 +1,5 @@
+# Windows 工作副本默认 CRLF（core.autocrlf=true），但 Dockerfile 和 shell 脚本在
+# Linux 容器里执行，CRLF 会让 `RUN sed -i` 和 bash 脚本里的行尾变成命令参数的一部分。
+# 这两个路径固定检出为 LF。
+Dockerfile text eol=lf
+*.sh text eol=lf
