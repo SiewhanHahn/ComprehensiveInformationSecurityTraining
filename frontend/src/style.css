@@ -407,6 +407,49 @@ p {
   flex-shrink: 0;
 }
 
+/* 顶栏通知铃铛：未读数由 App.vue 每分钟轮询 /notifications/unread-count */
+.topbar-bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-soft);
+  transition: color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.topbar-bell:hover,
+.topbar-bell[aria-current='page'] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.topbar-bell svg {
+  width: 18px;
+  height: 18px;
+}
+
+.topbar-bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-danger);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--color-bg);
+}
+
 .user-chip {
   display: flex;
   align-items: center;

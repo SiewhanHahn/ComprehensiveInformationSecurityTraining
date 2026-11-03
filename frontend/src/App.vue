@@ -69,6 +69,29 @@
         </button>
 
         <div class="user-area">
+          <router-link
+            class="topbar-bell"
+            to="/notifications"
+            :aria-label="unread ? `通知中心，${unread} 条未读` : '通知中心'"
+            :aria-current="route.path === '/notifications' ? 'page' : undefined"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 3a5.5 5.5 0 0 0-5.5 5.5v3.2L5 15h14l-1.5-3.3V8.5A5.5 5.5 0 0 0 12 3Z"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M9.8 18a2.2 2.2 0 0 0 4.4 0"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span v-if="unread" class="topbar-bell-badge">{{ unread > 99 ? '99+' : unread }}</span>
+          </router-link>
+
           <div class="user-chip">
             <span class="avatar" aria-hidden="true">{{ avatarText }}</span>
             <span class="user-meta">
@@ -92,7 +115,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth } from './auth'
 import { apiFetch } from './api'
@@ -102,6 +125,37 @@ const router = useRouter()
 const route = useRoute()
 const menuOpen = ref(false)
 const groupOpen = ref('')
+const unread = ref(0)
+
+const UNREAD_POLL_MS = 60_000
+let unreadTimer = null
+
+async function refreshUnread() {
+  if (!auth.user) {
+    unread.value = 0
+    return
+  }
+  try {
+    unread.value = (await apiFetch('/notifications/unread-count')).count || 0
+  } catch (e) {
+    unread.value = 0
+  }
+}
+
+onMounted(() => {
+  refreshUnread()
+  unreadTimer = setInterval(refreshUnread, UNREAD_POLL_MS)
+})
+
+onUnmounted(() => {
+  if (unreadTimer) clearInterval(unreadTimer)
+  unreadTimer = null
+})
+
+watch(
+  () => auth.user,
+  () => refreshUnread()
+)
 
 const navGroups = computed(() => {
   const groups = [
@@ -121,7 +175,8 @@ const navGroups = computed(() => {
       children: [
         { path: '/warnings', label: '预警管理' },
         { path: '/review', label: '审核' },
-        { path: '/hazards', label: '灾种' }
+        { path: '/hazards', label: '灾种' },
+        { path: '/notifications', label: '通知中心' }
       ]
     }
   ]
@@ -166,6 +221,8 @@ watch(
   () => {
     menuOpen.value = false
     groupOpen.value = ''
+    // 页面切换时顺手刷新未读数（/notifications 不在 60 秒 GET 缓存白名单内）
+    refreshUnread()
   }
 )
 

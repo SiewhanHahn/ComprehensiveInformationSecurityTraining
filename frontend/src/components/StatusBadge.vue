@@ -26,6 +26,7 @@ import {
   AUDIT_RESULT,
   AUDIT_ACTION,
   DATA_STATUS,
+  NOTIFICATION_KIND,
   getMeta
 } from '../ui/labels'
 
@@ -35,7 +36,15 @@ const props = defineProps({
     type: String,
     default: 'warningStatus',
     validator: (v) =>
-      ['warningStatus', 'risk', 'feedback', 'auditResult', 'auditAction', 'dataStatus'].includes(v)
+      [
+        'warningStatus',
+        'risk',
+        'feedback',
+        'auditResult',
+        'auditAction',
+        'dataStatus',
+        'notificationKind'
+      ].includes(v)
   },
   size: { type: String, default: 'md' },
   dot: { type: Boolean, default: false }
@@ -47,7 +56,8 @@ const MAPS = {
   feedback: FEEDBACK_STATUS,
   auditResult: AUDIT_RESULT,
   auditAction: AUDIT_ACTION,
-  dataStatus: DATA_STATUS
+  dataStatus: DATA_STATUS,
+  notificationKind: NOTIFICATION_KIND
 }
 
 const meta = computed(() => {

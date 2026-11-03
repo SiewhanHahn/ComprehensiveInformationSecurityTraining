@@ -18,7 +18,8 @@ const ERROR_ZH = {
   USERNAME_EXISTS: '用户名已存在',
   SELF_DISABLE_FORBIDDEN: '不能停用当前登录账号',
   SELF_ADMIN_REMOVAL_FORBIDDEN: '不能撤销当前登录账号的管理员角色',
-  LAST_ADMIN_REQUIRED: '系统至少需要一名管理员'
+  LAST_ADMIN_REQUIRED: '系统至少需要一名管理员',
+  SUBSCRIPTION_EXISTS: '该订阅已存在'
 }
 
 // 仅缓存静态参考数据，避免页面切换时重复请求后端；认证/预警/审计不缓存。

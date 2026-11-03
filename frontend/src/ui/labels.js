@@ -31,7 +31,10 @@ export const AUDIT_ACTION = {
   WARNING_REVIEW: meta('审核预警', 'purple'),
   WARNING_PUBLISH: meta('发布预警', 'success'),
   WARNING_WITHDRAW: meta('撤回预警', 'orange'),
-  WARNING_FEEDBACK: meta('添加反馈', 'purple')
+  WARNING_FEEDBACK: meta('添加反馈', 'purple'),
+  SUBSCRIPTION_CREATE: meta('新增订阅', 'info'),
+  SUBSCRIPTION_DELETE: meta('取消订阅', 'neutral'),
+  NOTIFICATION_BACKFILL: meta('通知补投', 'purple')
 }
 
 export const AUDIT_RESULT = {
@@ -48,7 +51,14 @@ export const ROLE_LABELS = {
 
 export const RESOURCE_TYPE = {
   auth: meta('认证', 'neutral'),
-  warning: meta('预警', 'info')
+  warning: meta('预警', 'info'),
+  subscription: meta('订阅', 'purple'),
+  notification: meta('通知', 'blue')
+}
+
+export const NOTIFICATION_KIND = {
+  WARNING_PUBLISHED: meta('预警发布', 'danger'),
+  WARNING_WITHDRAWN: meta('预警撤回', 'neutral')
 }
 
 export const REASON_LABELS = {
