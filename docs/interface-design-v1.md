@@ -197,6 +197,26 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 
 订阅变更写 `SUBSCRIPTION_CREATE` / `SUBSCRIPTION_DELETE` 审计（资源类型 `subscription`）；扫描补投写 `NOTIFICATION_BACKFILL`（`actor_role = SYSTEM`，无用户 ID，只在真的补投了内容时才写）。通知的已读状态属于个人阅读状态，不写审计。
 
+## 5.2 响应任务（FR-15 / FR-16）
+
+任务只对业务角色开放（`ANALYST` / `REVIEWER` / `ADMIN`），查看者访问整个路由返回 `403 FORBIDDEN`。非管理员只能看到指派给自己的任务；别人的任务对其表现为 `404 NOT_FOUND`。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/response-tasks?status=&warning=` | 当前可见任务，按 `due_at` 升序；`status` 取 `PENDING/ACKED/COMPLETED`（非法值 `400 INVALID_PARAMETER`），`warning` 传预警 `public_id` 过滤（不存在 `404`） |
+| POST | `/response-tasks/{id}/ack` | 接单，`PENDING → ACKED` |
+| POST | `/response-tasks/{id}/complete` | 完成，`ACKED → COMPLETED`；未接单或已完成返回 `409 INVALID_STATE` |
+
+完成任务请求体：`{"note": "处置说明"}`，`note` 可选，去首尾空白后 ≤1000 字符。
+
+任务响应字段：`id`、`warning_public_id`、`warning_title`、`assignee`、`status`、`due_at`、`acked_at`、`completed_at`、`escalated_at`、`escalation_level`、`note`、`overdue`、`created_at`。
+
+`overdue` 由服务端按「未完成且 `due_at` 已过」计算，前端不重复判断。「已逾期」不是任务状态：任务状态仍为 `PENDING`/`ACKED`，逾期只体现在 `escalated_at` 与 `overdue` 上。
+
+预警详情页通过 `GET /response-tasks?warning=<public_id>` 取任务，因此 `WarningDetailOut` 不需要扩展。
+
+写操作审计：`RESPONSE_TASK_CREATE`、`RESPONSE_TASK_ACK`、`RESPONSE_TASK_COMPLETE`（资源类型 `response_task`），扫描升级写 `RESPONSE_TASK_ESCALATE`（`actor_role = SYSTEM`，只在真的升级了任务时写）。
+
 ## 6. 监测、灾种、审计与健康检查
 
 | 方法 | 路径 | 权限 | 说明 |
@@ -224,6 +244,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 | 审核工作台 | `GET /warnings?status=PENDING_REVIEW`、`?status=APPROVED`、`/review`、`/publish` |
 | 灾种覆盖页 | `/hazards` |
 | 通知中心 | `/notifications` 路由；`GET /notifications`、`/notifications/unread-count`、`/notifications/{id}/read`、`/notifications/read-all`、`GET/POST /subscriptions`、`DELETE /subscriptions/{id}`；顶栏铃铛轮询未读数 |
+| 任务看板 | `/tasks` 路由（ANALYST/REVIEWER/ADMIN）；`GET /response-tasks`、`/response-tasks/{id}/ack`、`/response-tasks/{id}/complete` |
 | 审计页 | `/audit-logs` |
 | 用户管理页（ADMIN） | `/users` 路由；`GET/POST /users`、`PUT /users/{user_id}/roles`、`PATCH /users/{user_id}/status`、`POST /users/{user_id}/reset-password` |
 

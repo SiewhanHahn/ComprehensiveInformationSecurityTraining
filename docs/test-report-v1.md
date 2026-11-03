@@ -340,6 +340,17 @@
 - 全量 pytest **55 passed**（新增 `test_successful_login_clears_ip_failures`），连续两次运行结果一致。
 - `npm run build` 通过；浏览器复查仍为：订阅 → 发布 → 铃铛角标 1（红色实心）→ 标记已读后归零。
 
+## 6.15 阶段 B 第二刀验证（2026-11-03，FR-15/FR-16）
+
+在隔离 `fr02` 环境验证响应任务、处置时限与超时升级（未触碰演示部署）。本刀**没有新迁移**，`response_tasks` 沿用 `0005` 建好的表。
+
+- **后端全量**：同步 `backend/` 与 `tests/` 后执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **62 passed、2 warnings**（此前 55 项，本轮 +7：新增 `tests/test_tasks.py` 6 项与 `test_rbac_matrix.py` 的查看者 403 断言），连续两次运行一致（14.94 / 15.08 秒）。
+- **新增用例**：发布自动派发任务（负责人为创建者、时限与配置口径相差 <1 分钟）、指派通知、他人任务不可见（业务角色 404、查看者 403、管理员可代接）、状态机（未接单不能完成、重复接单 409）、完成落库与处置说明、逾期任务升级一次且重复扫描不再升级、未到期任务不升级。
+- **定时扫描容器**：在隔离环境插入一条 `due_at` 已过 5 分钟、`status=PENDING`、`escalated_at IS NULL` 的任务，以 `NOTIFICATION_SCAN_INTERVAL_SECONDS=5` 实跑 `python -m backend.app.scheduler` 14 秒。日志出现 `响应任务超时升级 escalated=1`，SIGTERM 后正常退出；数据库确认该任务 `escalation_level=1`、`escalated_at` 非空、**`status` 仍为 `PENDING`**（超时不改流转状态），并生成 `TASK_OVERDUE`（负责人）与 `TASK_ESCALATED`（管理员）两条通知。验证用的任务与通知已清理。
+- **前端**：`npm run build` 通过，新增 `Tasks` 懒加载分块。
+- **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：分析员建单 → 审核员批准发布 → 分析员在 `/tasks` 看到 1 条「待处置」任务（负责人 `analyst_demo`、时限按配置）→ 点「接单」进入「处置中」→ 填处置说明并完成，出现在「已完成」标签页；预警详情页显示「响应任务」卡，闭环 Stepper 的「响应」阶段变为已完成，标注「负责人 analyst_demo / 已完成处置」。pageerror 为 0，控制台仅有登录前 `/api/v1/auth/me` 的 401。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b2-tasks.png`、`phase-b2-detail.png`。
+- **回归**：`GET /warnings`、`GET /warnings/{public_id}` 响应结构未变（任务通过 `GET /response-tasks?warning=` 单独取，`WarningDetailOut` 未扩展）；订阅、通知与既有状态机测试全部通过。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
@@ -352,4 +363,4 @@
 - 管理员用户管理已实现，隔离环境浏览器核心流程通过（§6.10）；审查修复后全套 34 项测试通过（§6.11，含并发撤权/停用、审计异常回滚、缺失参考角色回滚和统一错误结构）；API 重启与依赖故障未验证。
 - 七类扩展灾种仅登记数据源与判定指标，未接入数据、未做量化验证。
 - 监测页展示的是已导入快照，不含实时拉取；定时调度目前只用于通知补投（`scheduler` 服务），不参与数据接入。发布不含短信/邮件等外部渠道。
-- 响应任务、处置时限与超时升级尚未实现（B 档第二刀），`response_tasks` 表已建但无读写代码。
+- 响应任务、处置时限与超时升级已实现（§6.15）；任务只派发给预警创建者，暂不支持改派或多人协同；升级只做一次（`escalated_at` 写入后不再参与扫描），不做逐级上报。

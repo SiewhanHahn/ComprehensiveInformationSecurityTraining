@@ -8,8 +8,8 @@ A runnable B/S course project: **multi-source precipitation fusion + warning app
 
 Implemented:
 
-- Backend: login/RBAC/server-side session (Redis), CSRF, warning state machine, feedback, audit log, replay, frozen metrics, hazard registry, monitor snapshot, subscriptions + in-app notifications, standalone scheduled scan.
-- Frontend: login, dashboard, monitor, replay, metrics, warnings, warning detail (closed-loop stepper), review workbench, hazard matrix, notification centre, audit.
+- Backend: login/RBAC/server-side session (Redis), CSRF, warning state machine, feedback, audit log, replay, frozen metrics, hazard registry, monitor snapshot, subscriptions + in-app notifications, standalone scheduled scan, response tasks with deadlines and overdue escalation.
+- Frontend: login, dashboard, monitor, replay, metrics, warnings, warning detail (closed-loop stepper), review workbench, hazard matrix, notification centre, task board, audit.
 - Data: nine cities, four forecast models (ECMWF/GFS/ICON/GEM), ERA5 proxy labels, offline sample for replay.
 - Tests: unit + integration (opt-in) + manual shell scripts.
 
@@ -64,14 +64,14 @@ Do **not** use `docker compose down -v` (it deletes the MySQL volume).
 ## Architecture
 
 - `backend/app/main.py` — FastAPI app, routers, request-id middleware, CSRF middleware, health endpoints.
-- `backend/app/routers/` — `auth`, `replay`, `metrics`, `warnings`, `notifications` (notifications + subscriptions), `audit`, `hazards`, `monitor`, `users` (ADMIN-only user/role management).
+- `backend/app/routers/` — `auth`, `replay`, `metrics`, `warnings`, `notifications` (notifications + subscriptions), `tasks` (response tasks), `audit`, `hazards`, `monitor`, `users` (ADMIN-only user/role management).
 - Errors: routers raise `HTTPException(detail="UPPER_SNAKE_CODE")`; global handlers in `main.py` emit `{"error": {"code", "message", "request_id"}}` for all endpoints (422 → `VALIDATION_ERROR`).
-- `backend/app/services/` — `replay.compute_replay`, `metrics` (mtime-cached `pooled.json`), `audit`, `subscriptions`, `notifications`.
+- `backend/app/services/` — `replay.compute_replay`, `metrics` (mtime-cached `pooled.json`), `audit`, `subscriptions`, `notifications`, `tasks` (response tasks + overdue escalation).
 - `backend/app/scheduler.py` — `run_scan` (pure, testable) + the loop behind the `scheduler` compose service.
 - `backend/app/models.py` — 19 tables（`0005` 新增订阅、通知、响应任务）；`backend/migrations/versions/` — Alembic `0001`~`0005`。
 - `backend/app/hazards.py` — eight-hazard registry (`IMPLEMENTED` / `FRAMEWORK`).
 - `frontend/src/` — Vue 3 SPA. Shared: `ui/labels.js`, `ui/useCountUp.js`, `components/{StatusBadge,EmptyState,PaginationBar,TableSkeleton,ClosedLoopStepper}.vue`.
-- `frontend/src/views/` — Dashboard, Monitor, Replay, Metrics, Warnings, WarningDetail, Review, Hazards, Notifications, Audit, Users, Login, NotFound.
+- `frontend/src/views/` — Dashboard, Monitor, Replay, Metrics, Warnings, WarningDetail, Review, Tasks, Hazards, Notifications, Audit, Users, Login, NotFound.
 - `frontend/src/api.js` — fetch wrapper with CSRF, Chinese error mapping, 60s GET cache for `/cities` and `/metrics/experiments*`, in-flight dedupe.
 
 ## Experimental constraints (must preserve)

@@ -321,7 +321,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 
 迁移 `0005` 还给既有的 `warnings` 表补了 `idx_warnings_published_at (published_at)`：定时扫描按发布窗口取数，而该表建表时没有索引。
 
-### 3.19 response_tasks（迁移 `0005` 新增，B 档第二刀开始使用）
+### 3.19 response_tasks（迁移 `0005` 新增）
 
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
@@ -338,7 +338,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 
 索引：`idx_response_tasks_due (status, due_at)`、`idx_response_tasks_assignee (assignee_id, status)`。
 
-本阶段只建表，不写入也不查询；超时升级的扫描逻辑在 B 档第二刀实现。
+预警发布时自动插入一条任务（`assignee_id` = 预警创建者，`due_at` = 创建时刻 + `RESPONSE_TASK_DUE_MINUTES`）。状态只走 `PENDING → ACKED → COMPLETED`；**超时不改 `status`**，只写 `escalated_at` 并让 `escalation_level` 加一，因此「已逾期」由 `status != COMPLETED AND due_at < now` 计算，而不是一个独立状态。扫描只取 `escalated_at IS NULL` 的任务，保证同一任务只升级一次。
 
 ## 4. 事务与约束
 

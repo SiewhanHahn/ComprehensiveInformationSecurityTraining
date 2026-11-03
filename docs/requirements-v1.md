@@ -237,6 +237,23 @@ DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED → WITHDRAWN
 - 补投是幂等的：同一（预警, 用户, 种类）只产生一条通知，扫描重复执行不增加记录。
 - 只有真正补投了内容才写一条 `NOTIFICATION_BACKFILL` 审计，操作者为系统（`actor_role = SYSTEM`，无用户 ID）。
 
+### FR-15 响应任务与处置时限
+
+- 预警发布时自动生成一条响应任务，指派给该预警的创建者，与状态变更、审计、订阅通知在同一事务提交。
+- 处置时限 = 任务创建时刻 + `RESPONSE_TASK_DUE_MINUTES`（默认 1440 分钟，可用环境变量覆盖）。
+- 任务状态只走 `PENDING → ACKED → COMPLETED`：必须先接单才能完成；已完成的任务不能再次接单或完成。
+- 只有被指派人本人或管理员可以接单与完成；其他人的任务对非管理员一律表现为不存在。
+- 任务只对业务角色（ANALYST/REVIEWER/ADMIN）开放，查看者无权访问。
+- 完成时可选填处置说明（≤1000 字符）。任务不修改预警本身，也不改变已发布内容。
+
+### FR-16 超时升级
+
+- 定时扫描除通知补投外，还检查「未完成且已过处置时限」的任务并把它们标记升级：写入 `escalated_at`、`escalation_level + 1`。
+- **超时不改变任务状态**，仍为 `PENDING`/`ACKED`，避免把「已逾期」混进正常流转状态。
+- 升级时给负责人发 `TASK_OVERDUE` 通知、给所有启用中的管理员发 `TASK_ESCALATED` 通知。
+- 只升级一次：`escalated_at` 一旦写入就不再进入筛选条件，扫描重复执行不会重复升级。
+- 只有实际升级了任务才写一条 `RESPONSE_TASK_ESCALATE` 审计，操作者为系统（`actor_role = SYSTEM`）。
+
 ## 6. 安全需求
 
 ### SEC-01 认证
