@@ -93,7 +93,7 @@
               <p class="notif-body">{{ n.body }}</p>
               <div class="notif-actions">
                 <router-link
-                  v-if="n.resource_type === 'warning'"
+                  v-if="canOpenWarning(n)"
                   class="btn btn-ghost btn-sm"
                   :to="`/warnings/${n.resource_id}`"
                 >
@@ -158,10 +158,12 @@
           当前仅暴雨已接入数据，其余灾种暂无预警产生。
         </p>
 
-        <div v-if="!subs.length" class="empty-state empty-state--compact">
-          <p class="empty-title">还没有订阅</p>
-          <p class="empty-desc">订阅后，匹配的预警发布时会自动出现在通知中心。</p>
-        </div>
+        <EmptyState
+          v-if="!subs.length"
+          compact
+          title="还没有订阅"
+          description="订阅后，匹配的预警发布时会自动出现在通知中心。"
+        />
 
         <ul v-else class="sub-tags">
           <li v-for="s in subs" :key="s.id" class="sub-tag">
@@ -186,6 +188,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiFetch } from '../api'
+import { auth } from '../auth'
 import EmptyState from '../components/EmptyState.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -215,13 +218,24 @@ function hazardLabel(code) {
   return code === '*' ? '全部灾种' : HAZARD_TYPE[code] || code
 }
 
+// 已撤回的预警对「仅查看者」不可见（get_visible_warning 一律 404），不要给出必然打不开的链接
+function canOpenWarning(n) {
+  if (n.resource_type !== 'warning') return false
+  if (n.kind === 'WARNING_PUBLISHED') return true
+  return auth.hasAnyRole('ADMIN', 'ANALYST', 'REVIEWER')
+}
+
 function cityLabel(code) {
   if (!code) return '全部城市'
   return cities.value.find((c) => c.code === code)?.name || code
 }
 
+// 快速切筛选/翻页时，慢的旧请求不能覆盖新结果
+let loadSeq = 0
+
 async function loadNotifications(target = 1) {
   const targetPage = Math.max(1, target || 1)
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
   try {
@@ -231,16 +245,17 @@ async function loadNotifications(target = 1) {
       unread_only: String(unreadOnly.value)
     })
     const data = await apiFetch(`/notifications?${query}`)
+    if (seq !== loadSeq) return
     items.value = data.items || []
     total.value = data.total || 0
     page.value = data.page || targetPage
-    await refreshUnread()
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = e.message
     items.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -248,6 +263,8 @@ async function loadSubscriptions() {
   try {
     subs.value = await apiFetch('/subscriptions')
   } catch (e) {
+    // 不要静默降级成空数组：否则后端出错时页面看起来像「还没订阅过」
+    error.value = e.message
     subs.value = []
   }
 }
@@ -256,13 +273,13 @@ async function loadCities() {
   try {
     cities.value = await apiFetch('/cities')
   } catch (e) {
+    error.value = e.message
     cities.value = []
   }
 }
 
-function refresh() {
-  loadNotifications(page.value)
-  loadSubscriptions()
+async function refresh() {
+  await Promise.all([loadNotifications(page.value), loadSubscriptions()])
 }
 
 function setFilter(value) {
@@ -285,8 +302,9 @@ async function markRead(notification) {
     notification.read_at = new Date().toISOString()
     await refreshUnread()
     if (unreadOnly.value) {
-      items.value = items.value.filter((n) => n.id !== notification.id)
-      total.value = Math.max(0, total.value - 1)
+      // 未读筛选下这一行要消失：重新取当前页，而不是本地删行——
+      // 本地删行会让 total 和后端偏移错开，下一页会漏掉最新的那条
+      await loadNotifications(page.value)
     }
   } catch (e) {
     error.value = e.message
@@ -299,7 +317,7 @@ async function readAll() {
   busy.value = true
   try {
     await apiFetch('/notifications/read-all', { method: 'POST' })
-    await loadNotifications(page.value)
+    await Promise.all([loadNotifications(page.value), refreshUnread()])
   } catch (e) {
     error.value = e.message
   } finally {
@@ -338,8 +356,7 @@ async function removeSubscription(subscription) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCities(), loadSubscriptions()])
-  await loadNotifications(1)
+  await Promise.all([loadCities(), loadSubscriptions(), loadNotifications(1)])
 })
 </script>
 
@@ -438,7 +455,7 @@ onMounted(async () => {
 }
 
 .sub-remove:hover:not(:disabled) {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 
 .segmented {

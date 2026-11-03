@@ -128,9 +128,6 @@ const menuOpen = ref(false)
 const groupOpen = ref('')
 const unread = computed(() => notificationState.unread)
 
-const UNREAD_POLL_MS = 60_000
-let unreadTimer = null
-
 function syncUnread() {
   if (auth.user) {
     refreshUnread()
@@ -139,14 +136,19 @@ function syncUnread() {
   }
 }
 
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') syncUnread()
+}
+
+// 不做定时轮询：/notifications/unread-count 同样走 get_current_user，会刷新会话空闲 TTL，
+// 定时轮询等于让人离开后会话永不过期。只挂在用户真实操作（登录、切页、切回标签页）上。
 onMounted(() => {
   syncUnread()
-  unreadTimer = setInterval(syncUnread, UNREAD_POLL_MS)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (unreadTimer) clearInterval(unreadTimer)
-  unreadTimer = null
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 watch(
