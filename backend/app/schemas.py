@@ -336,3 +336,30 @@ class SubscriptionOut(BaseModel):
     hazard_type: str
     city_code: str
     created_at: datetime
+
+
+# ---- 响应任务 ----
+class ResponseTaskOut(BaseModel):
+    id: int
+    warning_public_id: str
+    warning_title: str
+    assignee: str
+    status: str
+    due_at: datetime
+    acked_at: datetime | None
+    completed_at: datetime | None
+    escalated_at: datetime | None
+    escalation_level: int
+    note: str | None
+    # 由服务端按「未完成且已过时限」计算，前端不重复判断
+    overdue: bool
+    created_at: datetime
+
+
+class TaskCompleteRequest(BaseModel):
+    note: str = Field(default="", max_length=1000)
+
+    @field_validator("note")
+    @classmethod
+    def _strip_note(cls, value: str) -> str:
+        return value.strip()
