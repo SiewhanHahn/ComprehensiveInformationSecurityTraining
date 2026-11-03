@@ -21,7 +21,7 @@
 }
 ```
 
-- 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`422 VALIDATION_ERROR`、`429 LOGIN_RATE_LIMITED`、`503 DEPENDENCY_UNAVAILABLE`。
+- 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`409 SUBSCRIPTION_EXISTS`、`422 VALIDATION_ERROR`、`429 LOGIN_RATE_LIMITED`、`503 DEPENDENCY_UNAVAILABLE`。
 - 所有业务接口（含未匹配路由的 404 和请求体校验失败的 422）由 `backend/app/main.py` 全局异常处理统一输出上述结构；`request_id` 与响应头 `X-Request-ID` 一致。422 不返回字段级明细，只返回 `VALIDATION_ERROR`。`/health/db`、`/health/redis` 失败时同样走该结构（`503 DEPENDENCY_UNAVAILABLE`）。
 - 所有状态变更接口校验 CSRF Token（开发环境可关闭，生产式演示必须开启）。
 
@@ -169,6 +169,32 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 
 阈值口径固定为：`MODERATE=10mm/BLUE`、`HEAVY=25mm/YELLOW`、`STORM=50mm/ORANGE`，与 `backend/app/seed.py` 一致。
 
+## 5.1 通知与订阅（FR-13 / FR-14）
+
+所有端点只对当前登录用户生效（查看者同样可用），数据按会话用户收敛：列表只返回自己的记录，操作他人记录一律表现为 `404 NOT_FOUND`。
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/notifications?unread_only=&page=&page_size=` | 已登录 | 当前用户通知，按时间倒序；返回 `{items,total,page,page_size}`；`page >= 1`，`1 <= page_size <= 100` |
+| GET | `/notifications/unread-count` | 已登录 | 返回 `{"count": n}`，供顶栏角标轮询 |
+| POST | `/notifications/{notification_id}/read` | 已登录（本人） | 标记已读，返回 `{"read": true}`；重复标记幂等 |
+| POST | `/notifications/read-all` | 已登录 | 全部标为已读，返回 `{"updated": n}` |
+| GET | `/subscriptions` | 已登录 | 当前用户订阅列表 |
+| POST | `/subscriptions` | 已登录 | 新建订阅，返回 `SubscriptionOut`；重复返回 `409 SUBSCRIPTION_EXISTS` |
+| DELETE | `/subscriptions/{subscription_id}` | 已登录（本人） | 取消订阅，返回 `204` 无响应体 |
+
+订阅请求体：
+
+```json
+{ "hazard_type": "RAINSTORM", "city_code": "" }
+```
+
+`hazard_type` 取 `backend/app/hazards.py` 的八个灾种代码，或 `"*"` 表示全部；`city_code` 取 `backend/app/cities.py` 的九城代码，或 `""` 表示全部。越界取值返回 `422 VALIDATION_ERROR`（用于表达「全部」的哨兵值不是 NULL，原因见 `docs/database-design-v1.md` §3.17）。
+
+通知请求体字段：`id`、`kind`、`title`、`body`、`resource_type`、`resource_id`、`read_at`、`created_at`。`kind` 当前为 `WARNING_PUBLISHED` / `WARNING_WITHDRAWN`；`resource_type='warning'` 时 `resource_id` 是预警的 `public_id`，前端据此跳转详情。发布/撤回在业务事务内投递通知；`scheduler` 服务定时补投「先发布、后订阅」遗漏的通知，重复执行不产生重复记录。
+
+订阅变更写 `SUBSCRIPTION_CREATE` / `SUBSCRIPTION_DELETE` 审计（资源类型 `subscription`）；扫描补投写 `NOTIFICATION_BACKFILL`（`actor_role = SYSTEM`，无用户 ID，只在真的补投了内容时才写）。通知的已读状态属于个人阅读状态，不写审计。
+
 ## 6. 监测、灾种、审计与健康检查
 
 | 方法 | 路径 | 权限 | 说明 |
@@ -195,6 +221,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 | 预警详情页 | `GET /warnings/{public_id}`、`/feedback`、`/submit`、`/review`、`/publish`、`/withdraw` |
 | 审核工作台 | `GET /warnings?status=PENDING_REVIEW`、`?status=APPROVED`、`/review`、`/publish` |
 | 灾种覆盖页 | `/hazards` |
+| 通知中心 | `/notifications` 路由；`GET /notifications`、`/notifications/unread-count`、`/notifications/{id}/read`、`/notifications/read-all`、`GET/POST /subscriptions`、`DELETE /subscriptions/{id}`；顶栏铃铛轮询未读数 |
 | 审计页 | `/audit-logs` |
 | 用户管理页（ADMIN） | `/users` 路由；`GET/POST /users`、`PUT /users/{user_id}/roles`、`PATCH /users/{user_id}/status`、`POST /users/{user_id}/reset-password` |
 

@@ -14,10 +14,11 @@ A B/S teaching demonstration for historical precipitation fusion and warning cre
 
 目标：B 档之前把 A 档精细打磨完（不要屎山；A 是 B 的地基）。答辩约 2026-12 下旬。**接手第一步：`git status` 核对，别丢未提交改动。**
 
-- 远程 `main` 已合并阶段 2 并完成 A 档 code review 收口（最新 tag `v0.2.5-phase-a`，HEAD 之上还有 `6956c47` dark command-center 前端重设计）；`phase-a` 保留历史内容。
-- 阶段 2 已在隔离环境 fr02 验证（未触碰演示部署）：迁移 `0004` 由 `0003` 升到 `0004` 成功；全量 pytest **43 passed**（`docs/test-report-v1.md` §6.12；含 `test_fusion.py` 追溯、`test_login.py`/`test_ingest.py`）；前端审核工作台逐行意见、预警详情融合追溯、`ERROR_ZH` 兜底且后端文案优先；`npm run build` 通过；Playwright 复查 `ALL_PW_OK`。
-- **剩余**：**部署演示 VM 前先问用户**；B 档从 `main` 切 `phase-b`，迁移顺延 `0005`。fr02 栈如不再用可 `docker compose -p fr02 stop`。
-- **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest（尚未落地——`package.json` 仅 `dev`/`build`/`preview`，无测试依赖/脚本）；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）。
+- 远程 `main` 已合并阶段 2、完成 A 档收口并推送（最新 tag `v0.2.5-phase-a`，其后有 `6956c47` dark command-center 前端重设计、`1065dc2` Dockerfile 阿里云镜像源、`c3bd0bf` CLAUDE.md 刷新）。
+- 演示 VM 已于 2026-11-02 更新到 `main` 并验证（暗色 UI、`THRESHOLD_NOT_REACHED`、迁移 `0004`、单元测试通过）；部署步骤见 `docs/docker-deployment-plan.md`，`.env` 只留在 VM。
+- **B 档在 `phase-b` 分支进行，分两刀**。第一刀已完成并验证（`docs/test-report-v1.md` §6.13）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；fr02 全量 pytest **54 passed**。**第二刀未开始**：响应任务分配、处置时限、超时升级、任务看板（复用已建的 `response_tasks`，无需新迁移）。
+- **剩余**：第二刀；B 档验收后合并 `main` 并打 `v0.3.0-phase-b`；**更新演示 VM 前先问用户**（B 档部署要多起一个 `scheduler` 服务）。fr02 栈如不再用可 `docker compose -p fr02 stop`。
+- **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest（尚未落地——`package.json` 仅 `dev`/`build`/`preview`，无测试依赖/脚本）；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）；定时扫描用独立 `scheduler` 容器而非进程内调度，且不引入 APScheduler/Celery；订阅的「不限」用哨兵值 `'*'`/`''` 而非 NULL。
 
 ## Commands
 
@@ -31,15 +32,15 @@ cp .env.example .env
 docker compose config --quiet
 docker compose up --build -d
 docker compose ps
-docker compose logs --tail=100 api frontend mysql redis migrate seed
+docker compose logs --tail=100 api frontend scheduler mysql redis migrate seed
 ```
 
-`.env` supplies `MYSQL_ROOT_PASSWORD`, `MYSQL_APP_PASSWORD`, `APP_SECRET_KEY`, and the four `DEMO_*_PASSWORD` values. Compose runs migrations, then seeds roles, demo users, and `data/sample/replay_sample.json` before starting the API. The frontend is at `http://127.0.0.1:8080`; API, MySQL, and Redis have no published host ports.
+`.env` supplies `MYSQL_ROOT_PASSWORD`, `MYSQL_APP_PASSWORD`, `APP_SECRET_KEY`, and the four `DEMO_*_PASSWORD` values. Compose runs migrations, then seeds roles, demo users, and `data/sample/replay_sample.json` before starting the API. The frontend is at `http://127.0.0.1:8080`; API, MySQL, and Redis have no published host ports. The `scheduler` service runs `python -m backend.app.scheduler` on the same image (notification backfill every `NOTIFICATION_SCAN_INTERVAL_SECONDS`, default 300); it needs only MySQL, not Redis or `data/results`.
 
 ```bash
 # Rebuild after source changes; source is copied into images, not bind-mounted.
-docker compose build api frontend
-docker compose up -d api frontend
+docker compose build api frontend scheduler
+docker compose up -d api frontend scheduler
 
 # Explicit migration or seed reruns.
 docker compose run --rm migrate
@@ -71,7 +72,7 @@ docker compose exec -T \
 
 Integration tests require initialized MySQL/Redis and demo accounts, and exercise database-writing business flows; use a development instance. Without `RUN_INTEGRATION=1`, those tests are skipped. There is no project pytest configuration, configured lint command, or frontend test script.
 
-Test suite layout: `test_units.py` (no services needed), `test_integration.py`, `test_rbac_matrix.py`, `test_state_machine.py`, `test_user_management.py`, `test_login.py`, `test_ingest.py`, `test_fusion.py` (FR-04 fusion traceability + below-threshold rejection); `tests/manual_round{2,3,4}.sh` are manual shell scripts. `tests/conftest.py` provides the shared fixtures `new_client`, `login`, `make_warning`, `created_warnings`, `created_users`, and auto-skips `@pytest.mark.integration` tests unless `RUN_INTEGRATION=1`.
+Test suite layout: `test_units.py` (no services needed), `test_integration.py`, `test_rbac_matrix.py`, `test_state_machine.py`, `test_user_management.py`, `test_login.py`, `test_ingest.py`, `test_fusion.py` (FR-04 fusion traceability + below-threshold rejection), `test_notifications.py` (subscriptions + publish/withdraw delivery, per-user isolation), `test_scheduler.py` (backfill idempotency + SYSTEM audit via a direct `run_scan` call, no sleeping); `tests/manual_round{2,3,4}.sh` are manual shell scripts. `tests/conftest.py` provides the shared fixtures `new_client`, `login`, `make_warning`, `created_warnings`, `created_users`, `created_subscriptions` (notifications and subscriptions FK to `users` without `ondelete`, so the cleanup helpers must delete them first), and auto-skips `@pytest.mark.integration` tests unless `RUN_INTEGRATION=1`. Full suite at the end of Phase B slice 1: **54 passed**.
 
 ### Local development
 
@@ -120,23 +121,25 @@ python backend/summarize.py
 
 **Online application:** Vue Router handles page navigation/authentication guards; `frontend/src/api.js` centralizes `/api/v1` requests, credential cookies, CSRF headers, error mapping, and a 60-second GET cache/in-flight deduplication — but that cache is **allowlisted** to `/cities` and `/metrics/experiments*`, not all GETs (204 → `null`; backend `message` wins over the module-local `ERROR_ZH` fallback). Vite proxies requests during development; production Nginx proxies to the API and provides SPA fallback.
 
-**Frontend state and layout:** `frontend/src/auth.js` is the single shared `reactive` singleton (`user`/`csrf`/`ready` + `set`/`clear`/`hasRole`); there is no Pinia/Vuex. The router (`router.js`) lazy-loads views and its global guard does a one-time `/auth/me` bootstrap then enforces login + role gates. Source map: `views/` (12 pages: Dashboard, Monitor, Replay, Metrics, Warnings, WarningDetail, Review, Hazards, Audit, Users, Login, NotFound), `components/` (ChartPanel, ClosedLoopStepper, StatusBadge, EmptyState, PaginationBar, TableSkeleton), `charts/` (`theme.js` + `options.js` ECharts option builders), `lib/` (`echarts.js` tree-shaken registration, `chinaMap.js`), `ui/` (`labels.js`, `useCountUp.js`), `data/cityCoords.js`, `assets/china.json`. The current visual system is the dark "command-center" redesign (`style.css` dark tokens + ECharts dashboards: China effect-scatter map, radar, model bar) from commit `6956c47`.
+**Frontend state and layout:** `frontend/src/auth.js` is the single shared `reactive` singleton (`user`/`csrf`/`ready` + `set`/`clear`/`hasRole`); `frontend/src/notifications.js` is a second, smaller one (`notificationState.unread` + `refreshUnread`/`resetUnread`) that keeps the topbar bell and the notification centre showing the same number. There is no Pinia/Vuex. The router (`router.js`) lazy-loads views and its global guard does a one-time `/auth/me` bootstrap then enforces login + role gates. Source map: `views/` (13 pages: Dashboard, Monitor, Replay, Metrics, Warnings, WarningDetail, Review, Hazards, Notifications, Audit, Users, Login, NotFound), `components/` (ChartPanel, ClosedLoopStepper, StatusBadge, EmptyState, PaginationBar, TableSkeleton), `charts/` (`theme.js` + `options.js` ECharts option builders), `lib/` (`echarts.js` tree-shaken registration, `chinaMap.js`), `ui/` (`labels.js`, `useCountUp.js`), `data/cityCoords.js`, `assets/china.json`. The current visual system is the dark "command-center" redesign (`style.css` dark tokens + ECharts dashboards: China effect-scatter map, radar, model bar) from commit `6956c47`.
 
-`backend/app/main.py` assembles authentication, replay, metrics, warnings, audit, hazards, monitor, and admin user-management routers under `/api/v1`, plus request-ID/CSRF middleware (and CORS when `cors_origin_list` is non-empty) and `/health`, `/health/db`, `/health/redis`. Authentication dependencies in `deps.py` resolve Redis sessions but read active users and roles from MySQL on each request; cached session roles are not authoritative. State-changing requests except login require a CSRF header matching the Redis session token.
+`backend/app/main.py` assembles authentication, replay, metrics, warnings, notifications/subscriptions, audit, hazards, monitor, and admin user-management routers under `/api/v1`, plus request-ID/CSRF middleware (and CORS when `cors_origin_list` is non-empty) and `/health`, `/health/db`, `/health/redis`. Authentication dependencies in `deps.py` resolve Redis sessions but read active users and roles from MySQL on each request; cached session roles are not authoritative. State-changing requests except login require a CSRF header matching the Redis session token.
 
 Routers signal business errors as `HTTPException(status_code, detail="UPPER_SNAKE_CODE")`. Global handlers in `main.py` turn these and request-validation failures into the documented envelope `{"error": {"code", "message", "request_id"}}` (`422 VALIDATION_ERROR`). `backend/app/errors.py` `MESSAGES` is the authoritative code→中文 message map; `frontend/src/api.js` maps `error.code` through `ERROR_ZH` as a fallback. When you add a code, add it to `errors.py` `MESSAGES`, `ERROR_ZH`, and `docs/interface-design-v1.md`. Tests should assert `json()["error"]["code"]`, not `detail`.
 
-MySQL models and Alembic migrations hold authoritative users, datasets, forecast/observation records, fusion runs, warning lifecycle records, feedback, and audit logs. Redis holds sessions, not business facts. `backend/app/seed.py` imports the offline sample and initializes reference data/demo accounts; there is no general-purpose external-data import API.
+MySQL models and Alembic migrations hold authoritative users, datasets, forecast/observation records, fusion runs, warning lifecycle records, feedback, subscriptions, notifications, and audit logs. Redis holds sessions, not business facts. `backend/app/seed.py` imports the offline sample and initializes reference data/demo accounts; there is no general-purpose external-data import API.
 
-`backend/app/models.py` defines **16 tables** (including `dataset_issues`); migrations in `backend/migrations/versions/` run `0001_initial`→`0004_dataset_issues` (`0004` adds the issue table — use it as the pattern for a new migration; the next Phase B migration is `0005`).
+`backend/app/models.py` defines **19 tables**; migrations in `backend/migrations/versions/` run `0001_initial`→`0005_subscriptions_notifications` (`0004` adds `dataset_issues`, `0005` adds `warning_subscriptions` + `notifications` + `response_tasks` — use either as the pattern for a new migration; the next migration is `0006`). `response_tasks` is created but unused until Phase B slice 2.
 
 **Business core — `backend/app/services/`** (routers stay thin: params, auth deps, serialization):
-- `warnings.py` — warning state machine. `Transition` dataclass plus `SUBMIT`/`APPROVE`/`REJECT`/`PUBLISH`/`WITHDRAW` encode allowed source states, target, timestamps and audit action; `is_viewer_only` drives visibility. `create_warning` recomputes via `compute_replay` (raising `409 THRESHOLD_NOT_REACHED` when the recomputed risk level is `None`, i.e. below the selected threshold) and persists `FusionRun` + `FusionInput` + `WarningResult`; `to_out` / `to_detail_out` serialize. Write functions only `flush()` — the router `commit()`s, so business rows and the audit row share one transaction.
+- `warnings.py` — warning state machine. `Transition` dataclass plus `SUBMIT`/`APPROVE`/`REJECT`/`PUBLISH`/`WITHDRAW` encode allowed source states, target, timestamps and audit action; `is_viewer_only` drives visibility. `create_warning` recomputes via `compute_replay` (raising `409 THRESHOLD_NOT_REACHED` when the recomputed risk level is `None`, i.e. below the selected threshold) and persists `FusionRun` + `FusionInput` + `WarningResult`; `to_out` / `to_detail_out` serialize. Write functions only `flush()` — the router `commit()`s, so business rows and the audit row share one transaction. `publish_warning` / `withdraw_warning` also call `notifications.notify_warning` so subscribers are notified inside that same transaction.
+- `subscriptions.py` — matches a warning's (hazard_type, city_code) against each user's subscription; `ALL_HAZARDS = "*"` / `ALL_CITIES = ""` sentinels mean "any". Duplicate scope → `409 SUBSCRIPTION_EXISTS`.
+- `notifications.py` — builds and stores in-app notifications. `notify_warning` skips keys already present in `dedupe_key`, so re-running it (publish, then the scheduled scan) never duplicates. Also owns the notification-centre queries (`list_notifications`, `unread_count`, `mark_read`, `mark_all_read`) and `backfill_published` for the scan.
 - `audit.py` — `add_audit` / `AuditContext` (bound to request_id + client IP). Append-only, same transaction as the business write.
 - `ingest.py` — offline-sample import validation (unknown city/model, bad date, duplicate, out-of-order, invalid value). Each problem is written to `dataset_issues` and skipped; the dataset's `quality_status` becomes `PARTIAL`; idempotent by dataset version.
 - `replay.py::compute_replay` — shared daily replay and warning calculation. `metrics.py` reads frozen `data/results/pooled.json` relative to the working directory, caching by file mtime; Compose mounts `data/results` read-only. Run `tests/` from the repository root so this path resolves. The monitor is a stored-data snapshot, not a live ingestion stream.
 
-App-level helper modules sit directly under `backend/app/` (not `services/`): `clock.py` (single `utcnow()`, naive UTC matching `DATETIME(6)`), `security.py` (Argon2 hashing, unguessable 26-char `public_id`, CSRF/session tokens), plus `cities.py`, `hazards.py`, `errors.py`, `config.py`, `db.py`, `deps.py`, `session.py`, `schemas.py`.
+App-level helper modules sit directly under `backend/app/` (not `services/`): `clock.py` (single `utcnow()`, naive UTC matching `DATETIME(6)`), `security.py` (Argon2 hashing, unguessable 26-char `public_id`, CSRF/session tokens), `scheduler.py` (`run_scan(db, *, now, hours)` pure function + a SIGTERM-aware `main()` loop; runs in its own compose service, not in the API process), plus `cities.py` (`ALL_CITIES`), `hazards.py` (`ALL_HAZARDS`), `errors.py`, `config.py`, `db.py`, `deps.py`, `session.py`, `schemas.py`.
 
 **Fusion traceability (FR-04):** `GET /warnings/{public_id}` returns `WarningDetailOut`, a **subclass** of `WarningOut` (additive only), adding `models` (four model inputs), `baseline_mm`, `proxy_label_mm`, `dataset_version`. `WarningOut` stays unchanged for list/create.
 

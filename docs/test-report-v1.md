@@ -284,6 +284,21 @@
 - **前端**：审核工作台改为逐行填写审核意见（驳回时客户端强制非空），预警详情新增「融合追溯」卡片展示四模式输入、基线、代理标签与数据集版本；`npm run build` 通过。
 - **浏览器复查**：本机 Vite → SSH 转发隔离 API，Chrome headless 驱动。分析师建单并提交 → 详情页显示 4 模式与基线/代理标签；审核员工作台空意见驳回被拦截，填入意见后批准成功；仅有的控制台错误为登录前 `/auth/me` 的 401 与 favicon 404，属预期资源请求。
 
+## 6.13 阶段 B 第一刀验证（2026-11-03，FR-13/FR-14）
+
+在隔离 `fr02` 环境验证订阅、站内通知与定时扫描（未触碰演示部署；演示 VM 仍是 A 档版本）。
+
+- **迁移**：`docker compose -p fr02 run --rm migrate` 由 `0004_dataset_issues` 升级到 `0005_subscriptions_notifications`，创建 `warning_subscriptions`、`notifications`、`response_tasks` 三张表。`response_tasks` 本阶段只建表，B 档第二刀才开始读写。
+- **后端全量**：同步 `backend/` 与 `tests/` 后执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **54 passed、2 warnings，耗时 11.68 秒**。本轮之前同一环境的基线是 45 项（§6.12 记录的 43 项之后又新增 2 项），本轮 +9 项：
+  - `tests/test_notifications.py`（7 项）：发布投递给匹配订阅者、范围不匹配不投递、撤回投递、重复订阅 409 `SUBSCRIPTION_EXISTS`、非法灾种/城市 422、通知按用户隔离且不能标记他人通知（404）、已读与未读数与全部已读。
+  - `tests/test_scheduler.py`（1 项）：先发布后订阅 → `run_scan` 补投 1 条 → 再跑补投 0 条 → 留下 `NOTIFICATION_BACKFILL` 审计且 `actor_id` 为空、`actor_role = SYSTEM`。
+  - `tests/test_units.py`（+1 项）：`subscriptions.matches()` 四维匹配（不限/精确 × 命中/未命中）。
+  - `tests/test_rbac_matrix.py`：`/notifications`、`/notifications/unread-count`、`/subscriptions` 加入四角色可读矩阵与匿名 401 矩阵。
+- **定时扫描容器**：在隔离环境以 `NOTIFICATION_SCAN_INTERVAL_SECONDS=5` 实跑 `python -m backend.app.scheduler` 12 秒，`timeout -s TERM` 触发退出。日志显示「定时扫描启动，间隔 5 秒」→「收到信号 15，停止扫描」→「定时扫描已停止」，无异常栈；本轮无待补投内容，因此未写审计（符合「只在实际补投时写审计」的设计）。
+- **前端**：`npm run build` 通过，新增 `Notifications` 懒加载分块（7.69 kB，gzip 3.29 kB）。
+- **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：查看者经真实登录页登录 → 进入 `/notifications` → 选「暴雨 / 全部城市」添加订阅成功（订阅标签出现）→ 分析员经接口建单并提交、审核员批准并发布 → 查看者刷新后收到 1 条未读通知（标题「预警发布：浏览器验收-订阅通知」，正文「长沙 2024-03-27 暴雨；四模式融合 29.6mm」），顶栏铃铛角标显示 1 → 点击「标记已读」后角标归零。pageerror 为 0；控制台仅有登录前 `/auth/me` 的 401 与 favicon 404。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b-notifications.png`。
+- **回归**：`GET /warnings`、`GET /warnings/{public_id}` 响应结构未变（`WarningOut` / `WarningDetailOut` 未改动）；`test_state_machine.py`、`test_rbac_matrix.py`、`test_user_management.py` 全部通过，`conftest.py` 清理逻辑已覆盖新表的外键。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
@@ -295,4 +310,5 @@
 - 本轮 UI 改版的浏览器逐页视觉与动效验收由用户人工执行（构建、路由、接口与中文映射已自动验证）。
 - 管理员用户管理已实现，隔离环境浏览器核心流程通过（§6.10）；审查修复后全套 34 项测试通过（§6.11，含并发撤权/停用、审计异常回滚、缺失参考角色回滚和统一错误结构）；API 重启与依赖故障未验证。
 - 七类扩展灾种仅登记数据源与判定指标，未接入数据、未做量化验证。
-- 监测页展示的是已导入快照，不含实时拉取与定时调度；发布不含短信/邮件等外部渠道。
+- 监测页展示的是已导入快照，不含实时拉取；定时调度目前只用于通知补投（`scheduler` 服务），不参与数据接入。发布不含短信/邮件等外部渠道。
+- 响应任务、处置时限与超时升级尚未实现（B 档第二刀），`response_tasks` 表已建但无读写代码。
