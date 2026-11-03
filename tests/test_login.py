@@ -93,3 +93,29 @@ def test_ip_rate_limit_blocks_after_threshold(new_client):
     blocked = _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers)
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "LOGIN_RATE_LIMITED"
+    # 计数器必须带过期时间，否则这个 IP 会被永久限制住
+    assert get_redis().ttl(_ip_rate_key(ip)) > 0
+
+
+def test_successful_login_clears_ip_failures(new_client):
+    """成功登录应立刻清掉该 IP 的失败计数，而不是等它自然过期。"""
+    import os
+
+    from conftest import DEMO_PASSWORD_ENV
+
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    password = os.environ.get(DEMO_PASSWORD_ENV["viewer_demo"])
+    if not password:
+        pytest.skip(f"{DEMO_PASSWORD_ENV['viewer_demo']} not set")
+
+    ip = "10.99.99.98"
+    headers = {"X-Real-IP": ip}
+    get_redis().delete(_ip_rate_key(ip))
+
+    assert _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers).status_code == 401
+    assert get_redis().exists(_ip_rate_key(ip)) == 1
+
+    assert _login(new_client, "viewer_demo", password, headers=headers).status_code == 200
+    assert get_redis().exists(_ip_rate_key(ip)) == 0

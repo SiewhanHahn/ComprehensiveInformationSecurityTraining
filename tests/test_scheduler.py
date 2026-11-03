@@ -5,7 +5,7 @@
 """
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from conftest import csrf_headers
 
@@ -55,6 +55,7 @@ def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_su
     created_subscriptions.append(resp.json()["id"])
 
     with SessionLocal() as db:
+        before_audit_id = db.scalar(select(func.max(AuditLog.id))) or 0
         first = run_scan(db, hours=1)
         db.commit()
     assert first.backfilled >= 1
@@ -67,9 +68,10 @@ def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_su
     assert len(_notifications_for(viewer, public_id)) == 1
 
     with SessionLocal() as db:
+        # 只看本次扫描之后新增的审计行；历史行不清理，用「最新一行」会掩盖审计被删掉的回归
         row = db.scalar(
             select(AuditLog)
-            .where(AuditLog.action == "NOTIFICATION_BACKFILL")
+            .where(AuditLog.action == "NOTIFICATION_BACKFILL", AuditLog.id > before_audit_id)
             .order_by(AuditLog.id.desc())
         )
     assert row is not None

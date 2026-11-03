@@ -113,13 +113,8 @@ def created_subscriptions():
     _delete_subscriptions(ids)
 
 
-@pytest.fixture
-def subscriber(login, created_users):
-    """临时 VIEWER 账号作为订阅者，返回 ``(client, csrf)``。
-
-    用独立账号而不是 ``viewer_demo``：演示库里的演示账号可能已有订阅和通知，
-    会让「是否投递」「未读数」这类断言依赖环境残留。账号删除时订阅与通知一起清理。
-    """
+def _make_viewer(login, created_users):
+    """建一个临时 VIEWER 账号并返回 ``(client, csrf)``；账号删除时订阅与通知一起清理。"""
     admin, admin_csrf = login("admin_demo")
     username = f"subtest_{uuid4().hex[:8]}"
     password = f"Aa1-{uuid4().hex[:12]}"
@@ -133,6 +128,22 @@ def subscriber(login, created_users):
     return login(username, password)
 
 
+@pytest.fixture
+def subscriber(login, created_users):
+    """临时 VIEWER 账号作为订阅者，返回 ``(client, csrf)``。
+
+    用独立账号而不是 ``viewer_demo``：演示库里的演示账号可能已有订阅和通知，
+    会让「是否投递」「未读数」这类断言依赖环境残留。
+    """
+    return _make_viewer(login, created_users)
+
+
+@pytest.fixture
+def bystander(login, created_users):
+    """另一个同样没有订阅的临时账号，用来验证通知不会串到别人头上。"""
+    return _make_viewer(login, created_users)
+
+
 def _delete_warnings(public_ids):
     from sqlalchemy import delete, select
 
@@ -141,6 +152,7 @@ def _delete_warnings(public_ids):
         FusionInput,
         FusionRun,
         Notification,
+        ResponseTask,
         Warning,
         WarningFeedback,
         WarningResult,
@@ -161,6 +173,7 @@ def _delete_warnings(public_ids):
             result = db.get(WarningResult, warning.warning_result_id)
             db.execute(delete(WarningFeedback).where(WarningFeedback.warning_id == warning.id))
             db.execute(delete(WarningReview).where(WarningReview.warning_id == warning.id))
+            db.execute(delete(ResponseTask).where(ResponseTask.warning_id == warning.id))
             db.delete(warning)
             db.flush()
             if result is not None:
@@ -189,7 +202,7 @@ def _delete_users(usernames):
     from sqlalchemy import delete, select
 
     from backend.app.db import SessionLocal
-    from backend.app.models import AuditLog, Notification, User, UserRole, WarningSubscription
+    from backend.app.models import AuditLog, Notification, ResponseTask, User, UserRole, WarningSubscription
 
     if not usernames:
         return
@@ -197,7 +210,12 @@ def _delete_users(usernames):
         ids = list(db.scalars(select(User.id).where(User.username.in_(list(usernames)))).all())
         if not ids:
             return
-        # 两张新表都外键到 users 且没有 ondelete，必须先清
+        # 三张新表都外键到 users 且没有 ondelete，必须先清
+        db.execute(
+            delete(ResponseTask).where(
+                ResponseTask.assignee_id.in_(ids) | ResponseTask.created_by.in_(ids)
+            )
+        )
         db.execute(delete(Notification).where(Notification.user_id.in_(ids)))
         db.execute(delete(WarningSubscription).where(WarningSubscription.user_id.in_(ids)))
         db.execute(delete(UserRole).where(UserRole.user_id.in_(ids)))
