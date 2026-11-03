@@ -39,6 +39,30 @@ def csrf_headers(csrf: str) -> dict[str, str]:
     return {"X-CSRF-Token": csrf}
 
 
+def publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, prefix, **overrides) -> str:
+    """建草稿 → 提交 → 批准 → 发布，返回 public_id。三个集成测试文件共用。"""
+    public_id = make_warning(analyst, analyst_csrf, prefix, **overrides)
+    assert analyst.post(
+        f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)
+    ).status_code == 200
+    assert reviewer.post(
+        f"/api/v1/warnings/{public_id}/review",
+        headers=csrf_headers(reviewer_csrf),
+        json={"decision": "APPROVE", "comment": "同意发布"},
+    ).status_code == 200
+    resp = reviewer.post(f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf))
+    assert resp.status_code == 200, resp.text
+    return public_id
+
+
+def notifications_for(client, resource_id) -> list[dict]:
+    """按资源标识（预警 public_id 或任务 id）过滤当前用户的通知。"""
+    resp = client.get("/api/v1/notifications", params={"page_size": 100})
+    assert resp.status_code == 200, resp.text
+    target = str(resource_id)
+    return [n for n in resp.json()["items"] if n["resource_id"] == target]
+
+
 @pytest.fixture
 def new_client():
     """返回无会话 TestClient 的工厂；每次调用得到独立 Cookie 容器。"""

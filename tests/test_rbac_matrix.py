@@ -105,6 +105,15 @@ def test_invalid_status_filter_is_rejected(login):
     assert client.get("/api/v1/warnings?status=BOGUS").status_code == 400
 
 
+def test_viewer_cannot_reach_response_tasks(login):
+    """任务看板只对业务角色开放，查看者整体 403（因此不放进 READ_ENDPOINTS）。"""
+    client, _ = login("viewer_demo")
+    assert client.get("/api/v1/response-tasks").status_code == 403
+
+    analyst, _ = login("analyst_demo")
+    assert analyst.get("/api/v1/response-tasks").status_code == 200
+
+
 def test_hazards_registry_contains_eight_entries(login):
     client, _ = login("viewer_demo")
     data = client.get("/api/v1/hazards").json()

@@ -6,25 +6,9 @@
 
 import pytest
 
-from conftest import csrf_headers
+from conftest import csrf_headers, notifications_for, publish_warning
 
 pytestmark = pytest.mark.integration
-
-
-def _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, prefix, **overrides) -> str:
-    """建草稿 → 提交 → 批准 → 发布，返回 public_id。"""
-    public_id = make_warning(analyst, analyst_csrf, prefix, **overrides)
-    assert analyst.post(
-        f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)
-    ).status_code == 200
-    assert reviewer.post(
-        f"/api/v1/warnings/{public_id}/review",
-        headers=csrf_headers(reviewer_csrf),
-        json={"decision": "APPROVE", "comment": "同意发布"},
-    ).status_code == 200
-    resp = reviewer.post(f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf))
-    assert resp.status_code == 200, resp.text
-    return public_id
 
 
 def _subscribe(client, csrf, created, hazard_type="RAINSTORM", city_code="") -> dict:
@@ -39,13 +23,6 @@ def _subscribe(client, csrf, created, hazard_type="RAINSTORM", city_code="") -> 
     return body
 
 
-def _notifications_for(client, public_id) -> list[dict]:
-    # 只看第一页足够：同一测试最多产生个位数通知
-    resp = client.get("/api/v1/notifications", params={"page_size": 100})
-    assert resp.status_code == 200, resp.text
-    return [n for n in resp.json()["items"] if n["resource_id"] == public_id]
-
-
 def _unread_ids(client) -> set[int]:
     resp = client.get("/api/v1/notifications", params={"unread_only": "true", "page_size": 100})
     assert resp.status_code == 200, resp.text
@@ -58,9 +35,9 @@ def test_publish_notifies_matching_subscriber(login, subscriber, make_warning, c
     viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
-    public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-match")
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-match")
 
-    items = _notifications_for(viewer, public_id)
+    items = notifications_for(viewer, public_id)
     assert len(items) == 1, items
     assert items[0]["kind"] == "WARNING_PUBLISHED"
     assert items[0]["read_at"] is None
@@ -74,9 +51,9 @@ def test_publish_skips_non_matching_subscription(login, subscriber, make_warning
 
     # 订阅的是台风，发布的是暴雨
     _subscribe(viewer, viewer_csrf, created_subscriptions, hazard_type="TYPHOON")
-    public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-skip")
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-skip")
 
-    assert _notifications_for(viewer, public_id) == []
+    assert notifications_for(viewer, public_id) == []
 
 
 def test_withdraw_notifies_subscribers(login, subscriber, make_warning, created_subscriptions):
@@ -85,12 +62,12 @@ def test_withdraw_notifies_subscribers(login, subscriber, make_warning, created_
     viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
-    public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-withdraw")
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-withdraw")
 
     withdraw = reviewer.post(f"/api/v1/warnings/{public_id}/withdraw", headers=csrf_headers(reviewer_csrf))
     assert withdraw.status_code == 200, withdraw.text
 
-    kinds = sorted(n["kind"] for n in _notifications_for(viewer, public_id))
+    kinds = sorted(n["kind"] for n in notifications_for(viewer, public_id))
     assert kinds == ["WARNING_PUBLISHED", "WARNING_WITHDRAWN"]
 
 
@@ -134,13 +111,13 @@ def test_notifications_are_per_user(login, subscriber, bystander, make_warning, 
     other, other_csrf = bystander
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
-    public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-scope")
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-scope")
 
-    items = _notifications_for(viewer, public_id)
+    items = notifications_for(viewer, public_id)
     assert len(items) == 1
 
     # 另一个没有订阅的临时账号看不到这条通知（用临时账号而不是演示账号，避免历史订阅干扰）
-    assert _notifications_for(other, public_id) == []
+    assert notifications_for(other, public_id) == []
 
     # 也不能标记别人的通知
     read = other.post(
@@ -156,11 +133,11 @@ def test_mark_read_and_unread_count(login, subscriber, make_warning, created_sub
     viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
-    public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-read")
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-read")
 
     # 只断言「这一条」的已读状态与未读集合，不用绝对未读数：
     # 同一账号若被定时扫描补投了别的通知，绝对计数会变，但这条的归属不会变。
-    notification_id = _notifications_for(viewer, public_id)[0]["id"]
+    notification_id = notifications_for(viewer, public_id)[0]["id"]
     assert notification_id in _unread_ids(viewer)
     assert viewer.get("/api/v1/notifications/unread-count").json()["count"] >= 1
 
@@ -170,7 +147,7 @@ def test_mark_read_and_unread_count(login, subscriber, make_warning, created_sub
     assert notification_id not in _unread_ids(viewer)
 
     # 已读的通知仍在列表里，只是 read_at 有值
-    assert _notifications_for(viewer, public_id)[0]["read_at"] is not None
+    assert notifications_for(viewer, public_id)[0]["read_at"] is not None
 
     assert viewer.post(
         "/api/v1/notifications/read-all", headers=csrf_headers(viewer_csrf)

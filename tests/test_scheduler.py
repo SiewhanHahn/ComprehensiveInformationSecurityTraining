@@ -7,31 +7,9 @@
 import pytest
 from sqlalchemy import func, select
 
-from conftest import csrf_headers
+from conftest import csrf_headers, notifications_for, publish_warning
 
 pytestmark = pytest.mark.integration
-
-
-def _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, prefix) -> str:
-    public_id = make_warning(analyst, analyst_csrf, prefix)
-    assert analyst.post(
-        f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)
-    ).status_code == 200
-    assert reviewer.post(
-        f"/api/v1/warnings/{public_id}/review",
-        headers=csrf_headers(reviewer_csrf),
-        json={"decision": "APPROVE", "comment": "同意发布"},
-    ).status_code == 200
-    assert reviewer.post(
-        f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf)
-    ).status_code == 200
-    return public_id
-
-
-def _notifications_for(client, public_id) -> list[dict]:
-    resp = client.get("/api/v1/notifications", params={"page_size": 100})
-    assert resp.status_code == 200, resp.text
-    return [n for n in resp.json()["items"] if n["resource_id"] == public_id]
 
 
 def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_subscriptions):
@@ -44,9 +22,9 @@ def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_su
     reviewer, reviewer_csrf = login("reviewer_demo")
     viewer, viewer_csrf = subscriber
 
-    public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "scan-backfill")
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "scan-backfill")
     # 订阅发生在发布之后，所以此刻还没收到
-    assert _notifications_for(viewer, public_id) == []
+    assert notifications_for(viewer, public_id) == []
 
     resp = viewer.post(
         "/api/v1/subscriptions", headers=csrf_headers(viewer_csrf), json={"hazard_type": "*", "city_code": ""}
@@ -59,13 +37,13 @@ def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_su
         first = run_scan(db, hours=1)
         db.commit()
     assert first.backfilled >= 1
-    assert len(_notifications_for(viewer, public_id)) == 1
+    assert len(notifications_for(viewer, public_id)) == 1
 
     with SessionLocal() as db:
         second = run_scan(db, hours=1)
         db.commit()
     assert second.backfilled == 0
-    assert len(_notifications_for(viewer, public_id)) == 1
+    assert len(notifications_for(viewer, public_id)) == 1
 
     with SessionLocal() as db:
         # 只看本次扫描之后新增的审计行；历史行不清理，用「最新一行」会掩盖审计被删掉的回归
