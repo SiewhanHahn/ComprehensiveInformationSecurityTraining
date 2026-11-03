@@ -32,7 +32,7 @@ def dedupe_key(kind: str, public_id: str, user_id: int) -> str:
     return f"{kind.lower()}:{public_id}:{user_id}"
 
 
-def _summary(w: Warning) -> str:
+def warning_summary(w: Warning) -> str:
     result = w.warning_result
     if result is None:
         return w.title
@@ -41,20 +41,22 @@ def _summary(w: Warning) -> str:
     return f"{city} {result.valid_date} {hazard}；四模式融合 {float(result.fused_mm):.1f}mm"
 
 
-def notify_warning(db: Session, w: Warning, kind: str) -> int:
-    """给匹配订阅的用户投递通知；已投递过的跳过，返回新增条数。"""
-    result = w.warning_result
-    city_code = result.city_code if result is not None else ALL_CITIES
-    user_ids = subscriber_ids(db, w.hazard_type, city_code)
+def notify_users(
+    db: Session,
+    *,
+    user_ids: list[int],
+    kind: str,
+    title: str,
+    body: str,
+    resource_type: str,
+    resource_id: str,
+) -> int:
+    """按 ``dedupe_key`` 去重后批量投递，返回新增条数。只 flush，由调用方 commit。"""
     if not user_ids:
         return 0
 
-    keys = {dedupe_key(kind, w.public_id, uid): uid for uid in user_ids}
+    keys = {dedupe_key(kind, resource_id, uid): uid for uid in user_ids}
     delivered = set(db.scalars(select(Notification.dedupe_key).where(Notification.dedupe_key.in_(keys))).all())
-    # 标题列是 VARCHAR(200)，先把预警标题截到剩余长度再拼前缀，避免长标题被吃掉结尾
-    prefix = f"{NOTIFICATION_TITLES[kind]}："
-    title = prefix + w.title[: 200 - len(prefix)]
-    body = _summary(w)[:1000]
 
     created = 0
     for key, user_id in keys.items():
@@ -64,16 +66,34 @@ def notify_warning(db: Session, w: Warning, kind: str) -> int:
             Notification(
                 user_id=user_id,
                 kind=kind,
-                title=title,
-                body=body,
-                resource_type="warning",
-                resource_id=w.public_id,
+                title=title[:200],
+                body=body[:1000],
+                resource_type=resource_type,
+                resource_id=resource_id,
                 dedupe_key=key,
             )
         )
         created += 1
     db.flush()
     return created
+
+
+def notify_warning(db: Session, w: Warning, kind: str) -> int:
+    """给匹配订阅的用户投递一条预警通知。"""
+    result = w.warning_result
+    city_code = result.city_code if result is not None else ALL_CITIES
+    user_ids = subscriber_ids(db, w.hazard_type, city_code)
+    # 标题列是 VARCHAR(200)，先把预警标题截到剩余长度再拼前缀，避免长标题被吃掉结尾
+    prefix = f"{NOTIFICATION_TITLES[kind]}："
+    return notify_users(
+        db,
+        user_ids=user_ids,
+        kind=kind,
+        title=prefix + w.title[: 200 - len(prefix)],
+        body=warning_summary(w),
+        resource_type="warning",
+        resource_id=w.public_id,
+    )
 
 
 # ---- 通知中心 ----

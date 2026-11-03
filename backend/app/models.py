@@ -330,7 +330,7 @@ class Notification(Base):
 
 
 class ResponseTask(Base, TimestampMixin):
-    """响应任务：B 档第二刀实现分配、处置时限与超时升级，本阶段仅有表结构。"""
+    """响应任务：发布时自动生成，负责人接单/完成；超时只写 escalated_at，不改 status。"""
 
     __tablename__ = "response_tasks"
 

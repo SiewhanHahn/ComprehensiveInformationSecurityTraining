@@ -22,6 +22,7 @@ from ..security import new_public_id
 from .audit import AuditContext
 from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
+from .tasks import create_for_published
 
 DRAFT = "DRAFT"
 PENDING_REVIEW = "PENDING_REVIEW"
@@ -296,8 +297,9 @@ def _transition_existing(db: Session, public_id: str, transition: Transition, ac
 
 def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _transition_existing(db, public_id, PUBLISH, actor, audit)
-    # 通知与状态变更、审计同事务（服务只 flush，路由 commit）
+    # 通知与响应任务都和状态变更、审计同事务（服务只 flush，路由 commit）
     notify_warning(db, w, NOTIFY_PUBLISHED)
+    create_for_published(db, w, actor, audit)
     return w
 
 

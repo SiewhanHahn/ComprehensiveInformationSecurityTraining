@@ -1,7 +1,7 @@
 """定时扫描：独立的扫描循环，由 compose 的 ``scheduler`` 服务运行（不随 API 进程启动）。
 
-``run_scan`` 是纯函数，测试可以直接传入 ``now`` 调用，不需要 sleep 或后台线程。
-本阶段只有「投递补偿」一趟；B 档第二刀的响应任务超时升级作为新一轮加在这里。
+每轮跑两趟：通知补投与响应任务超时升级。``run_scan`` 是纯函数，
+测试可以直接传入 ``now`` 调用，不需要 sleep 或后台线程。
 """
 
 import logging
@@ -17,6 +17,7 @@ from .config import get_settings
 from .db import SessionLocal
 from .services.audit import add_audit
 from .services.notifications import backfill_published
+from .services.tasks import escalate_overdue
 
 logger = logging.getLogger("backend.scheduler")
 
@@ -24,13 +25,15 @@ logger = logging.getLogger("backend.scheduler")
 @dataclass
 class ScanResult:
     backfilled: int = 0
+    escalated: int = 0
 
 
 def run_scan(db: Session, *, now: datetime | None = None, hours: int | None = None) -> ScanResult:
-    """跑一轮扫描。补投了才写审计，避免空扫描把审计表刷满。"""
+    """跑一轮扫描。只有真的做了事才写审计，避免空扫描把审计表刷满。"""
     now = now or utcnow()
     if hours is None:
         hours = get_settings().notification_backfill_hours
+
     backfilled = backfill_published(db, hours=hours, now=now)
     if backfilled:
         add_audit(
@@ -42,7 +45,20 @@ def run_scan(db: Session, *, now: datetime | None = None, hours: int | None = No
             reason=f"created={backfilled}",
         )
         logger.info("通知补投 created=%s", backfilled)
-    return ScanResult(backfilled=backfilled)
+
+    escalated = escalate_overdue(db, now=now)
+    if escalated:
+        add_audit(
+            db,
+            action="RESPONSE_TASK_ESCALATE",
+            resource_type="response_task",
+            result="SUCCESS",
+            actor_role="SYSTEM",
+            reason=f"escalated={escalated}",
+        )
+        logger.info("响应任务超时升级 escalated=%s", escalated)
+
+    return ScanResult(backfilled=backfilled, escalated=escalated)
 
 
 def main() -> None:

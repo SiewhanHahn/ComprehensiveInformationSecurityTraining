@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     notification_scan_interval_seconds: int = 300
     notification_backfill_hours: int = 24
 
+    # 响应任务处置时限；用分钟而不是小时，答辩时可以设成 2 分钟现场演示超时升级
+    response_task_due_minutes: int = 1440
+
     open_meteo_base_url: str = "https://previous-runs-api.open-meteo.com/v1/forecast"
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
 
