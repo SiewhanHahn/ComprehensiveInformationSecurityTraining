@@ -302,6 +302,44 @@
 - **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：查看者经真实登录页登录 → 进入 `/notifications` → 选「暴雨 / 全部城市」添加订阅成功（订阅标签出现）→ 分析员经接口建单并提交、审核员批准并发布 → 查看者刷新后收到 1 条未读通知（标题「预警发布：浏览器验收-订阅通知」，正文「长沙 2024-03-27 暴雨；四模式融合 29.6mm」），顶栏铃铛角标显示 1 → 点击「标记已读」后角标归零。pageerror 为 0；控制台仅有登录前 `/auth/me` 的 401 与 favicon 404。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b-notifications.png`。
 - **回归**：`GET /warnings`、`GET /warnings/{public_id}` 响应结构未变（`WarningOut` / `WarningDetailOut` 未改动）；`test_state_machine.py`、`test_rbac_matrix.py`、`test_user_management.py` 全部通过，`conftest.py` 清理逻辑已覆盖新表的外键。
 
+## 6.14 阶段 B 第一刀 code review 收口（2026-11-03）
+
+对 `main..phase-b`（40 文件 / +1763 行）做了多角度评审（逐行、删除行为、跨文件、语言陷阱、封装层、复用、简化、效率、层次、仓库规范）。共 15 条确认问题，全部修复后复测。
+
+**安全与可见缺陷**
+
+- **会话空闲超时被轮询续命**：顶栏未读数原本每 60 秒轮询一次，而 `/notifications/unread-count` 走 `get_current_user` → `touch_session`，会重置 Redis 空闲 TTL。只要标签页开着，SEC-01 承诺的「空闲 1 小时失效」就不再成立，只能靠 8 小时绝对 TTL 收回。改为只在挂载、路由切换、标签页重新可见这三种「用户真实操作」时刷新，去掉定时器。
+- **未定义的设计变量**：角标背景与订阅删除按钮的 hover 色写成 `--color-danger`，而设计系统里是 `--danger`，两处都解析失败退化成透明，角标只剩一圈描边。改为 `--danger`。
+
+**行为修正**
+
+- 重复订阅的预检查与唯一索引之间存在并发窗口，撞索引会返回 500；补上 `IntegrityError` 1062 → `409 SUBSCRIPTION_EXISTS`，与 `routers/users.py` 的既有写法一致。
+- 补投原按「当前状态 = 已发布」取数，导致两次扫描之间被撤回的预警永远补不到「发布」通知，订阅者只收到一条自己没见过的「撤回」。改为按 `published_at` 取窗口，窗口内已撤回的按「发布 → 撤回」两条顺序补齐。
+- 已撤回预警对「仅查看者」是 404，前端原本仍然渲染「查看预警」链接；改为只对 `WARNING_PUBLISHED` 或分析/审核/管理角色渲染。
+- `warning_subscriptions.is_active` 是从未写入的死列（取消订阅是物理删除），从模型与迁移 `0005` 中删除。
+- 未读数刷新失败时把计数清成 0、且并发请求可乱序覆盖；`loadNotifications` 增加请求序号丢弃过期响应，未读筛选下标记已读改为重新取当前页（本地删行会让 `total` 与后端偏移错开）。
+- 订阅与城市列表的加载失败原本被吞成空数组，后端出错时页面看起来像「还没订阅过」；改为走统一错误提示。
+- 标题按整串 `[:200]` 截断会吃掉结尾字符，改为先按剩余长度截预警标题再拼前缀。
+- 停用账号仍会持续收到通知；订阅者查询改为只取启用账号。
+
+**部署、索引与测试**
+
+- `NOTIFICATION_BACKFILL_HOURS` 写进了 `.env.example` 与 `config.py`，但 compose 的 `scheduler` 服务只转发了 `SCAN_INTERVAL`，设了不生效；补上转发。
+- `warnings` 表原本没有任何索引，扫描每轮全表扫；迁移 `0005` 补 `idx_warnings_published_at`。
+- `mark_all_read` 改为单条批量 `UPDATE`。
+- 测试隔离：`_notifications_for(analyst, ...) == []` 仍假设演示账号没有订阅，改用第二个临时账号 `bystander`；`test_mark_read_and_unread_count` 不再断言绝对未读数，改为断言「这一条」在未读集合中的归属；`test_scheduler` 的审计断言只认本次扫描之后新增的行；`conftest` 清理补上 `response_tasks`。
+- `test_login.py` 清空 IP 计数器后丢失了「计数器带过期时间」与「成功登录清计数」的覆盖，补上 TTL 断言并新增 `test_successful_login_clears_ip_failures`。
+
+**迁移回环**
+
+`downgrade()` 原先逐条 `drop_index`，在 `idx_response_tasks_assignee` 上撞 MySQL 1553——该索引被 `assignee_id` 的外键借用，外键在就不能删。改为直接 `drop_table`（MySQL 会连同索引与约束一起删），并在隔离环境实跑 `0004 → 0005 → 0004` 回环验证。
+
+**复测**
+
+- 隔离 `fr02` 环境：`alembic downgrade 0004` → `upgrade head` 成功，`warning_subscriptions` 已无 `is_active`、`warnings` 上有 `idx_warnings_published_at`。
+- 全量 pytest **55 passed**（新增 `test_successful_login_clears_ip_failures`），连续两次运行结果一致。
+- `npm run build` 通过；浏览器复查仍为：订阅 → 发布 → 铃铛角标 1（红色实心）→ 标记已读后归零。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。

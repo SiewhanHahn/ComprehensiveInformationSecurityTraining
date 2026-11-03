@@ -16,9 +16,9 @@ A B/S teaching demonstration for historical precipitation fusion and warning cre
 
 - 远程 `main` 已合并阶段 2、完成 A 档收口并推送（最新 tag `v0.2.5-phase-a`，其后有 `6956c47` dark command-center 前端重设计、`1065dc2` Dockerfile 阿里云镜像源、`c3bd0bf` CLAUDE.md 刷新）。
 - 演示 VM 已于 2026-11-02 更新到 `main` 并验证（暗色 UI、`THRESHOLD_NOT_REACHED`、迁移 `0004`、单元测试通过）；部署步骤见 `docs/docker-deployment-plan.md`，`.env` 只留在 VM。
-- **B 档在 `phase-b` 分支进行，分两刀**。第一刀已完成并验证（`docs/test-report-v1.md` §6.13）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；fr02 全量 pytest **54 passed**。**第二刀未开始**：响应任务分配、处置时限、超时升级、任务看板（复用已建的 `response_tasks`，无需新迁移）。
+- **B 档在 `phase-b` 分支进行，分两刀**。第一刀已完成并验证（`docs/test-report-v1.md` §6.13、§6.14）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；fr02 全量 pytest **55 passed**；第一刀已过一轮多角度 code review 并收口。**第二刀未开始**：响应任务分配、处置时限、超时升级、任务看板（复用已建的 `response_tasks`，无需新迁移）。
 - **剩余**：第二刀；B 档验收后合并 `main` 并打 `v0.3.0-phase-b`；**更新演示 VM 前先问用户**（B 档部署要多起一个 `scheduler` 服务）。fr02 栈如不再用可 `docker compose -p fr02 stop`。
-- **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest（尚未落地——`package.json` 仅 `dev`/`build`/`preview`，无测试依赖/脚本）；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）；定时扫描用独立 `scheduler` 容器而非进程内调度，且不引入 APScheduler/Celery；订阅的「不限」用哨兵值 `'*'`/`''` 而非 NULL。
+- **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest（尚未落地——`package.json` 仅 `dev`/`build`/`preview`，无测试依赖/脚本）；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）；定时扫描用独立 `scheduler` 容器而非进程内调度，且不引入 APScheduler/Celery；订阅的「不限」用哨兵值 `'*'`/`''` 而非 NULL；**前端不对未读数做定时轮询**——`/notifications/unread-count` 走 `get_current_user` 会刷新会话空闲 TTL，轮询等于让会话永不过期，只在挂载/切页/标签页回到前台时刷新。
 
 ## Commands
 
@@ -72,7 +72,7 @@ docker compose exec -T \
 
 Integration tests require initialized MySQL/Redis and demo accounts, and exercise database-writing business flows; use a development instance. Without `RUN_INTEGRATION=1`, those tests are skipped. There is no project pytest configuration, configured lint command, or frontend test script.
 
-Test suite layout: `test_units.py` (no services needed), `test_integration.py`, `test_rbac_matrix.py`, `test_state_machine.py`, `test_user_management.py`, `test_login.py`, `test_ingest.py`, `test_fusion.py` (FR-04 fusion traceability + below-threshold rejection), `test_notifications.py` (subscriptions + publish/withdraw delivery, per-user isolation), `test_scheduler.py` (backfill idempotency + SYSTEM audit via a direct `run_scan` call, no sleeping); `tests/manual_round{2,3,4}.sh` are manual shell scripts. `tests/conftest.py` provides the shared fixtures `new_client`, `login`, `make_warning`, `created_warnings`, `created_users`, `created_subscriptions` (notifications and subscriptions FK to `users` without `ondelete`, so the cleanup helpers must delete them first), and auto-skips `@pytest.mark.integration` tests unless `RUN_INTEGRATION=1`. Full suite at the end of Phase B slice 1: **54 passed**.
+Test suite layout: `test_units.py` (no services needed), `test_integration.py`, `test_rbac_matrix.py`, `test_state_machine.py`, `test_user_management.py`, `test_login.py`, `test_ingest.py`, `test_fusion.py` (FR-04 fusion traceability + below-threshold rejection), `test_notifications.py` (subscriptions + publish/withdraw delivery, per-user isolation), `test_scheduler.py` (backfill idempotency + SYSTEM audit via a direct `run_scan` call, no sleeping); `tests/manual_round{2,3,4}.sh` are manual shell scripts. `tests/conftest.py` provides the shared fixtures `new_client`, `login`, `make_warning`, `created_warnings`, `created_users`, `created_subscriptions` (notifications and subscriptions FK to `users` without `ondelete`, so the cleanup helpers must delete them first), and auto-skips `@pytest.mark.integration` tests unless `RUN_INTEGRATION=1`. Full suite at the end of Phase B slice 1: **55 passed**.
 
 ### Local development
 

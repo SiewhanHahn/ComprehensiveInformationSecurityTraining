@@ -191,7 +191,9 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 
 `hazard_type` 取 `backend/app/hazards.py` 的八个灾种代码，或 `"*"` 表示全部；`city_code` 取 `backend/app/cities.py` 的九城代码，或 `""` 表示全部。越界取值返回 `422 VALIDATION_ERROR`（用于表达「全部」的哨兵值不是 NULL，原因见 `docs/database-design-v1.md` §3.17）。
 
-通知请求体字段：`id`、`kind`、`title`、`body`、`resource_type`、`resource_id`、`read_at`、`created_at`。`kind` 当前为 `WARNING_PUBLISHED` / `WARNING_WITHDRAWN`；`resource_type='warning'` 时 `resource_id` 是预警的 `public_id`，前端据此跳转详情。发布/撤回在业务事务内投递通知；`scheduler` 服务定时补投「先发布、后订阅」遗漏的通知，重复执行不产生重复记录。
+通知请求体字段：`id`、`kind`、`title`、`body`、`resource_type`、`resource_id`、`read_at`、`created_at`。`kind` 当前为 `WARNING_PUBLISHED` / `WARNING_WITHDRAWN`；`resource_type='warning'` 时 `resource_id` 是预警的 `public_id`，前端据此跳转详情。已撤回的预警对「仅查看者」不可见（`GET /warnings/{public_id}` 对其返回 404），因此前端只对 `WARNING_PUBLISHED`、或对分析/审核/管理角色才渲染详情链接，避免给出必然打不开的入口。
+
+发布/撤回在业务事务内投递通知。`scheduler` 服务按 `published_at`（发布事件）在最近 `NOTIFICATION_BACKFILL_HOURS` 小时窗口内补投，重复执行不产生重复记录；窗口内被撤回的预警会按「发布 → 撤回」两条顺序补齐，避免订阅者收到一条自己从没见过的撤回通知。
 
 订阅变更写 `SUBSCRIPTION_CREATE` / `SUBSCRIPTION_DELETE` 审计（资源类型 `subscription`）；扫描补投写 `NOTIFICATION_BACKFILL`（`actor_role = SYSTEM`，无用户 ID，只在真的补投了内容时才写）。通知的已读状态属于个人阅读状态，不写审计。
 

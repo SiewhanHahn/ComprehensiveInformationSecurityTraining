@@ -294,12 +294,11 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 | user_id | BIGINT UNSIGNED | FK, NOT NULL | 订阅人 |
 | hazard_type | VARCHAR(32) | NOT NULL DEFAULT `'*'` | `'*'` 表示全部灾种 |
 | city_code | VARCHAR(32) | NOT NULL DEFAULT `''` | `''` 表示全部城市 |
-| is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 订阅开关 |
 | created_at / updated_at | DATETIME(6) | NOT NULL | UTC 时间 |
 
 唯一约束：`uq_subscription_scope (user_id, hazard_type, city_code)`。
 
-「全部」用哨兵值而不是 NULL：MySQL 唯一索引把 NULL 视为互不相等，用 NULL 会让同一用户重复插入相同范围的订阅。
+「全部」用哨兵值而不是 NULL：MySQL 唯一索引把 NULL 视为互不相等，用 NULL 会让同一用户重复插入相同范围的订阅。取消订阅是物理删除，不设「暂停」状态位。
 
 ### 3.18 notifications（迁移 `0005` 新增）
 
@@ -316,9 +315,11 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 | read_at | DATETIME(6) | NULL | 已读时间 |
 | created_at | DATETIME(6) | NOT NULL | UTC 时间 |
 
-索引：`uq_notifications_dedupe (dedupe_key)`、`idx_notifications_user_created (user_id, created_at)`、`idx_notifications_user_read (user_id, read_at)`。
+索引：`idx_notifications_dedupe (dedupe_key)`、`idx_notifications_user_created (user_id, created_at)`、`idx_notifications_user_read (user_id, read_at)`。
 
 `dedupe_key` 形如 `warning_published:<public_id>:<user_id>`，让定时扫描的补投天然幂等：同一（预警, 用户, 种类）只可能有一条通知。通知只增不改，已读只写 `read_at`。
+
+迁移 `0005` 还给既有的 `warnings` 表补了 `idx_warnings_published_at (published_at)`：定时扫描按发布窗口取数，而该表建表时没有索引。
 
 ### 3.19 response_tasks（迁移 `0005` 新增，B 档第二刀开始使用）
 
