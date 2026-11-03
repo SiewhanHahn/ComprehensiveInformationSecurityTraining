@@ -9,6 +9,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -279,6 +280,73 @@ class WarningFeedback(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DATETIME(fsp=6), nullable=False, default=_utcnow, server_default=text("CURRENT_TIMESTAMP(6)")
+    )
+
+
+class WarningSubscription(Base, TimestampMixin):
+    """预警订阅：用哨兵值表达「全部」——``hazard_type='*'``、``city_code=''``。
+
+    不用 NULL 是因为 MySQL 唯一索引把 NULL 视为互不相等，会让同一人重复插入同样的订阅。
+    """
+
+    __tablename__ = "warning_subscriptions"
+
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=False)
+    hazard_type: Mapped[str] = mapped_column(String(32), nullable=False, default="*", server_default=text("'*'"))
+    city_code: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default=text("''"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("1"))
+
+    __table_args__ = (UniqueConstraint("user_id", "hazard_type", "city_code", name="uq_subscription_scope"),)
+
+
+class Notification(Base):
+    """站内通知：只增不改，``dedupe_key`` 唯一索引保证定时扫描重复执行不产生重复通知。"""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(String(1000), nullable=False)
+    resource_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="warning", server_default=text("'warning'")
+    )
+    resource_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DATETIME(fsp=6), nullable=False, default=_utcnow, server_default=text("CURRENT_TIMESTAMP(6)")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_notifications_dedupe"),
+        Index("idx_notifications_user_created", "user_id", "created_at"),
+        Index("idx_notifications_user_read", "user_id", "read_at"),
+    )
+
+
+class ResponseTask(Base, TimestampMixin):
+    """响应任务：B 档第二刀实现分配、处置时限与超时升级，本阶段仅有表结构。"""
+
+    __tablename__ = "response_tasks"
+
+    id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    warning_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("warnings.id"), nullable=False)
+    assignee_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=False)
+    created_by: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING", server_default=text("'PENDING'"))
+    due_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)
+    acked_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    escalation_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default=text("0"))
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    __table_args__ = (
+        Index("idx_response_tasks_due", "status", "due_at"),
+        Index("idx_response_tasks_assignee", "assignee_id", "status"),
     )
 
 
