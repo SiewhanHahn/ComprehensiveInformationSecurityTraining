@@ -10,3 +10,6 @@ frontend/dist/
 .mypy_cache/
 data/cache/
 *.log
+
+# 课程报告模板（老师下发的 .docx/.pptx，非交付物）
+report/
