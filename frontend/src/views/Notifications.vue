@@ -99,6 +99,13 @@
                 >
                   查看预警
                 </router-link>
+                <router-link
+                  v-if="n.resource_type === 'response_task'"
+                  class="btn btn-ghost btn-sm"
+                  to="/tasks"
+                >
+                  查看任务
+                </router-link>
                 <button
                   v-if="!n.read_at"
                   class="btn btn-ghost btn-sm"

@@ -11,6 +11,7 @@ const routes = [
   { path: '/warnings', component: () => import('./views/Warnings.vue') },
   { path: '/warnings/:publicId', component: () => import('./views/WarningDetail.vue') },
   { path: '/review', component: () => import('./views/Review.vue'), meta: { roles: ['REVIEWER', 'ADMIN'] } },
+  { path: '/tasks', component: () => import('./views/Tasks.vue'), meta: { roles: ['ANALYST', 'REVIEWER', 'ADMIN'] } },
   { path: '/hazards', component: () => import('./views/Hazards.vue') },
   { path: '/notifications', component: () => import('./views/Notifications.vue') },
   { path: '/audit', component: () => import('./views/Audit.vue'), meta: { role: 'ADMIN' } },
