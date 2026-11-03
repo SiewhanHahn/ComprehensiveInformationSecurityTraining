@@ -75,6 +75,22 @@ services:
       seed:
         condition: service_completed_successfully
 
+  # 定时扫描：复用 API 镜像，不占 HTTP 端口，也不挂 data/results。
+  scheduler:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql+pymysql://weather_app:${MYSQL_APP_PASSWORD}@mysql:3306/weather_warning?charset=utf8mb4
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
+      APP_ENV: development
+      NOTIFICATION_SCAN_INTERVAL_SECONDS: ${NOTIFICATION_SCAN_INTERVAL_SECONDS:-300}
+    command: ["python", "-m", "backend.app.scheduler"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   frontend:
     build: ./frontend
     restart: unless-stopped
