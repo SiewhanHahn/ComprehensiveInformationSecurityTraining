@@ -7,11 +7,12 @@ MySQL 唯一索引不把 NULL 视为相等，用 NULL 会让同一人重复插�
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..cities import ALL_CITIES
 from ..hazards import ALL_HAZARDS
-from ..models import WarningSubscription
+from ..models import User, WarningSubscription
 from ..schemas import SubscriptionCreate
 
 
@@ -22,19 +23,25 @@ def matches(sub: WarningSubscription, hazard_type: str, city_code: str) -> bool:
     return hazard_ok and city_ok
 
 
-def _active(db: Session) -> list[WarningSubscription]:
-    return list(db.scalars(select(WarningSubscription).where(WarningSubscription.is_active.is_(True))).all())
+def _all_subscriptions(db: Session) -> list[WarningSubscription]:
+    # 已停用账号读不到任何接口，不必再给他堆通知
+    stmt = (
+        select(WarningSubscription)
+        .join(User, User.id == WarningSubscription.user_id)
+        .where(User.is_active.is_(True))
+    )
+    return list(db.scalars(stmt).all())
 
 
 def subscriber_ids(db: Session, hazard_type: str, city_code: str) -> list[int]:
     """匹配该预警的订阅者。订阅与用户数量都很小，在内存里比对即可，保持匹配逻辑只有一处实现。"""
-    return sorted({sub.user_id for sub in _active(db) if matches(sub, hazard_type, city_code)})
+    return sorted({sub.user_id for sub in _all_subscriptions(db) if matches(sub, hazard_type, city_code)})
 
 
 def list_subscriptions(db: Session, user_id: int) -> list[WarningSubscription]:
     stmt = (
         select(WarningSubscription)
-        .where(WarningSubscription.user_id == user_id, WarningSubscription.is_active.is_(True))
+        .where(WarningSubscription.user_id == user_id)
         .order_by(WarningSubscription.id)
     )
     return list(db.scalars(stmt).all())
@@ -52,7 +59,14 @@ def create_subscription(db: Session, user_id: int, body: SubscriptionCreate) -> 
         raise HTTPException(status_code=409, detail="SUBSCRIPTION_EXISTS")
     sub = WarningSubscription(user_id=user_id, hazard_type=body.hazard_type, city_code=body.city_code)
     db.add(sub)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        # 预检查与唯一索引之间的并发窗口：与 routers/users.py 的 1062 处理一致，翻译成 409
+        db.rollback()
+        if getattr(exc.orig, "args", (None,))[0] == 1062:
+            raise HTTPException(status_code=409, detail="SUBSCRIPTION_EXISTS") from exc
+        raise
     return sub
 
 

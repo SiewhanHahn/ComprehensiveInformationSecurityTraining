@@ -84,6 +84,7 @@ services:
       APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
       APP_ENV: development
       NOTIFICATION_SCAN_INTERVAL_SECONDS: ${NOTIFICATION_SCAN_INTERVAL_SECONDS:-300}
+      NOTIFICATION_BACKFILL_HOURS: ${NOTIFICATION_BACKFILL_HOURS:-24}
     command: ["python", "-m", "backend.app.scheduler"]
     depends_on:
       mysql:

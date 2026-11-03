@@ -8,7 +8,7 @@
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from ..cities import ALL_CITIES, CITIES
@@ -26,9 +26,6 @@ NOTIFICATION_TITLES = {
 }
 
 HAZARD_NAMES = {h["code"]: h["name"] for h in HAZARDS}
-
-# ``services.warnings.PUBLISHED``；此处写字面量避免 warnings ↔ notifications 循环导入
-_PUBLISHED = "PUBLISHED"
 
 
 def dedupe_key(kind: str, public_id: str, user_id: int) -> str:
@@ -54,7 +51,9 @@ def notify_warning(db: Session, w: Warning, kind: str) -> int:
 
     keys = {dedupe_key(kind, w.public_id, uid): uid for uid in user_ids}
     delivered = set(db.scalars(select(Notification.dedupe_key).where(Notification.dedupe_key.in_(keys))).all())
-    title = f"{NOTIFICATION_TITLES[kind]}：{w.title}"[:200]
+    # 标题列是 VARCHAR(200)，先把预警标题截到剩余长度再拼前缀，避免长标题被吃掉结尾
+    prefix = f"{NOTIFICATION_TITLES[kind]}："
+    title = prefix + w.title[: 200 - len(prefix)]
     body = _summary(w)[:1000]
 
     created = 0
@@ -117,23 +116,29 @@ def mark_read(db: Session, user_id: int, notification_id: int) -> None:
 
 
 def mark_all_read(db: Session, user_id: int) -> int:
-    rows = db.scalars(
-        select(Notification).where(Notification.user_id == user_id, Notification.read_at.is_(None))
-    ).all()
-    now = utcnow()
-    for n in rows:
-        n.read_at = now
+    """一条 UPDATE 搞定；逐行读进 ORM 再逐行更新的话，积压越多越慢。"""
+    result = db.execute(
+        update(Notification)
+        .where(Notification.user_id == user_id, Notification.read_at.is_(None))
+        .values(read_at=utcnow())
+    )
     db.flush()
-    return len(rows)
+    return result.rowcount or 0
 
 
 def backfill_published(db: Session, *, hours: int, now: datetime) -> int:
-    """补投：最近 ``hours`` 小时内已发布、但订阅者还没收到通知的预警。
+    """补投：最近 ``hours`` 小时内发布过、但订阅者还没收到通知的预警。
 
-    订阅发生在发布之后时也能收到；重复执行不会重复投递（``dedupe_key``）。
+    按 ``published_at``（发布事件）取数而不是当前状态：预警在两次扫描之间被撤回时，
+    仍然按顺序补上「发布」和「撤回」两条，避免订阅者收到一条自己从没见过的撤回通知。
+    重复执行不会重复投递（``dedupe_key``）。
     """
     since = now - timedelta(hours=hours)
-    warnings = db.scalars(
-        select(Warning).where(Warning.status == _PUBLISHED, Warning.published_at >= since)
-    ).all()
-    return sum(notify_warning(db, w, NOTIFY_PUBLISHED) for w in warnings)
+    warnings = db.scalars(select(Warning).where(Warning.published_at >= since)).all()
+    created = 0
+    for w in warnings:
+        created += notify_warning(db, w, NOTIFY_PUBLISHED)
+        # withdrawn_at 只有 WITHDRAW 转换会写，等价于「当前状态是已撤回」
+        if w.withdrawn_at is not None:
+            created += notify_warning(db, w, NOTIFY_WITHDRAWN)
+    return created

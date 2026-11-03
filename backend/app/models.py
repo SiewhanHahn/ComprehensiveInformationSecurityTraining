@@ -250,6 +250,9 @@ class Warning(Base, TimestampMixin):
     published_by: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=True)
     withdrawn_by: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=True)
 
+    # 定时扫描按发布窗口取数（迁移 0005 补建）
+    __table_args__ = (Index("idx_warnings_published_at", "published_at"),)
+
     warning_result: Mapped["WarningResult"] = relationship(
         primaryjoin="Warning.warning_result_id == WarningResult.id",
         viewonly=True,
@@ -295,7 +298,6 @@ class WarningSubscription(Base, TimestampMixin):
     user_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=False)
     hazard_type: Mapped[str] = mapped_column(String(32), nullable=False, default="*", server_default=text("'*'"))
     city_code: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default=text("''"))
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("1"))
 
     __table_args__ = (UniqueConstraint("user_id", "hazard_type", "city_code", name="uq_subscription_scope"),)
 

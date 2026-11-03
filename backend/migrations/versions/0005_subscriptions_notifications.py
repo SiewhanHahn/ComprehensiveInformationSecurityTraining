@@ -29,11 +29,13 @@ def upgrade() -> None:
         sa.Column("user_id", BIGINT, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("hazard_type", sa.String(32), nullable=False, server_default=sa.text("'*'")),
         sa.Column("city_code", sa.String(32), nullable=False, server_default=sa.text("''")),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
         sa.Column("created_at", DT, nullable=False, server_default=NOW),
         sa.Column("updated_at", DT, nullable=False, server_default=NOW),
         sa.UniqueConstraint("user_id", "hazard_type", "city_code", name="uq_subscription_scope"),
     )
+
+    # 定时扫描按发布窗口取数；warnings 建表时没有索引
+    op.create_index("idx_warnings_published_at", "warnings", ["published_at"])
 
     # dedupe_key 唯一索引是定时扫描幂等的保证：同一 (预警, 用户, 种类) 只会有一条通知。
     op.create_table(
@@ -75,12 +77,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("idx_response_tasks_assignee", table_name="response_tasks")
-    op.drop_index("idx_response_tasks_due", table_name="response_tasks")
+    # 直接删表：MySQL 会连同表上的索引和约束一起删掉。
+    # 显式先 drop_index 会在 idx_response_tasks_assignee 上撞 1553——
+    # 它被 assignee_id 的外键借用着，外键还在就不能删。
     op.drop_table("response_tasks")
-
-    op.drop_index("idx_notifications_user_read", table_name="notifications")
-    op.drop_index("idx_notifications_user_created", table_name="notifications")
     op.drop_table("notifications")
-
+    op.drop_index("idx_warnings_published_at", table_name="warnings")
     op.drop_table("warning_subscriptions")

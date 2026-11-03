@@ -313,8 +313,8 @@ class NotificationPage(BaseModel):
 class SubscriptionCreate(BaseModel):
     """``hazard_type='*'`` / ``city_code=''`` 表示该维度不限。"""
 
-    hazard_type: str = "*"
-    city_code: str = ""
+    hazard_type: str = ALL_HAZARDS
+    city_code: str = ALL_CITIES
 
     @field_validator("hazard_type")
     @classmethod
