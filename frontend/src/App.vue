@@ -119,32 +119,29 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth } from './auth'
 import { apiFetch } from './api'
+import { notificationState, refreshUnread, resetUnread } from './notifications'
 import { roleLabel } from './ui/labels'
 
 const router = useRouter()
 const route = useRoute()
 const menuOpen = ref(false)
 const groupOpen = ref('')
-const unread = ref(0)
+const unread = computed(() => notificationState.unread)
 
 const UNREAD_POLL_MS = 60_000
 let unreadTimer = null
 
-async function refreshUnread() {
-  if (!auth.user) {
-    unread.value = 0
-    return
-  }
-  try {
-    unread.value = (await apiFetch('/notifications/unread-count')).count || 0
-  } catch (e) {
-    unread.value = 0
+function syncUnread() {
+  if (auth.user) {
+    refreshUnread()
+  } else {
+    resetUnread()
   }
 }
 
 onMounted(() => {
-  refreshUnread()
-  unreadTimer = setInterval(refreshUnread, UNREAD_POLL_MS)
+  syncUnread()
+  unreadTimer = setInterval(syncUnread, UNREAD_POLL_MS)
 })
 
 onUnmounted(() => {
@@ -154,7 +151,7 @@ onUnmounted(() => {
 
 watch(
   () => auth.user,
-  () => refreshUnread()
+  () => syncUnread()
 )
 
 const navGroups = computed(() => {
@@ -222,7 +219,7 @@ watch(
     menuOpen.value = false
     groupOpen.value = ''
     // 页面切换时顺手刷新未读数（/notifications 不在 60 秒 GET 缓存白名单内）
-    refreshUnread()
+    syncUnread()
   }
 )
 

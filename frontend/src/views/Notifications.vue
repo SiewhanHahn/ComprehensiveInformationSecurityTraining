@@ -130,24 +130,26 @@
           </div>
         </div>
 
-        <form class="form-grid" @submit.prevent="addSubscription">
-          <div class="field">
-            <label class="field-label" for="sub-hazard">灾种</label>
-            <select id="sub-hazard" v-model="form.hazard">
-              <option value="*">全部灾种</option>
-              <option v-for="(label, code) in HAZARD_TYPE" :key="code" :value="code">
-                {{ label }}
-              </option>
-            </select>
+        <form @submit.prevent="addSubscription">
+          <div class="form-grid">
+            <div class="field">
+              <label class="field-label" for="sub-hazard">灾种</label>
+              <select id="sub-hazard" v-model="form.hazard">
+                <option value="*">全部灾种</option>
+                <option v-for="(label, code) in HAZARD_TYPE" :key="code" :value="code">
+                  {{ label }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="sub-city">城市</label>
+              <select id="sub-city" v-model="form.city">
+                <option value="">全部城市</option>
+                <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
+              </select>
+            </div>
           </div>
-          <div class="field">
-            <label class="field-label" for="sub-city">城市</label>
-            <select id="sub-city" v-model="form.city">
-              <option value="">全部城市</option>
-              <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
-            </select>
-          </div>
-          <div class="field field--action">
+          <div class="form-actions">
             <button class="btn btn-primary btn-sm" type="submit" :disabled="busy">添加订阅</button>
           </div>
         </form>
@@ -188,6 +190,7 @@ import EmptyState from '../components/EmptyState.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
+import { notificationState, refreshUnread } from '../notifications'
 import { HAZARD_TYPE, formatDateTime } from '../ui/labels'
 
 const PAGE_SIZE = 20
@@ -195,7 +198,7 @@ const PAGE_SIZE = 20
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
-const unread = ref(0)
+const unread = computed(() => notificationState.unread)
 const unreadOnly = ref(false)
 const loading = ref(false)
 const busy = ref(false)
@@ -231,21 +234,13 @@ async function loadNotifications(target = 1) {
     items.value = data.items || []
     total.value = data.total || 0
     page.value = data.page || targetPage
-    await loadUnread()
+    await refreshUnread()
   } catch (e) {
     error.value = e.message
     items.value = []
     total.value = 0
   } finally {
     loading.value = false
-  }
-}
-
-async function loadUnread() {
-  try {
-    unread.value = (await apiFetch('/notifications/unread-count')).count || 0
-  } catch (e) {
-    unread.value = 0
   }
 }
 
@@ -288,7 +283,7 @@ async function markRead(notification) {
   try {
     await apiFetch(`/notifications/${notification.id}/read`, { method: 'POST' })
     notification.read_at = new Date().toISOString()
-    await loadUnread()
+    await refreshUnread()
     if (unreadOnly.value) {
       items.value = items.value.filter((n) => n.id !== notification.id)
       total.value = Math.max(0, total.value - 1)
@@ -444,10 +439,6 @@ onMounted(async () => {
 
 .sub-remove:hover:not(:disabled) {
   color: var(--color-danger);
-}
-
-.field--action {
-  justify-content: flex-end;
 }
 
 .segmented {
