@@ -113,6 +113,26 @@ def created_subscriptions():
     _delete_subscriptions(ids)
 
 
+@pytest.fixture
+def subscriber(login, created_users):
+    """临时 VIEWER 账号作为订阅者，返回 ``(client, csrf)``。
+
+    用独立账号而不是 ``viewer_demo``：演示库里的演示账号可能已有订阅和通知，
+    会让「是否投递」「未读数」这类断言依赖环境残留。账号删除时订阅与通知一起清理。
+    """
+    admin, admin_csrf = login("admin_demo")
+    username = f"subtest_{uuid4().hex[:8]}"
+    password = f"Aa1-{uuid4().hex[:12]}"
+    resp = admin.post(
+        "/api/v1/users",
+        headers=csrf_headers(admin_csrf),
+        json={"username": username, "display_name": "订阅测试", "password": password, "roles": ["VIEWER"]},
+    )
+    assert resp.status_code == 201, resp.text
+    created_users.add(username)
+    return login(username, password)
+
+
 def _delete_warnings(public_ids):
     from sqlalchemy import delete, select
 

@@ -77,10 +77,14 @@ def test_logout_invalidates_session(login):
 
 def test_ip_rate_limit_blocks_after_threshold(new_client):
     from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
 
     ip = "10.99.99.99"
     headers = {"X-Real-IP": ip}
     limit = get_settings().ip_login_attempts
+    # 计数器跨测试运行保留在 Redis 里（ip_lockout_seconds 窗口内），先清零才能稳定从 401 数到 429
+    get_redis().delete(_ip_rate_key(ip))
 
     for _ in range(limit):
         resp = _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers)

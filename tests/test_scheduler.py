@@ -1,6 +1,7 @@
 """定时扫描：投递补偿的幂等性与 SYSTEM 审计（RUN_INTEGRATION=1，并注入 DEMO_*_PASSWORD）。
 
 ``run_scan`` 是纯函数，直接传入时间窗口调用，不需要 sleep 或后台线程。
+订阅者用临时账号，不依赖演示账号的历史订阅。
 """
 
 import pytest
@@ -33,7 +34,7 @@ def _notifications_for(client, public_id) -> list[dict]:
     return [n for n in resp.json()["items"] if n["resource_id"] == public_id]
 
 
-def test_backfill_scan_is_idempotent(login, make_warning, created_subscriptions):
+def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_subscriptions):
     """先发布、后订阅：扫描补投一条，再跑一次不重复，且留下 SYSTEM 审计。"""
     from backend.app.db import SessionLocal
     from backend.app.models import AuditLog
@@ -41,7 +42,7 @@ def test_backfill_scan_is_idempotent(login, make_warning, created_subscriptions)
 
     analyst, analyst_csrf = login("analyst_demo")
     reviewer, reviewer_csrf = login("reviewer_demo")
-    viewer, viewer_csrf = login("viewer_demo")
+    viewer, viewer_csrf = subscriber
 
     public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "scan-backfill")
     # 订阅发生在发布之后，所以此刻还没收到

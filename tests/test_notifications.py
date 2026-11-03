@@ -1,6 +1,7 @@
 """订阅与站内通知（RUN_INTEGRATION=1，并注入 DEMO_*_PASSWORD）。
 
-订阅随夹具清理；通知按 ``resource_id``（预警 public_id）挂在预警上，随预警一并删除。
+订阅者用 ``subscriber`` 夹具创建的临时账号，不依赖演示账号的历史订阅；
+通知按 ``resource_id``（预警 public_id）挂在预警上，随预警一并删除。
 """
 
 import pytest
@@ -45,10 +46,10 @@ def _notifications_for(client, public_id) -> list[dict]:
     return [n for n in resp.json()["items"] if n["resource_id"] == public_id]
 
 
-def test_publish_notifies_matching_subscriber(login, make_warning, created_subscriptions):
+def test_publish_notifies_matching_subscriber(login, subscriber, make_warning, created_subscriptions):
     analyst, analyst_csrf = login("analyst_demo")
     reviewer, reviewer_csrf = login("reviewer_demo")
-    viewer, viewer_csrf = login("viewer_demo")
+    viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
     public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-match")
@@ -60,10 +61,10 @@ def test_publish_notifies_matching_subscriber(login, make_warning, created_subsc
     assert "长沙" in items[0]["body"]
 
 
-def test_publish_skips_non_matching_subscription(login, make_warning, created_subscriptions):
+def test_publish_skips_non_matching_subscription(login, subscriber, make_warning, created_subscriptions):
     analyst, analyst_csrf = login("analyst_demo")
     reviewer, reviewer_csrf = login("reviewer_demo")
-    viewer, viewer_csrf = login("viewer_demo")
+    viewer, viewer_csrf = subscriber
 
     # 订阅的是台风，发布的是暴雨
     _subscribe(viewer, viewer_csrf, created_subscriptions, hazard_type="TYPHOON")
@@ -72,10 +73,10 @@ def test_publish_skips_non_matching_subscription(login, make_warning, created_su
     assert _notifications_for(viewer, public_id) == []
 
 
-def test_withdraw_notifies_subscribers(login, make_warning, created_subscriptions):
+def test_withdraw_notifies_subscribers(login, subscriber, make_warning, created_subscriptions):
     analyst, analyst_csrf = login("analyst_demo")
     reviewer, reviewer_csrf = login("reviewer_demo")
-    viewer, viewer_csrf = login("viewer_demo")
+    viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
     public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-withdraw")
@@ -87,8 +88,8 @@ def test_withdraw_notifies_subscribers(login, make_warning, created_subscription
     assert kinds == ["WARNING_PUBLISHED", "WARNING_WITHDRAWN"]
 
 
-def test_duplicate_subscription_conflict(login, created_subscriptions):
-    viewer, viewer_csrf = login("viewer_demo")
+def test_duplicate_subscription_conflict(subscriber, created_subscriptions):
+    viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
     dup = viewer.post(
@@ -100,8 +101,8 @@ def test_duplicate_subscription_conflict(login, created_subscriptions):
     assert dup.json()["error"]["code"] == "SUBSCRIPTION_EXISTS"
 
 
-def test_unknown_subscription_scope_rejected(login):
-    viewer, viewer_csrf = login("viewer_demo")
+def test_unknown_subscription_scope_rejected(subscriber):
+    viewer, viewer_csrf = subscriber
 
     bad_hazard = viewer.post(
         "/api/v1/subscriptions",
@@ -119,10 +120,10 @@ def test_unknown_subscription_scope_rejected(login):
     assert bad_city.status_code == 422
 
 
-def test_notifications_are_per_user(login, make_warning, created_subscriptions):
+def test_notifications_are_per_user(login, subscriber, make_warning, created_subscriptions):
     analyst, analyst_csrf = login("analyst_demo")
     reviewer, reviewer_csrf = login("reviewer_demo")
-    viewer, viewer_csrf = login("viewer_demo")
+    viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
     public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-scope")
@@ -141,22 +142,23 @@ def test_notifications_are_per_user(login, make_warning, created_subscriptions):
     assert read.json()["error"]["code"] == "NOT_FOUND"
 
 
-def test_mark_read_and_unread_count(login, make_warning, created_subscriptions):
+def test_mark_read_and_unread_count(login, subscriber, make_warning, created_subscriptions):
     analyst, analyst_csrf = login("analyst_demo")
     reviewer, reviewer_csrf = login("reviewer_demo")
-    viewer, viewer_csrf = login("viewer_demo")
+    viewer, viewer_csrf = subscriber
 
     _subscribe(viewer, viewer_csrf, created_subscriptions)
     public_id = _publish(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-read")
 
+    # 临时账号从零开始，未读数就是这条预警产生的通知数
     before = viewer.get("/api/v1/notifications/unread-count").json()["count"]
-    assert before >= 1
+    assert before == 1
 
     notification_id = _notifications_for(viewer, public_id)[0]["id"]
     assert viewer.post(
         f"/api/v1/notifications/{notification_id}/read", headers=csrf_headers(viewer_csrf)
     ).status_code == 200
-    assert viewer.get("/api/v1/notifications/unread-count").json()["count"] == before - 1
+    assert viewer.get("/api/v1/notifications/unread-count").json()["count"] == 0
 
     # 已读的通知仍在列表里，只是 read_at 有值
     assert _notifications_for(viewer, public_id)[0]["read_at"] is not None
