@@ -289,11 +289,14 @@
 在隔离 `fr02` 环境验证订阅、站内通知与定时扫描（未触碰演示部署；演示 VM 仍是 A 档版本）。
 
 - **迁移**：`docker compose -p fr02 run --rm migrate` 由 `0004_dataset_issues` 升级到 `0005_subscriptions_notifications`，创建 `warning_subscriptions`、`notifications`、`response_tasks` 三张表。`response_tasks` 本阶段只建表，B 档第二刀才开始读写。
-- **后端全量**：同步 `backend/` 与 `tests/` 后执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **54 passed、2 warnings，耗时 11.68 秒**。本轮之前同一环境的基线是 45 项（§6.12 记录的 43 项之后又新增 2 项），本轮 +9 项：
+- **后端全量**：同步 `backend/` 与 `tests/` 后执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **54 passed、2 warnings**（首次 11.68 秒；修正下述两处测试隔离后连续两次运行均为 54 passed，13.17 / 13.86 秒）。本轮之前同一环境的基线是 45 项（§6.12 记录的 43 项之后又新增 2 项），本轮 +9 项：
   - `tests/test_notifications.py`（7 项）：发布投递给匹配订阅者、范围不匹配不投递、撤回投递、重复订阅 409 `SUBSCRIPTION_EXISTS`、非法灾种/城市 422、通知按用户隔离且不能标记他人通知（404）、已读与未读数与全部已读。
   - `tests/test_scheduler.py`（1 项）：先发布后订阅 → `run_scan` 补投 1 条 → 再跑补投 0 条 → 留下 `NOTIFICATION_BACKFILL` 审计且 `actor_id` 为空、`actor_role = SYSTEM`。
   - `tests/test_units.py`（+1 项）：`subscriptions.matches()` 四维匹配（不限/精确 × 命中/未命中）。
   - `tests/test_rbac_matrix.py`：`/notifications`、`/notifications/unread-count`、`/subscriptions` 加入四角色可读矩阵与匿名 401 矩阵。
+- **测试隔离修正**（首次全绿后连续复跑暴露的两个既有脆弱点）：
+  - 通知类测试原先用 `viewer_demo` 订阅。演示账号上只要残留一条订阅（例如浏览器验收留下的），建订阅就变成 409，「不应投递」的断言也会因历史通知失真。改为每个测试用 `subscriber` 夹具创建临时 VIEWER 账号，账号删除时订阅与通知随之清理。
+  - `test_login.py::test_ip_rate_limit_blocks_after_threshold` 依赖 Redis 中该合成 IP 的计数器为空；60 秒窗口内连续跑第二遍会直接命中 429。改为测试开始时先删除 `login:fail:<ip>` 键。
 - **定时扫描容器**：在隔离环境以 `NOTIFICATION_SCAN_INTERVAL_SECONDS=5` 实跑 `python -m backend.app.scheduler` 12 秒，`timeout -s TERM` 触发退出。日志显示「定时扫描启动，间隔 5 秒」→「收到信号 15，停止扫描」→「定时扫描已停止」，无异常栈；本轮无待补投内容，因此未写审计（符合「只在实际补投时写审计」的设计）。
 - **前端**：`npm run build` 通过，新增 `Notifications` 懒加载分块（7.69 kB，gzip 3.29 kB）。
 - **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：查看者经真实登录页登录 → 进入 `/notifications` → 选「暴雨 / 全部城市」添加订阅成功（订阅标签出现）→ 分析员经接口建单并提交、审核员批准并发布 → 查看者刷新后收到 1 条未读通知（标题「预警发布：浏览器验收-订阅通知」，正文「长沙 2024-03-27 暴雨；四模式融合 29.6mm」），顶栏铃铛角标显示 1 → 点击「标记已读」后角标归零。pageerror 为 0；控制台仅有登录前 `/auth/me` 的 401 与 favicon 404。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b-notifications.png`。
