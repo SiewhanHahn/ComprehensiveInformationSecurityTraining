@@ -20,6 +20,7 @@ from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warn
 from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
 from ..security import new_public_id
 from .audit import AuditContext
+from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
 
 DRAFT = "DRAFT"
@@ -294,11 +295,16 @@ def _transition_existing(db: Session, public_id: str, transition: Transition, ac
 
 
 def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
-    return _transition_existing(db, public_id, PUBLISH, actor, audit)
+    w = _transition_existing(db, public_id, PUBLISH, actor, audit)
+    # 通知与状态变更、审计同事务（服务只 flush，路由 commit）
+    notify_warning(db, w, NOTIFY_PUBLISHED)
+    return w
 
 
 def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
-    return _transition_existing(db, public_id, WITHDRAW, actor, audit)
+    w = _transition_existing(db, public_id, WITHDRAW, actor, audit)
+    notify_warning(db, w, NOTIFY_WITHDRAWN)
+    return w
 
 
 def add_feedback(db: Session, public_id: str, body: FeedbackRequest, actor: CurrentUser, audit: AuditContext) -> WarningFeedback:

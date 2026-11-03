@@ -10,6 +10,9 @@ CITIES: dict[str, str] = {
     "ZHENGZHOU": "郑州",
 }
 
+# 订阅里表示「不限城市」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
+ALL_CITIES: str = ""
+
 MODEL_DISPLAY: dict[str, str] = {
     "ecmwf_ifs025": "ECMWF",
     "gfs_global": "GFS",

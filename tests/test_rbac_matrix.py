@@ -6,7 +6,15 @@ from conftest import COMPLETE_DAY, csrf_headers
 
 pytestmark = pytest.mark.integration
 
-READ_ENDPOINTS = ("/api/v1/warnings", "/api/v1/hazards", "/api/v1/monitor/status")
+READ_ENDPOINTS = (
+    "/api/v1/warnings",
+    "/api/v1/hazards",
+    "/api/v1/monitor/status",
+    # 通知与订阅按当前用户收敛，四种角色都应可读
+    "/api/v1/notifications",
+    "/api/v1/notifications/unread-count",
+    "/api/v1/subscriptions",
+)
 
 
 def _create_payload(title):

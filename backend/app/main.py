@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import get_settings
 from .db import check_database, get_redis
 from .errors import code_for, error_response
-from .routers import audit, auth, hazards, metrics, monitor, replay, users, warnings
+from .routers import audit, auth, hazards, metrics, monitor, notifications, replay, users, warnings
 from .session import read_session
 
 settings = get_settings()
@@ -30,6 +30,7 @@ app.include_router(audit.router, prefix="/api/v1", tags=["audit"])
 app.include_router(hazards.router, prefix="/api/v1", tags=["hazards"])
 app.include_router(monitor.router, prefix="/api/v1", tags=["monitor"])
 app.include_router(users.router, prefix="/api/v1", tags=["users"])
+app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
 
 if settings.cors_origin_list:
     app.add_middleware(

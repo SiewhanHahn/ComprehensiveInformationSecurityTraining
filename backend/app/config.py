@@ -24,6 +24,10 @@ class Settings(BaseSettings):
 
     cors_origins: str = ""
 
+    # 定时扫描（compose 的 scheduler 服务）
+    notification_scan_interval_seconds: int = 300
+    notification_backfill_hours: int = 24
+
     open_meteo_base_url: str = "https://previous-runs-api.open-meteo.com/v1/forecast"
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
 

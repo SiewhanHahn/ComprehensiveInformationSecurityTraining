@@ -3,6 +3,8 @@ from pathlib import Path
 
 from backend.app.cities import CITIES, DEFAULT_MODELS
 from backend.app.deps import CurrentUser
+from backend.app.models import WarningSubscription
+from backend.app.services.subscriptions import matches
 from backend.app.services.warnings import is_viewer_only
 from backend.app.security import hash_password, new_public_id, verify_password
 from backend.app.services.metrics import get_experiment, list_experiments
@@ -62,3 +64,17 @@ def test_viewer_only():
     assert not is_viewer_only(CurrentUser(3, "va", ["VIEWER", "ANALYST"]))
     assert not is_viewer_only(CurrentUser(4, "admin", ["ADMIN"]))
     assert not is_viewer_only(CurrentUser(5, "r", ["REVIEWER"]))
+
+
+def test_subscription_matching():
+    def sub(hazard_type, city_code):
+        return WarningSubscription(hazard_type=hazard_type, city_code=city_code)
+
+    # 两个维度各自「不限」或精确相等才投递
+    assert matches(sub("*", ""), "RAINSTORM", "CHANGSHA")
+    assert matches(sub("RAINSTORM", ""), "RAINSTORM", "CHANGSHA")
+    assert matches(sub("*", "CHANGSHA"), "RAINSTORM", "CHANGSHA")
+    assert matches(sub("RAINSTORM", "CHANGSHA"), "RAINSTORM", "CHANGSHA")
+    assert not matches(sub("TYPHOON", ""), "RAINSTORM", "CHANGSHA")
+    assert not matches(sub("RAINSTORM", "WUHAN"), "RAINSTORM", "CHANGSHA")
+    assert not matches(sub("TYPHOON", "WUHAN"), "RAINSTORM", "CHANGSHA")

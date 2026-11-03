@@ -33,6 +33,8 @@ MESSAGES: dict[str, str] = {
     "LAST_ADMIN_REQUIRED": "系统至少需要一名管理员",
     "SELF_DISABLE_FORBIDDEN": "不能停用当前登录账号",
     "SELF_ADMIN_REMOVAL_FORBIDDEN": "不能撤销当前登录账号的管理员角色",
+    # 通知与订阅
+    "SUBSCRIPTION_EXISTS": "该订阅已存在",
 }
 
 # 框架自身抛出的 HTTP 错误（如未匹配路由）没有业务码，按状态码兜底

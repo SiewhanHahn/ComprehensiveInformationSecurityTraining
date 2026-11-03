@@ -3,7 +3,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from .cities import ALL_CITIES, CITIES
 from .deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER
+from .hazards import ALL_HAZARDS, HAZARDS
 
 
 # ---- auth ----
@@ -282,4 +284,55 @@ class AuditOut(BaseModel):
     result: str
     reason: str | None
     ip_address: str | None
+    created_at: datetime
+
+
+# ---- 通知与订阅 ----
+HAZARD_CODES = frozenset(h["code"] for h in HAZARDS)
+CITY_CODES = frozenset(CITIES)
+
+
+class NotificationOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    body: str
+    resource_type: str
+    resource_id: str
+    read_at: datetime | None
+    created_at: datetime
+
+
+class NotificationPage(BaseModel):
+    items: list[NotificationOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SubscriptionCreate(BaseModel):
+    """``hazard_type='*'`` / ``city_code=''`` 表示该维度不限。"""
+
+    hazard_type: str = "*"
+    city_code: str = ""
+
+    @field_validator("hazard_type")
+    @classmethod
+    def known_hazard(cls, value: str) -> str:
+        if value != ALL_HAZARDS and value not in HAZARD_CODES:
+            raise ValueError("未知灾种")
+        return value
+
+    @field_validator("city_code")
+    @classmethod
+    def known_city(cls, value: str) -> str:
+        if value != ALL_CITIES and value not in CITY_CODES:
+            raise ValueError("未知城市")
+        return value
+
+
+class SubscriptionOut(BaseModel):
+    id: int
+    hazard_type: str
+    city_code: str
     created_at: datetime

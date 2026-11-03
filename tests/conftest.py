@@ -105,6 +105,14 @@ def created_users():
     _delete_users(usernames)
 
 
+@pytest.fixture
+def created_subscriptions():
+    """测试把创建的订阅 id 追加到此列表，结束时删除，避免污染演示库和后续扫描。"""
+    ids: list[int] = []
+    yield ids
+    _delete_subscriptions(ids)
+
+
 def _delete_warnings(public_ids):
     from sqlalchemy import delete, select
 
@@ -112,6 +120,7 @@ def _delete_warnings(public_ids):
     from backend.app.models import (
         FusionInput,
         FusionRun,
+        Notification,
         Warning,
         WarningFeedback,
         WarningResult,
@@ -122,6 +131,12 @@ def _delete_warnings(public_ids):
     if not ids:
         return
     with SessionLocal() as db:
+        # 通知按 public_id 弱引用预警（不建外键），必须显式清理
+        db.execute(
+            delete(Notification).where(
+                Notification.resource_type == "warning", Notification.resource_id.in_(ids)
+            )
+        )
         for warning in db.scalars(select(Warning).where(Warning.public_id.in_(ids))).all():
             result = db.get(WarningResult, warning.warning_result_id)
             db.execute(delete(WarningFeedback).where(WarningFeedback.warning_id == warning.id))
@@ -137,11 +152,24 @@ def _delete_warnings(public_ids):
         db.commit()
 
 
+def _delete_subscriptions(ids):
+    from sqlalchemy import delete
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import WarningSubscription
+
+    if not ids:
+        return
+    with SessionLocal() as db:
+        db.execute(delete(WarningSubscription).where(WarningSubscription.id.in_(list(ids))))
+        db.commit()
+
+
 def _delete_users(usernames):
     from sqlalchemy import delete, select
 
     from backend.app.db import SessionLocal
-    from backend.app.models import AuditLog, User, UserRole
+    from backend.app.models import AuditLog, Notification, User, UserRole, WarningSubscription
 
     if not usernames:
         return
@@ -149,6 +177,9 @@ def _delete_users(usernames):
         ids = list(db.scalars(select(User.id).where(User.username.in_(list(usernames)))).all())
         if not ids:
             return
+        # 两张新表都外键到 users 且没有 ondelete，必须先清
+        db.execute(delete(Notification).where(Notification.user_id.in_(ids)))
+        db.execute(delete(WarningSubscription).where(WarningSubscription.user_id.in_(ids)))
         db.execute(delete(UserRole).where(UserRole.user_id.in_(ids)))
         db.execute(
             delete(AuditLog).where(
