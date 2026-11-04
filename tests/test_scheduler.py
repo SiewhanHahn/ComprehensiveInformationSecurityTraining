@@ -56,3 +56,40 @@ def test_backfill_scan_is_idempotent(login, subscriber, make_warning, created_su
     assert row.actor_id is None
     assert row.actor_role == "SYSTEM"
     assert row.resource_type == "notification"
+
+
+def test_a_failing_pass_does_not_revert_the_other(
+    login, subscriber, make_warning, created_subscriptions, monkeypatch
+):
+    """第二趟抛错不能把第一趟已经补投的通知一起回滚。
+
+    两趟共用一次 commit 时，只要超时升级这一趟失败，订阅者就永远收不到补投，
+    而且每 5 分钟重跑一次、每次都失败。
+    """
+    from backend.app import scheduler
+    from backend.app.db import SessionLocal
+    from backend.app.scheduler import run_scan
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    viewer, viewer_csrf = subscriber
+
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "scan-isolation")
+    resp = viewer.post(
+        "/api/v1/subscriptions", headers=csrf_headers(viewer_csrf), json={"hazard_type": "*", "city_code": ""}
+    )
+    assert resp.status_code == 200, resp.text
+    created_subscriptions.append(resp.json()["id"])
+
+    def boom(db, *, now):  # 模拟第二趟遇到一条毒数据
+        raise RuntimeError("synthetic escalation failure")
+
+    monkeypatch.setattr(scheduler, "escalate_overdue", boom)
+
+    with SessionLocal() as db:
+        result = run_scan(db, hours=1)
+
+    assert "escalate" in result.failed
+    assert result.backfilled >= 1
+    # 第一趟的结果必须已经落库
+    assert len(notifications_for(viewer, public_id)) == 1

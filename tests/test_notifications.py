@@ -153,3 +153,55 @@ def test_mark_read_and_unread_count(login, subscriber, make_warning, created_sub
         "/api/v1/notifications/read-all", headers=csrf_headers(viewer_csrf)
     ).status_code == 200
     assert viewer.get("/api/v1/notifications/unread-count").json()["count"] == 0
+
+
+def test_concurrent_delivery_of_one_key_does_not_raise():
+    """两个生产者同时投递同一条通知：撞唯一索引的一方必须静默跳过。
+
+    「先查再插」在并发下必然有窗口——双方都查不到对方尚未提交的行，后提交者撞
+    ``uq_notifications_dedupe``。如果那时抛 IntegrityError，调用方的整个业务事务
+    （预警发布、响应任务、审计）会被一起回滚。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from uuid import uuid4 as _uuid4
+
+    from sqlalchemy import func, select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Notification, User
+    from backend.app.services.notifications import notify_users
+
+    with SessionLocal() as db:
+        user_id = db.scalar(select(User.id).where(User.username == "viewer_demo"))
+        assert user_id is not None
+
+    marker = f"race-{_uuid4().hex[:12]}"
+    barrier = Barrier(2, timeout=10)
+
+    def deliver():
+        with SessionLocal() as db:
+            barrier.wait()
+            created = notify_users(
+                db, user_ids=[user_id], kind="RACE_TEST", title="并发去重", body=marker,
+                resource_type="warning", resource_id=marker,
+            )
+            db.commit()
+            return created
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            counts = list(pool.map(lambda _: deliver(), [0, 1]))
+        # 两边都不抛异常，且最终只有一条
+        assert sum(counts) <= 2
+        with SessionLocal() as db:
+            total = db.scalar(
+                select(func.count()).select_from(Notification).where(Notification.resource_id == marker)
+            )
+        assert total == 1, (counts, total)
+    finally:
+        from sqlalchemy import delete
+
+        with SessionLocal() as db:
+            db.execute(delete(Notification).where(Notification.resource_id == marker))
+            db.commit()

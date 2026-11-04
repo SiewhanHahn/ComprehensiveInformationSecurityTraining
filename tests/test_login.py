@@ -27,6 +27,23 @@ def _login(new_client, username, password, headers=None):
     return new_client().post("/api/v1/auth/login", json={"username": username, "password": password}, headers=headers or {})
 
 
+def test_ip_counter_without_ttl_heals_itself(new_client):
+    """旧版本可能在 INCR 与 EXPIRE 之间崩溃，留下没有 TTL 的计数键。
+
+    那种键不会因为 SET NX 而重设过期时间，该 IP 会被永久 429。补的 EXPIRE NX 要能自愈。
+    """
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    key = _ip_rate_key("testclient")
+    redis = get_redis()
+    redis.set(key, 3)  # 故意不带过期时间
+    assert redis.ttl(key) == -1
+
+    assert _login(new_client, f"no_such_{uuid4().hex}", "x").status_code == 401
+    assert redis.ttl(key) > 0
+
+
 def test_unknown_and_wrong_password_are_indistinguishable(new_client):
     unknown = _login(new_client, f"no_such_{uuid4().hex}", "anything")
     wrong = _login(new_client, "viewer_demo", "definitely-wrong")

@@ -124,6 +124,45 @@ def test_null_model_value_is_partial_not_a_crash(login):
             db.commit()
 
 
+def test_null_baseline_does_not_crash(login):
+    """ECMWF 基线值为 NULL 时也只能判 PARTIAL，不能 500。
+
+    基线走的是独立的取值路径，上一轮只给融合值加了非空判定，基线漏掉了。
+    """
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import ForecastRecord
+
+    analyst, _ = login("analyst_demo")
+
+    with SessionLocal() as db:
+        record = db.scalar(
+            select(ForecastRecord).where(
+                ForecastRecord.city_code == "CHANGSHA",
+                ForecastRecord.valid_at == datetime(2024, 3, 27),
+                ForecastRecord.model_code == "ecmwf_ifs025",
+            )
+        )
+        assert record is not None
+        record_pk, original = record.id, record.precipitation_mm
+        record.precipitation_mm = None
+        db.commit()
+
+    try:
+        resp = _replay(analyst, "2024-03-27")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["data_status"] == "PARTIAL"
+        assert body["baseline_mm"] is None
+    finally:
+        with SessionLocal() as db:
+            db.get(ForecastRecord, record_pk).precipitation_mm = original
+            db.commit()
+
+
 def test_monitor_counts_lead_hours_like_replay(login):
     """提前量不是固定 24 小时的记录同样不算齐全，监测口径要与回放一致。"""
     from datetime import datetime

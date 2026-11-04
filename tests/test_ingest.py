@@ -180,6 +180,46 @@ def test_absent_model_key_counts_as_missing():
             _cleanup_dataset(session, version)
 
 
+def test_sample_without_days_is_marked_failed_not_ready():
+    """结构坏掉的样本不能变成一个 0 行却 READY 的数据集——它会遮蔽真实数据。
+
+    ``latest_dataset`` 只排除 FAILED，所以一个空 READY 数据集会成为「最新」，
+    让所有回放变成 PARTIAL。
+    """
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset, DatasetIssue
+    from backend.app.services import ingest
+
+    version = f"test_ingest_broken_{uuid4().hex}"
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"version": version, "days": {}}, f)
+        path = Path(f.name)
+    try:
+        with SessionLocal() as session:
+            result = ingest.import_sample(
+                session, path, _source_id(session, "OPEN_METEO_PREVIOUS_RUNS"), _source_id(session, "OPEN_METEO_ERA5")
+            )
+        assert result["imported"] is False
+        assert result.get("unusable") is True
+
+        with SessionLocal() as session:
+            dataset = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
+            )
+            assert dataset is not None
+            assert dataset.quality_status == "FAILED"
+            assert dataset.row_count == 0
+            issues = session.scalars(
+                select(DatasetIssue).where(DatasetIssue.dataset_id == dataset.id)
+            ).all()
+            assert [i.issue_type for i in issues] == ["INVALID_VALUE"]
+    finally:
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)
+
+
 def test_import_is_idempotent():
     from backend.app.db import SessionLocal
     from backend.app.services import ingest
