@@ -60,6 +60,7 @@ services:
       APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
       APP_ENV: development
       COOKIE_SECURE: "false"
+      RESPONSE_TASK_DUE_MINUTES: ${RESPONSE_TASK_DUE_MINUTES:-1440}
     volumes:
       - ./data/results:/app/data/results:ro
     healthcheck:
