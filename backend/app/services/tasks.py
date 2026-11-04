@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..clock import utcnow
 from ..config import get_settings
-from ..deps import ROLE_ADMIN, CurrentUser
+from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Role, ResponseTask, User, UserRole, Warning
 from ..schemas import ResponseTaskOut
 from .audit import AuditContext
@@ -40,11 +40,21 @@ def is_overdue(task: ResponseTask, now: datetime) -> bool:
 def create_for_published(db: Session, w: Warning, actor: CurrentUser, audit: AuditContext) -> ResponseTask:
     """发布时给预警创建者派一条处置任务，时限由配置决定。
 
-    创建者若已停用（草稿提交后被管理员停用，但审核员仍可发布），任务改派给发布人：
-    停用账号登录不了又没有改派接口，任务会永远没人能推进。
+    创建者若已停用、或已被降级到只剩 VIEWER（草稿提交后被管理员改过权限），任务改派给发布人：
+    这两种账号要么登录不了、要么一打开任务接口就 403，而系统没有改派接口，任务会永远没人能推进。
     """
-    creator_active = db.scalar(select(User.is_active).where(User.id == w.created_by))
-    assignee_id = w.created_by if creator_active else actor.id
+    creator_eligible = db.scalar(
+        select(User.id)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(
+            User.id == w.created_by,
+            User.is_active.is_(True),
+            Role.code.in_((ROLE_ANALYST, ROLE_REVIEWER, ROLE_ADMIN)),
+        )
+        .limit(1)
+    )
+    assignee_id = w.created_by if creator_eligible is not None else actor.id
     due_at = (w.published_at or utcnow()) + timedelta(minutes=get_settings().response_task_due_minutes)
     task = ResponseTask(warning_id=w.id, assignee_id=assignee_id, created_by=actor.id, due_at=due_at)
     db.add(task)
@@ -54,7 +64,7 @@ def create_for_published(db: Session, w: Warning, actor: CurrentUser, audit: Aud
         "RESPONSE_TASK_CREATE",
         resource_type="response_task",
         resource_id=str(task.id),
-        reason=None if assignee_id == w.created_by else f"创建者 {w.created_by} 已停用，改派发布人 {actor.id}",
+        reason=None if assignee_id == w.created_by else f"创建者 {w.created_by} 不可派发，改派发布人 {actor.id}",
     )
     notify_users(
         db,
@@ -70,12 +80,18 @@ def create_for_published(db: Session, w: Warning, actor: CurrentUser, audit: Aud
 
 def ack_task(db: Session, task_id: int, actor: CurrentUser, audit: AuditContext) -> ResponseTask:
     task = get_visible_task(db, task_id, actor)
-    if task.status != PENDING:
+    # 带期望状态的条件 UPDATE：读出对象后逐字段赋值会让迟到的 ack 把已 COMPLETED 的任务写回 ACKED
+    result = db.execute(
+        update(ResponseTask)
+        .where(ResponseTask.id == task.id, ResponseTask.status == PENDING)
+        .values(status=ACKED, acked_at=utcnow())
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
         raise HTTPException(status_code=409, detail="INVALID_STATE")
-    task.status = ACKED
-    task.acked_at = utcnow()
     audit.record("RESPONSE_TASK_ACK", resource_type="response_task", resource_id=str(task.id))
     db.flush()
+    db.refresh(task)
     return task
 
 
@@ -83,14 +99,20 @@ def complete_task(
     db: Session, task_id: int, note: str | None, actor: CurrentUser, audit: AuditContext
 ) -> ResponseTask:
     task = get_visible_task(db, task_id, actor)
-    if task.status != ACKED:
-        raise HTTPException(status_code=409, detail="INVALID_STATE")
-    task.status = COMPLETED
-    task.completed_at = utcnow()
+    values: dict = {"status": COMPLETED, "completed_at": utcnow()}
     if note and note.strip():
-        task.note = note.strip()
+        values["note"] = note.strip()
+    result = db.execute(
+        update(ResponseTask)
+        .where(ResponseTask.id == task.id, ResponseTask.status == ACKED)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise HTTPException(status_code=409, detail="INVALID_STATE")
     audit.record("RESPONSE_TASK_COMPLETE", resource_type="response_task", resource_id=str(task.id))
     db.flush()
+    db.refresh(task)
     return task
 
 
@@ -135,8 +157,8 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
         w.id: w
         for w in db.scalars(select(Warning).where(Warning.id.in_({row[1] for row in escalated}))).all()
     }
-    names = {
-        u.id: u.username
+    assignees = {
+        u.id: u
         for u in db.scalars(select(User).where(User.id.in_({row[2] for row in escalated}))).all()
     }
     admin_ids = list(
@@ -150,21 +172,24 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
 
     for task_id, warning_id, assignee_id in escalated:
         summary = warning_summary(warnings[warning_id]) if warning_id in warnings else f"任务 #{task_id}"
-        notify_users(
-            db,
-            user_ids=[assignee_id],
-            kind=NOTIFY_TASK_OVERDUE,
-            title="响应任务已超时",
-            body=f"{summary}；处置时限已过，请尽快处置",
-            resource_type="response_task",
-            resource_id=str(task_id),
-        )
+        assignee = assignees.get(assignee_id)
+        # 停用账号登录不了，不该继续给它堆通知；管理员那条照发，升级本身不能少
+        if assignee is not None and assignee.is_active:
+            notify_users(
+                db,
+                user_ids=[assignee_id],
+                kind=NOTIFY_TASK_OVERDUE,
+                title="响应任务已超时",
+                body=f"{summary}；处置时限已过，请尽快处置",
+                resource_type="response_task",
+                resource_id=str(task_id),
+            )
         notify_users(
             db,
             user_ids=admin_ids,
             kind=NOTIFY_TASK_ESCALATED,
             title="响应任务超时升级",
-            body=f"{summary}；负责人 {names.get(assignee_id, assignee_id)} 未在时限内处置",
+            body=f"{summary}；负责人 {assignee.username if assignee else assignee_id} 未在时限内处置",
             resource_type="response_task",
             resource_id=str(task_id),
         )

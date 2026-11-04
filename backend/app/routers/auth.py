@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..clock import utcnow
@@ -60,19 +60,17 @@ def _ip_rate_limited(ip: str | None) -> bool:
 
 
 def _record_ip_failure(ip: str | None) -> None:
-    """登录失败时递增来源 IP 的失败计数，防止对已知账号的锁号与爆破。"""
+    """登录失败时递增来源 IP 的失败计数，防止对已知账号的锁号与爆破。
+
+    ``SET NX EX`` 保证键一旦创建就带固定窗口的过期时间：不会出现「自增成功但没设过期」
+    的永久键，也不会因为持续失败把窗口一直往后推（滑动窗口会让该 IP 永远出不来）。
+    """
     if not ip:
         return
     redis = get_redis()
     key = _ip_rate_key(ip)
-    count = redis.incr(key)
-    if count == 1:
-        redis.expire(key, get_settings().ip_lockout_seconds)
-
-
-def _clear_ip_rate(ip: str | None) -> None:
-    if ip:
-        get_redis().delete(_ip_rate_key(ip))
+    redis.set(key, 0, ex=get_settings().ip_lockout_seconds, nx=True)
+    redis.incr(key)
 
 
 def _set_cookies(response: Response, session_id: str, csrf_token: str) -> None:
@@ -105,7 +103,15 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
 
     # 已存在用户一律先校验密码，抹平锁定/停用/错误密码之间的时序差异，也不泄露账号状态
     if not verify_password(body.password, user.password_hash):
-        user.failed_login_count += 1
+        # 原子自增：读改写会让并发的失败请求互相覆盖，账号锁定阈值可被并发绕过
+        db.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(failed_login_count=User.failed_login_count + 1)
+            .execution_options(synchronize_session=False)
+        )
+        db.flush()
+        db.refresh(user)
         if user.failed_login_count >= settings.max_login_attempts:
             user.locked_until = utcnow() + timedelta(seconds=settings.lockout_seconds)
             user.failed_login_count = 0
@@ -126,7 +132,9 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
     create_session(session_id, user.id, roles, csrf_token)
     _audit(db, request, "LOGIN_SUCCESS", "SUCCESS", actor_id=user.id, actor_role=",".join(roles))
     db.commit()
-    _clear_ip_rate(ip)
+    # 不清空 IP 失败计数：只要持有一个有效账号，就能在每轮猜测之间登录一次把自己的
+    # 额度重置掉，per-IP 限速等于失效。账号级计数仍然在成功时清零，正常用户不受影响；
+    # IP 计数按 ip_lockout_seconds 窗口自然过期。
 
     _set_cookies(response, session_id, csrf_token)
     return AuthResponse(
