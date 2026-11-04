@@ -197,6 +197,21 @@ def _delete_warnings(public_ids):
             result = db.get(WarningResult, warning.warning_result_id)
             db.execute(delete(WarningFeedback).where(WarningFeedback.warning_id == warning.id))
             db.execute(delete(WarningReview).where(WarningReview.warning_id == warning.id))
+            # 任务类通知按 str(task_id) 弱引用任务（同样不建外键），必须连同任务行一起清掉，
+            # 否则反复跑测试会在演示账号的通知中心堆出指向已删任务的孤立通知
+            task_ids = [
+                str(task_id)
+                for task_id in db.scalars(
+                    select(ResponseTask.id).where(ResponseTask.warning_id == warning.id)
+                ).all()
+            ]
+            if task_ids:
+                db.execute(
+                    delete(Notification).where(
+                        Notification.resource_type == "response_task",
+                        Notification.resource_id.in_(task_ids),
+                    )
+                )
             db.execute(delete(ResponseTask).where(ResponseTask.warning_id == warning.id))
             db.delete(warning)
             db.flush()

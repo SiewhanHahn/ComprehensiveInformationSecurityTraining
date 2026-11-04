@@ -80,8 +80,16 @@ def test_only_assignee_or_admin_can_advance(login, make_warning):
     # 查看者整体被角色拦掉
     assert viewer.get("/api/v1/response-tasks").status_code == 403
 
-    # 其他业务角色看不到、也推不动别人的任务
-    assert _tasks(reviewer, public_id) == []
+    # 审核员能读到该预警的任务（详情页要展示负责人与时限），但推不动它
+    visible = _tasks(reviewer, public_id)
+    assert len(visible) == 1, visible
+    assert visible[0]["assignee"] == "analyst_demo"
+
+    # 不带预警过滤的看板列表仍然只给自己的任务
+    board = reviewer.get("/api/v1/response-tasks")
+    assert board.status_code == 200, board.text
+    assert all(t["id"] != task_id for t in board.json()), board.json()
+
     denied = reviewer.post(f"/api/v1/response-tasks/{task_id}/ack", headers=csrf_headers(reviewer_csrf))
     assert denied.status_code == 404
     assert denied.json()["error"]["code"] == "NOT_FOUND"
@@ -186,3 +194,93 @@ def test_task_before_due_is_not_escalated(login, make_warning):
         task = db.get(ResponseTask, task_id)
         assert task.escalated_at is None
         assert task.escalation_level == 0
+
+
+def test_completed_task_is_not_escalated(login, make_warning):
+    """完成之后再过期：升级扫描不能把已完成的任务标成逾期。
+
+    候选查询排除 ``COMPLETED``，条件 UPDATE 的 ``WHERE`` 再挡一层，
+    所以「扫描读出候选之后、写入之前才提交完成」这种并发顺序也不会被覆盖成已升级。
+    """
+    from conftest import notifications_for
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import ResponseTask
+    from backend.app.scheduler import run_scan
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    admin, _ = login("admin_demo")
+
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "task-done")
+    task_id = _tasks(admin, public_id)[0]["id"]
+
+    assert analyst.post(
+        f"/api/v1/response-tasks/{task_id}/ack", headers=csrf_headers(analyst_csrf)
+    ).status_code == 200
+    done = analyst.post(
+        f"/api/v1/response-tasks/{task_id}/complete",
+        headers=csrf_headers(analyst_csrf),
+        json={"note": "提前处置完毕"},
+    )
+    assert done.status_code == 200, done.text
+
+    _expire_task(task_id)  # 完成之后时限才过期
+
+    with SessionLocal() as db:
+        run_scan(db)
+        db.commit()
+        task = db.get(ResponseTask, task_id)
+        assert task.status == "COMPLETED"
+        assert task.escalated_at is None
+        assert task.escalation_level == 0
+
+    # 也不该给负责人或管理员发「超时」「升级」通知
+    assert "TASK_OVERDUE" not in {n["kind"] for n in notifications_for(analyst, task_id)}
+    assert notifications_for(admin, task_id) == []
+
+
+def test_inactive_creator_task_goes_to_publisher(login, make_warning):
+    """创建者提交草稿后被停用：任务改派给发布人，停用账号不再收到通知。
+
+    停用账号登录不了、也没有改派接口，任务若挂给它就永远没人能推进。
+    """
+    from sqlalchemy import select
+
+    from conftest import notifications_for
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import User
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    admin, _ = login("admin_demo")
+
+    public_id = make_warning(analyst, analyst_csrf, "task-reassign")
+    assert analyst.post(
+        f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)
+    ).status_code == 200
+
+    def set_active(value: bool) -> None:
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.username == "analyst_demo"))
+            user.is_active = value
+            db.commit()
+
+    set_active(False)
+    try:
+        assert reviewer.post(
+            f"/api/v1/warnings/{public_id}/review",
+            headers=csrf_headers(reviewer_csrf),
+            json={"decision": "APPROVE", "comment": "同意发布"},
+        ).status_code == 200
+        resp = reviewer.post(f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf))
+        assert resp.status_code == 200, resp.text
+    finally:
+        set_active(True)
+
+    task = _tasks(admin, public_id)[0]
+    assert task["assignee"] == "reviewer_demo"
+    # 指派通知投递给新的负责人，停用账号收不到
+    assert notifications_for(analyst, task["id"]) == []
+    assert [n["kind"] for n in notifications_for(reviewer, task["id"])] == ["TASK_ASSIGNED"]
