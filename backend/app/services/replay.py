@@ -69,8 +69,10 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
 
     complete = len(present) == len(DEFAULT_MODELS)
     fused = float(sum(r.precipitation_mm for r in present) / len(present)) if present else 0.0
+    # 基线同样要过 usable 判定：ECMWF 那条值为 NULL 时直接 float() 会抛 TypeError
     ecmwf = by_model.get("ecmwf_ifs025")
-    baseline = float(ecmwf.precipitation_mm) if ecmwf is not None else None
+    ecmwf_usable = ecmwf is not None and ecmwf.precipitation_mm is not None and ecmwf.is_complete
+    baseline = float(ecmwf.precipitation_mm) if ecmwf_usable else None
 
     proxy_stmt = select(ObservationRecord.precipitation_mm).where(
         ObservationRecord.city_code == city_code,
