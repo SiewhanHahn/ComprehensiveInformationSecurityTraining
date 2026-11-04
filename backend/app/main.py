@@ -1,3 +1,4 @@
+import logging
 import re
 import secrets
 from uuid import uuid4
@@ -15,6 +16,7 @@ from .routers import audit, auth, hazards, metrics, monitor, notifications, repl
 from .session import read_session
 
 settings = get_settings()
+logger = logging.getLogger("backend.api")
 
 app = FastAPI(
     title="气象灾害预测与预警系统",
@@ -46,6 +48,19 @@ if settings.cors_origin_list:
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{8,36}$")
 
 
+def csrf_matches(token: str | None, expected: str | None) -> bool:
+    """常量时间比较 CSRF token。
+
+    按字节比较：``compare_digest`` 遇到含非 ASCII 的 str 会抛 TypeError，
+    那样请求得到的会是 500 而不是 403。
+    """
+    if not token or not expected:
+        return False
+    return secrets.compare_digest(
+        token.encode("utf-8", "surrogateescape"), expected.encode("utf-8", "surrogateescape")
+    )
+
+
 # Starlette 中后注册的中间件在外层：CSRF 先注册，请求号中间件后注册，
 # 保证 CSRF 拒绝的响应同样带 request_id / X-Request-ID。
 @app.middleware("http")
@@ -64,7 +79,7 @@ async def csrf_middleware(request: Request, call_next):
             expected = payload.get("csrf_token") if payload else None
         except Exception:
             return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
-    if not token or not expected or not secrets.compare_digest(token, expected):
+    if not csrf_matches(token, expected):
         return error_response(request, 403, "CSRF")
     return await call_next(request)
 
@@ -117,3 +132,15 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 @app.exception_handler(RedisError)
 async def redis_error_handler(request: Request, exc: RedisError):
     return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
+
+
+# 兜底：没有这个处理器时，未捕获异常会以纯文本 500 返回，前端拿不到 error.code / request_id
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    rid = getattr(request.state, "request_id", None)
+    logger.exception("未处理的异常 request_id=%s path=%s", rid, request.url.path)
+    response = error_response(request, 500, "INTERNAL_ERROR")
+    if rid:
+        # 异常穿过了 request_id 中间件，它没机会写响应头，在这里补齐以保持与 body 一致
+        response.headers["X-Request-ID"] = rid
+    return response

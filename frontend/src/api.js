@@ -15,6 +15,7 @@ const ERROR_ZH = {
   REJECT_REQUIRES_COMMENT: '驳回时必须填写审核意见',
   CSRF: 'CSRF 校验失败，请刷新页面后重试',
   DEPENDENCY_UNAVAILABLE: '依赖服务不可用，请稍后重试',
+  INTERNAL_ERROR: '服务器内部错误，请稍后重试',
   USERNAME_EXISTS: '用户名已存在',
   SELF_DISABLE_FORBIDDEN: '不能停用当前登录账号',
   SELF_ADMIN_REMOVAL_FORBIDDEN: '不能撤销当前登录账号的管理员角色',

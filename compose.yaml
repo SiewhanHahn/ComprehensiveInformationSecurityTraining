@@ -61,6 +61,8 @@ services:
       APP_ENV: development
       COOKIE_SECURE: "false"
       RESPONSE_TASK_DUE_MINUTES: ${RESPONSE_TASK_DUE_MINUTES:-1440}
+      # API 只经 Nginx 暴露，由 Nginx 覆写 X-Real-IP；不信任该头时所有请求都算同一个 IP
+      TRUST_PROXY_HEADERS: "true"
     volumes:
       - ./data/results:/app/data/results:ro
     healthcheck:

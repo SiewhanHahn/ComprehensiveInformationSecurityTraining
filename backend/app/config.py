@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     session_absolute_ttl_seconds: int = 28800
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
+    # 只有前面挂了可信反向代理（Nginx 覆写 X-Real-IP）时才信任该头；直连 API 时它可被客户端伪造
+    trust_proxy_headers: bool = False
 
     csrf_cookie_name: str = "ww_csrf"
     max_login_attempts: int = 5
@@ -42,8 +44,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":
-        if self.app_env != "development" and self.app_secret_key in ("dev-insecure-secret", ""):
-            raise ValueError("APP_SECRET_KEY 必须设置为非默认值（非 development 环境）")
+        if self.app_env != "development":
+            if self.app_secret_key in ("dev-insecure-secret", ""):
+                raise ValueError("APP_SECRET_KEY 必须设置为非默认值（非 development 环境）")
+            # 非开发环境按 HTTPS 部署：Cookie 不带 Secure 时，明文链路可被直接重放
+            if not self.cookie_secure:
+                raise ValueError("非 development 环境必须设置 COOKIE_SECURE=true")
+        if "*" in self.cors_origin_list:
+            # 通配来源 + allow_credentials 会让任意站点带着会话跨域读接口
+            raise ValueError("CORS_ORIGINS 不允许使用 '*'，请逐个列出前端来源")
         return self
 
 

@@ -18,6 +18,7 @@ MESSAGES: dict[str, str] = {
     "INVALID_STATE": "当前状态不允许此操作",
     "CSRF": "缺少或错误的 CSRF Token",
     "DEPENDENCY_UNAVAILABLE": "依赖服务不可用，请稍后重试",
+    "INTERNAL_ERROR": "服务器内部错误，请稍后重试",
     "HTTP_ERROR": "请求失败",
     # 认证
     "INVALID_CREDENTIALS": "用户名或密码错误",

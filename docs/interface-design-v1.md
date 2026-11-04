@@ -21,8 +21,8 @@
 }
 ```
 
-- 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`409 SUBSCRIPTION_EXISTS`、`422 VALIDATION_ERROR`、`429 LOGIN_RATE_LIMITED`、`503 DEPENDENCY_UNAVAILABLE`。
-- 所有业务接口（含未匹配路由的 404 和请求体校验失败的 422）由 `backend/app/main.py` 全局异常处理统一输出上述结构；`request_id` 与响应头 `X-Request-ID` 一致。422 不返回字段级明细，只返回 `VALIDATION_ERROR`。`/health/db`、`/health/redis` 失败时同样走该结构（`503 DEPENDENCY_UNAVAILABLE`）。
+- 通用错误码：`400 INVALID_PARAMETER`、`401 UNAUTHENTICATED`、`403 FORBIDDEN`、`404 NOT_FOUND`、`409 INVALID_STATE`、`409 SUBSCRIPTION_EXISTS`、`422 VALIDATION_ERROR`、`429 LOGIN_RATE_LIMITED`、`500 INTERNAL_ERROR`、`503 DEPENDENCY_UNAVAILABLE`。
+- 所有业务接口（含未匹配路由的 404、请求体校验失败的 422，以及**未捕获异常**的 500）由 `backend/app/main.py` 全局异常处理统一输出上述结构；`request_id` 与响应头 `X-Request-ID` 一致。422 不返回字段级明细，只返回 `VALIDATION_ERROR`；500 只返回 `INTERNAL_ERROR`，异常栈写到服务端日志，不返回给客户端。`/health/db`、`/health/redis` 失败时同样走该结构（`503 DEPENDENCY_UNAVAILABLE`）。
 - 所有状态变更接口校验 CSRF Token（开发环境可关闭，生产式演示必须开启）。
 
 ## 2. 认证
