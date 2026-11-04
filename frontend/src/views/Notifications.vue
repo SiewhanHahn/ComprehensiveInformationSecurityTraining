@@ -225,9 +225,21 @@ function hazardLabel(code) {
   return code === '*' ? '全部灾种' : HAZARD_TYPE[code] || code
 }
 
-// 已撤回的预警对「仅查看者」不可见（get_visible_warning 一律 404），不要给出必然打不开的链接
+// 撤回与发布投递给同一批订阅者，所以当前列表里往往同时有两者。
+// 已撤回的预警对「仅查看者」一律 404，先把它们的 resource_id 收集起来，别再给出打不开的链接。
+// （只能覆盖已加载的这一页；要看全量状态需要后端在通知里带上预警当前状态。）
+const withdrawnIds = computed(
+  () =>
+    new Set(
+      items.value
+        .filter((n) => n.resource_type === 'warning' && n.kind === 'WARNING_WITHDRAWN')
+        .map((n) => n.resource_id)
+    )
+)
+
 function canOpenWarning(n) {
   if (n.resource_type !== 'warning') return false
+  if (withdrawnIds.value.has(n.resource_id)) return false
   if (n.kind === 'WARNING_PUBLISHED') return true
   return auth.hasAnyRole('ADMIN', 'ANALYST', 'REVIEWER')
 }
@@ -286,7 +298,8 @@ async function loadCities() {
 }
 
 async function refresh() {
-  await Promise.all([loadNotifications(page.value), loadSubscriptions()])
+  // 未读数走另一份共享状态，页面内「刷新」也要带上，否则角标与「全部标记已读」按钮停在旧值
+  await Promise.all([loadNotifications(page.value), loadSubscriptions(), refreshUnread()])
 }
 
 function setFilter(value) {

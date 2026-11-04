@@ -154,9 +154,10 @@ const error = ref('')
 const busyId = ref(null)
 const notes = reactive({})
 
-const emptyTitle = computed(
-  () => `${{ PENDING: '待处置', ACKED: '处置中', OVERDUE: '逾期', COMPLETED: '已完成' }[activeTab.value]}任务为空`
-)
+const emptyTitle = computed(() => {
+  const label = tabs.find((t) => t.value === activeTab.value)?.label ?? ''
+  return `${label}任务为空`
+})
 const emptyDescription = computed(() => {
   if (activeTab.value === 'OVERDUE') return '没有超过处置时限且尚未完成的任务。'
   if (activeTab.value === 'COMPLETED') return '还没有完成过的任务。'
@@ -168,19 +169,26 @@ function canAct(task) {
   return task.assignee === auth.user?.username || auth.hasRole('ADMIN')
 }
 
+// 快速切页签时，慢的旧请求不能覆盖新结果；也要按发起时的页签解释数据
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
+  const tab = activeTab.value
   loading.value = true
   error.value = ''
   try {
     // 「已逾期」不是状态，取全部后按 overdue 过滤
-    const query = activeTab.value === 'OVERDUE' ? '' : `?status=${activeTab.value}`
+    const query = tab === 'OVERDUE' ? '' : `?status=${tab}`
     const data = await apiFetch(`/response-tasks${query}`)
-    rows.value = activeTab.value === 'OVERDUE' ? data.filter((t) => t.overdue) : data
+    if (seq !== loadSeq) return
+    rows.value = tab === 'OVERDUE' ? data.filter((t) => t.overdue) : data
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = e.message
     rows.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

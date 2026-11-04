@@ -155,11 +155,16 @@
       <div v-if="canUseTasks" class="card">
         <div class="card-head">
           <h3 class="card-title">响应任务</h3>
-          <span class="card-subtitle">发布时自动派发给预警创建者 · 时限按配置计算</span>
+          <span class="card-subtitle">发布时自动派发给预警创建者（创建者已停用时改派发布人）· 时限按配置计算</span>
+        </div>
+
+        <div v-if="taskError" class="alert alert--error" role="alert" style="margin-bottom: 16px">
+          <span class="alert-icon" aria-hidden="true">!</span>
+          <div>响应任务加载失败：{{ taskError }}</div>
         </div>
 
         <EmptyState
-          v-if="!currentTask"
+          v-if="!currentTask && !taskError"
           compact
           title="尚未派发任务"
           description="预警批准发布后会自动生成一条处置任务。"
@@ -334,6 +339,7 @@ const feedbackStatus = ref('RECEIVED')
 const feedbackContent = ref('')
 
 const tasks = ref([])
+const taskError = ref('')
 const taskNote = ref('')
 const taskBusy = ref(null)
 
@@ -462,16 +468,29 @@ function hazardLabel(value) {
 async function load(showSkeleton = true) {
   if (showSkeleton) loading.value = true
   error.value = ''
+  taskError.value = ''
+  const id = route.params.publicId
   try {
-    w.value = await apiFetch(`/warnings/${route.params.publicId}`)
-    feedbacks.value = await apiFetch(`/warnings/${route.params.publicId}/feedback`)
-    tasks.value = canUseTasks.value
-      ? await apiFetch(`/response-tasks?warning=${route.params.publicId}`)
-      : []
+    const [detail, list] = await Promise.all([
+      apiFetch(`/warnings/${id}`),
+      apiFetch(`/warnings/${id}/feedback`)
+    ])
+    w.value = detail
+    feedbacks.value = list
   } catch (e) {
     // 动作成功后的刷新失败不置空，保留现有数据并提示
     if (showSkeleton) w.value = null
     error.value = e.message
+    loading.value = false
+    return
+  }
+
+  // 响应任务是辅助信息：它失败只影响任务卡，不能把已经取到的预警主体一起清掉
+  try {
+    tasks.value = canUseTasks.value ? await apiFetch(`/response-tasks?warning=${id}`) : []
+  } catch (e) {
+    tasks.value = []
+    taskError.value = e.message
   } finally {
     loading.value = false
   }

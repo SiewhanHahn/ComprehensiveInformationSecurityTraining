@@ -407,7 +407,7 @@ p {
   flex-shrink: 0;
 }
 
-/* 顶栏通知铃铛：未读数由 App.vue 每分钟轮询 /notifications/unread-count */
+/* 顶栏通知铃铛：未读数在挂载、切页、标签页回到前台时刷新（不做定时轮询，否则会话空闲 TTL 会被续命） */
 .topbar-bell {
   position: relative;
   display: grid;
