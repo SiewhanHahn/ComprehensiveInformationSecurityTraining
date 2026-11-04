@@ -59,9 +59,12 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
     present: list[ForecastRecord] = []
     for model in DEFAULT_MODELS:
         rec = by_model.get(model)
-        val = rec.precipitation_mm if rec is not None else None
+        # 值为空或占位行（is_complete=False）都不算「这一天有该模式」：
+        # 否则 sum() 会拿 None 做算术直接 500，也会把不完整的一天判成 COMPLETE
+        usable = rec is not None and rec.precipitation_mm is not None and rec.is_complete
+        val = rec.precipitation_mm if usable else None
         model_values.append(ModelValue(model=MODEL_DISPLAY[model], precipitation_mm=float(val) if val is not None else None))
-        if rec is not None:
+        if usable:
             present.append(rec)
 
     complete = len(present) == len(DEFAULT_MODELS)

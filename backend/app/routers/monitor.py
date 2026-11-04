@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..cities import DEFAULT_MODELS
+from ..cities import DEFAULT_MODELS, LEAD_HOURS
 from ..clock import utcnow
 from ..db import get_db
 from ..deps import get_current_user
@@ -36,20 +36,33 @@ def monitor_status(
     )
     cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
-    # 与回放口径对齐：只统计最新 READY FORECAST 数据集
+    # 与回放口径对齐：最新非 FAILED 的 FORECAST 数据集、固定 24 小时提前量、只认四个默认模式、
+    # 且只算有值且标记完整的记录。否则监测页会说 COMPLETE，同一天的 /replay 判 PARTIAL、
+    # 创建预警再返回 409 PARTIAL_DATA。
     forecast_dataset = latest_dataset(db, "FORECAST")
     expected = len(DEFAULT_MODELS)
+    aligned = (
+        ForecastRecord.lead_hours == LEAD_HOURS,
+        ForecastRecord.model_code.in_(DEFAULT_MODELS),
+        ForecastRecord.precipitation_mm.is_not(None),
+        ForecastRecord.is_complete.is_(True),
+    )
 
-    models_stmt = select(func.distinct(ForecastRecord.model_code))
-    per_city_stmt = select(
-        ForecastRecord.city_code,
-        func.count(func.distinct(ForecastRecord.model_code)),
-    ).group_by(ForecastRecord.city_code)
+    models_stmt = select(func.distinct(ForecastRecord.model_code)).where(*aligned)
+    per_city_stmt = (
+        select(
+            ForecastRecord.city_code,
+            func.count(func.distinct(ForecastRecord.model_code)),
+        )
+        .where(*aligned)
+        .group_by(ForecastRecord.city_code)
+    )
     partial_stmt = (
         select(
             ForecastRecord.city_code,
             ForecastRecord.valid_at,
         )
+        .where(*aligned)
         .group_by(ForecastRecord.city_code, ForecastRecord.valid_at)
         .having(func.count(func.distinct(ForecastRecord.model_code)) < expected)
     )

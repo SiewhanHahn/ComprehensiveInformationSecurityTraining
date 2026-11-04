@@ -24,15 +24,27 @@ ISSUE_UNKNOWN_MODEL = "UNKNOWN_MODEL"
 ISSUE_INVALID_DATE = "INVALID_DATE"
 
 
+def _clip(value, width: int) -> str | None:
+    """把任意原始值压进列宽。
+
+    样本里的城市/模式是自由文本，直接写进 VARCHAR(32) 时超长值会让 MySQL 报 1406
+    并连带回滚整个导入——宁可截断，也要把这条质量问题记下来。
+    """
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    return text[:width]
+
+
 def _add_issue(session, dataset_id, issue_type, *, city_code=None, model_code=None, valid_date=None, detail=None):
     session.add(
         DatasetIssue(
             dataset_id=dataset_id,
-            issue_type=issue_type,
-            city_code=city_code,
-            model_code=model_code,
+            issue_type=_clip(issue_type, 32),
+            city_code=_clip(city_code, 32),
+            model_code=_clip(model_code, 32),
             valid_date=valid_date,
-            detail=detail,
+            detail=_clip(detail, 500),
         )
     )
 
@@ -57,6 +69,8 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     data = json.loads(raw.decode("utf-8"))
     version = data.get("version", "sample")
     days = data.get("days", [])
+    if not isinstance(days, list):
+        days = []
 
     exists = session.scalar(
         select(Dataset.id).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
@@ -99,6 +113,9 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
             fc_has_issue = True
 
     for day in days:
+        if not isinstance(day, dict):
+            issue(ISSUE_INVALID_VALUE, detail=f"条目不是对象：{day!r}")
+            continue
         city = day.get("city_code")
         if city not in CITIES:
             issue(ISSUE_UNKNOWN_CITY, city_code=str(city), detail="未知城市代码")
@@ -120,10 +137,19 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
         last_date_by_city[city] = valid_date
 
         valid_at = datetime(valid_date.year, valid_date.month, valid_date.day)
-        for model_code, mm in day.get("models", {}).items():
-            if model_code not in DEFAULT_MODELS:
-                issue(ISSUE_UNKNOWN_MODEL, city_code=city, model_code=str(model_code), valid_date=valid_date)
-                continue
+        raw_models = day.get("models")
+        if raw_models is None:
+            issue(ISSUE_INVALID_VALUE, city_code=city, valid_date=valid_date, detail="models 缺失或为 null")
+            models = {}
+        elif not isinstance(raw_models, dict):
+            issue(ISSUE_INVALID_VALUE, city_code=city, valid_date=valid_date, detail="models 不是对象")
+            models = {}
+        else:
+            models = raw_models
+        # 逐个默认模式检查：只遍历「存在的键」会让「整个模式都没出现」既不记账也不标 PARTIAL，
+        # 数据集保持 READY 而回放却判 PARTIAL
+        for model_code in DEFAULT_MODELS:
+            mm = models.get(model_code)
             if mm is None:
                 issue(ISSUE_MISSING_MODEL, city_code=city, model_code=model_code, valid_date=valid_date)
                 continue
@@ -143,6 +169,11 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
                 )
             )
             n_fc += 1
+
+        # 默认模式之外的键单独记，既不参与融合也不悄悄丢掉
+        for model_code in models:
+            if model_code not in DEFAULT_MODELS:
+                issue(ISSUE_UNKNOWN_MODEL, city_code=city, model_code=model_code, valid_date=valid_date)
 
         if day.get("proxy_label_mm") is not None:
             proxy = _to_decimal(day["proxy_label_mm"])

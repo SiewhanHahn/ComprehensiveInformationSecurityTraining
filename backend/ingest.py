@@ -77,15 +77,19 @@ def _cached(url: str, tag: str) -> dict:
 
 
 def _month_chunks(start: str, end: str, chunk_days: int = 180):
-    """把长区间切成若干段，避免单次响应过大或超时。"""
+    """把长区间切成若干段，避免单次响应过大或超时。
+
+    各段的日期区间**互不重叠**：`start_date`/`end_date` 都是闭区间，上一段的结束日若又被当作
+    下一段的开始日，边界那天就会取到两遍（48 小时），后续按 24 小时完整性过滤时整天被丢弃。
+    """
     from datetime import date, timedelta
 
     cur = date.fromisoformat(start)
     stop = date.fromisoformat(end)
-    while cur < stop:
-        nxt = min(cur + timedelta(days=chunk_days), stop)
+    while cur <= stop:
+        nxt = min(cur + timedelta(days=chunk_days - 1), stop)
         yield cur.isoformat(), nxt.isoformat()
-        cur = nxt
+        cur = nxt + timedelta(days=1)
 
 
 def fetch_forecast(
