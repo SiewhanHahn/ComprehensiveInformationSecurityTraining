@@ -375,6 +375,39 @@
 - **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）**12/12 项通过**：审核员在分析员创建的已发布预警详情页看到负责人与时限（不再显示「尚未派发任务」，Stepper 的「响应」标注 `负责人 analyst_demo`）；分析员在详情页接单 → 完成，Stepper 显示「已完成处置」；任务看板「已完成」能看到该任务、「已逾期」空状态为「已逾期任务为空」；通知中心点「刷新」后未读数正常渲染；`viewer_demo` 订阅后收到发布与撤回两条通知，且被撤回预警的「查看预警」链接不再渲染。截图：`review-fix-reviewer.png`、`review-fix-detail.png`、`review-fix-notifications.png`。
 - **未纳入本轮**（按严重度排在 10 名之后，留待后续）：`refreshUnread` 的无序竞态（可自愈）、`/tasks` 与既有「审核」同样不按角色收敛导航、`subscriptions`/`users` 两处 1062 处理重复、`to_out_list(db, [task])[0]`、任务通知标题绕过 `NOTIFICATION_TITLES`、`GET /response-tasks` 无分页、`backfill_published` 每轮重扫 24 小时窗口。
 
+## 6.17 backend 全量代码审查与收口（2026-11-04）
+
+对 `backend/` 整个目录（不按 diff）做了一轮审查，覆盖认证/会话/RBAC、预警与回放、响应任务/通知/扫描、
+模型/迁移/导入器、离线研究管道五个方向。完整清单与对前端的契约见 `docs/backend-review-v1.md`。
+**19 项确认成立**（P0 ×1、P1 ×4、P2 ×7、P3 ×7），另有 3 项被证伪或下调，记录在该文档第 7 节。
+
+- **P0（已修）**：`seed.py` 用了 `Decimal` 却从未导入，`python -m backend.app.seed` 在导入期抛 `NameError`。
+  `compose.yaml` 里 api 依赖 `seed` 成功退出，所以**任何新建或重建的部署都起不来**。演示 VM 仍可用只是因为
+  它的 seed 容器建于 2026-10-20、此后从未重跑。证据：修复前在容器内执行 `python -c "import backend.app.seed"`
+  得到 `NameError: name 'Decimal' is not defined`；修复后 `docker compose -p fr02 run --rm seed` 退出码 0 并输出
+  `[seed] 完成`。
+- **P1**：`ack`/`complete` 改为带期望状态的条件 UPDATE（`rowcount` 判定），迟到的 ack 不再能把 `COMPLETED` 写回 `ACKED`；
+  登录失败计数改为原子自增；成功登录不再清空 per-IP 失败计数；超时通知不再投给已停用的负责人。
+- **P2**：监测页的完整性统计补齐 `lead_hours == 24`、四个默认模式、值非空与 `is_complete` 四项条件，与回放口径一致；
+  回放不再把 NULL 值计入融合（否则 `sum()` 抛 `TypeError`）；离线采集的分块边界不再互相重叠；导入器对
+  `models: null`、超长城市名、整天缺一个模式分别记账而不是崩溃或静默放过；`fusion.py` 的最优规则改为**按训练年选择**。
+- **P3**：补全局 500 处理器（`INTERNAL_ERROR`，含 `X-Request-ID`）；CSRF 比较改为按字节（非 ASCII 头不再 500）；
+  非开发环境强制 `COOKIE_SECURE=true` 且拒绝 `CORS_ORIGINS='*'`；新增 `TRUST_PROXY_HEADERS`（compose 的 api 设为 true）；
+  被拒绝的管理操作写入 `USER_MANAGE_DENIED` 审计；创建者被降级到只剩 VIEWER 时任务也改派发布人。
+
+验证：
+
+- **后端全量**：**75 passed、2 warnings**（此前 64），连续两次一致（17.84 / 18.27 秒）。新增 11 项：
+  seed 导入看门狗、`csrf_matches` 非 ASCII、停用负责人不收超时通知、降级创建者改派发布人、
+  NULL 值日判 PARTIAL 不 500、监测与回放提前量口径一致、`models: null`、超长城市名截断、整天缺模式记账、
+  未捕获异常的 500 信封、被拒管理操作的审计。
+- **部署冒烟**：`docker compose -p fr02 run --rm seed` 退出 0；api 重启后 `/health` 正常。
+- **前端**：`npm run build` 通过（仅新增 `INTERNAL_ERROR` 与 5 个 `USER_*` 审计动作的中文标签）。
+- **口径变化（需知会前端）**：监测页某些城日可能由 `COMPLETE` 变为 `PARTIAL`（这是与回放对齐后的修正）；
+  同一 IP 在一分钟内失败 20 次后，该 IP 的登录会被挡到窗口结束，**成功登录不再重置这个计数**——
+  这正是为了堵住「持有一个有效账号就能反复续额度」的绕过，测试套件因此改为在每个集成用例前自行清空计数。
+- **未改动**：演示 VM 仍未部署；对外成功响应结构不变。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
