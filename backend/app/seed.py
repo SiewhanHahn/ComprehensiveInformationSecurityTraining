@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import select
