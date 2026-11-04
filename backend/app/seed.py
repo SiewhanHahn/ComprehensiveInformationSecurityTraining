@@ -136,6 +136,9 @@ def import_sample(session: Session, path: Path) -> None:
     fc_source = _source_id(session, "OPEN_METEO_PREVIOUS_RUNS")
     obs_source = _source_id(session, "OPEN_METEO_ERA5")
     result = ingest.import_sample(session, path, fc_source, obs_source)
+    if result.get("unusable"):
+        print("[seed] 样本结构不可用，已标记为 FAILED 并跳过（不会遮蔽已有数据集）")
+        return
     if not result["imported"]:
         print("[seed] 样本已导入或为空，跳过")
         return

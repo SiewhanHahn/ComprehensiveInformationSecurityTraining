@@ -69,7 +69,11 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     data = json.loads(raw.decode("utf-8"))
     version = data.get("version", "sample")
     days = data.get("days", [])
-    if not isinstance(days, list):
+    # 结构不对或一条都没有时不能静默当成「导入成功」：那会留下一个 0 行、quality_status=READY
+    # 的数据集，它的 imported_at 最新又不是 FAILED，latest_dataset() 会选中它，
+    # 于是所有回放都变成 PARTIAL、真实数据被整体遮蔽。改成标 FAILED + 记一条问题。
+    usable_sample = isinstance(days, list) and bool(days)
+    if not usable_sample:
         days = []
 
     exists = session.scalar(
@@ -79,18 +83,27 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
         return {"imported": False, "forecast": 0, "observation": 0, "issues": 0}
 
     checksum = hashlib.sha256(raw).hexdigest()
+    initial_status = "READY" if usable_sample else "FAILED"
     fc_dataset = Dataset(
         source_id=forecast_source_id, dataset_type="FORECAST", version=version,
-        period_start=date.min, period_end=date.min, quality_status="READY",
+        period_start=date.min, period_end=date.min, quality_status=initial_status,
         imported_at=utcnow(), checksum=checksum,
     )
     obs_dataset = Dataset(
         source_id=era5_source_id, dataset_type="ERA5_LABEL", version=version,
-        period_start=date.min, period_end=date.min, quality_status="READY",
+        period_start=date.min, period_end=date.min, quality_status=initial_status,
         imported_at=utcnow(), checksum=checksum,
     )
     session.add_all([fc_dataset, obs_dataset])
     session.flush()
+
+    if not usable_sample:
+        _add_issue(
+            session, fc_dataset.id, ISSUE_INVALID_VALUE,
+            detail="样本缺少 days 数组或为空，整个数据集标 FAILED（不参与回放）",
+        )
+        session.commit()
+        return {"imported": False, "forecast": 0, "observation": 0, "issues": 1, "unusable": True}
 
     n_fc = 0
     n_obs = 0
