@@ -22,13 +22,16 @@ def _deny(
 
     这些检查都发生在任何业务字段被修改之前，所以先提交审计再抛异常不会带出半截改动；
     提交同时释放 FOR UPDATE 锁。
+
+    ``actor_role`` 记操作者**实际**持有的角色，而不是想当然写 ADMIN：``_lock_admin``
+    拒绝的正是「已经失去 ADMIN」的账号，写死 ADMIN 会让审计里这条记录变成一句假话。
     """
     audit_context(request, db, current).record(
         "USER_MANAGE_DENIED",
         resource_type="USER",
         resource_id=str(user_id),
         reason=reason,
-        actor_role=ROLE_ADMIN,
+        actor_role=",".join(current.roles) or None,
         result="DENIED",
     )
     db.commit()

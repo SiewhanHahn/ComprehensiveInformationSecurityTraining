@@ -44,16 +44,23 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":
-        if self.app_env != "development":
-            if self.app_secret_key in ("dev-insecure-secret", ""):
-                raise ValueError("APP_SECRET_KEY 必须设置为非默认值（非 development 环境）")
+        if self.app_env != "development" and self.app_secret_key in ("dev-insecure-secret", ""):
+            raise ValueError("APP_SECRET_KEY 必须设置为非默认值（非 development 环境）")
+        return self
+
+    def validate_for_serving(self) -> None:
+        """只在真正对外提供 HTTP 服务的进程里调用（``main.py``）。
+
+        这两条只与「怎么把响应发出去」有关。放在 ``Settings()`` 构造期会连带把
+        alembic、seed 与 scheduler 一起拦下——生产环境漏配一个变量时，整个栈连迁移都跑不了，
+        只能看到一串 traceback，而不是一条可操作的启动错误。
+        """
+        if self.app_env != "development" and not self.cookie_secure:
             # 非开发环境按 HTTPS 部署：Cookie 不带 Secure 时，明文链路可被直接重放
-            if not self.cookie_secure:
-                raise ValueError("非 development 环境必须设置 COOKIE_SECURE=true")
+            raise ValueError("非 development 环境必须设置 COOKIE_SECURE=true")
         if "*" in self.cors_origin_list:
             # 通配来源 + allow_credentials 会让任意站点带着会话跨域读接口
             raise ValueError("CORS_ORIGINS 不允许使用 '*'，请逐个列出前端来源")
-        return self
 
 
 @lru_cache

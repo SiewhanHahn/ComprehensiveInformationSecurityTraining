@@ -163,7 +163,9 @@ class WarningCreate(BaseModel):
     title: str = Field(max_length=200)
     area_text: str = Field(max_length=500)
     impact_text: str | None = Field(default=None, max_length=2000)
-    reasoning_text: str
+    # 列是 TEXT（65,535 字节）。中文按 utf8mb4 占 3 字节，20,000 字符留有余量；
+    # 不设上限时超长输入要到 flush 才触发 MySQL 1406，变成 500 而不是 422
+    reasoning_text: str = Field(max_length=20000)
 
     @field_validator("title", "area_text", "reasoning_text")
     @classmethod
@@ -186,7 +188,7 @@ class WarningUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     area_text: str | None = Field(default=None, max_length=500)
     impact_text: str | None = Field(default=None, max_length=2000)
-    reasoning_text: str | None = None
+    reasoning_text: str | None = Field(default=None, max_length=20000)
 
     @field_validator("title", "area_text", "reasoning_text")
     @classmethod

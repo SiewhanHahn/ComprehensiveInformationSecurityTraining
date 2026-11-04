@@ -64,13 +64,16 @@ def _record_ip_failure(ip: str | None) -> None:
 
     ``SET NX EX`` 保证键一旦创建就带固定窗口的过期时间：不会出现「自增成功但没设过期」
     的永久键，也不会因为持续失败把窗口一直往后推（滑动窗口会让该 IP 永远出不来）。
+    再补一次 ``EXPIRE NX``：旧版本可能留下过没有 TTL 的键，那些键不会因为 NX 而重设。
     """
     if not ip:
         return
     redis = get_redis()
     key = _ip_rate_key(ip)
-    redis.set(key, 0, ex=get_settings().ip_lockout_seconds, nx=True)
+    ttl = get_settings().ip_lockout_seconds
+    redis.set(key, 0, ex=ttl, nx=True)
     redis.incr(key)
+    redis.expire(key, ttl, nx=True)  # 自愈：已存在但没有过期时间的键在这里补上
 
 
 def _set_cookies(response: Response, session_id: str, csrf_token: str) -> None:
@@ -111,8 +114,13 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
             .execution_options(synchronize_session=False)
         )
         db.flush()
-        db.refresh(user)
-        if user.failed_login_count >= settings.max_login_attempts:
+        # 用加锁读拿最新计数：db.refresh 在 REPEATABLE READ 下是快照读，
+        # 看不到并发失败请求已提交的累加值，突发请求就会各自看到 1 而没有一个人触发锁定
+        current_count = db.execute(
+            select(User.failed_login_count).where(User.id == user.id).with_for_update()
+        ).scalar_one()
+        user.failed_login_count = current_count
+        if current_count >= settings.max_login_attempts:
             user.locked_until = utcnow() + timedelta(seconds=settings.lockout_seconds)
             user.failed_login_count = 0
         _record_ip_failure(ip)

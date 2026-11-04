@@ -16,6 +16,7 @@ from .routers import audit, auth, hazards, metrics, monitor, notifications, repl
 from .session import read_session
 
 settings = get_settings()
+settings.validate_for_serving()
 logger = logging.getLogger("backend.api")
 
 app = FastAPI(
