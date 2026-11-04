@@ -70,3 +70,90 @@ def test_complete_below_threshold_cannot_create_warning(login):
     resp = analyst.post("/api/v1/warnings", headers=csrf_headers(csrf), json=payload)
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "THRESHOLD_NOT_REACHED"
+
+
+def _partial_days(client) -> int:
+    resp = client.get("/api/v1/monitor/status")
+    assert resp.status_code == 200, resp.text
+    return resp.json()["coverage"]["partial_days"]
+
+
+def _replay(analyst, valid_date: str):
+    return analyst.get(
+        "/api/v1/replay",
+        params={"city_code": "CHANGSHA", "date": valid_date, "threshold_code": "HEAVY"},
+    )
+
+
+def test_null_model_value_is_partial_not_a_crash(login):
+    """值为 NULL 的记录不能算「这一天有该模式」：既不能 500，也不能判成 COMPLETE。"""
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import ForecastRecord
+
+    analyst, _ = login("analyst_demo")
+    baseline = _partial_days(analyst)
+
+    with SessionLocal() as db:
+        record = db.scalar(
+            select(ForecastRecord).where(
+                ForecastRecord.city_code == "CHANGSHA",
+                ForecastRecord.valid_at == datetime(2024, 3, 27),
+                ForecastRecord.model_code == "gem_global",
+            )
+        )
+        assert record is not None, "样本里应有长沙 2024-03-27 的 GEM 记录"
+        record_pk, original = record.id, record.precipitation_mm
+        record.precipitation_mm = None
+        db.commit()
+
+    try:
+        resp = _replay(analyst, "2024-03-27")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["data_status"] == "PARTIAL"
+        assert body["fused_mm"] is None
+        assert body["risk_level"] is None
+        assert _partial_days(analyst) == baseline + 1
+    finally:
+        with SessionLocal() as db:
+            db.get(ForecastRecord, record_pk).precipitation_mm = original
+            db.commit()
+
+
+def test_monitor_counts_lead_hours_like_replay(login):
+    """提前量不是固定 24 小时的记录同样不算齐全，监测口径要与回放一致。"""
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from backend.app.cities import LEAD_HOURS
+    from backend.app.db import SessionLocal
+    from backend.app.models import ForecastRecord
+
+    analyst, _ = login("analyst_demo")
+    baseline = _partial_days(analyst)
+
+    with SessionLocal() as db:
+        record = db.scalar(
+            select(ForecastRecord).where(
+                ForecastRecord.city_code == "CHANGSHA",
+                ForecastRecord.valid_at == datetime(2024, 3, 27),
+                ForecastRecord.model_code == "gem_global",
+            )
+        )
+        assert record is not None
+        record_pk, original_lead = record.id, record.lead_hours
+        record.lead_hours = LEAD_HOURS + 24
+        db.commit()
+
+    try:
+        assert _replay(analyst, "2024-03-27").json()["data_status"] == "PARTIAL"
+        assert _partial_days(analyst) == baseline + 1
+    finally:
+        with SessionLocal() as db:
+            db.get(ForecastRecord, record_pk).lead_hours = original_lead
+            db.commit()

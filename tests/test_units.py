@@ -78,3 +78,30 @@ def test_subscription_matching():
     assert not matches(sub("TYPHOON", ""), "RAINSTORM", "CHANGSHA")
     assert not matches(sub("RAINSTORM", "WUHAN"), "RAINSTORM", "CHANGSHA")
     assert not matches(sub("TYPHOON", "WUHAN"), "RAINSTORM", "CHANGSHA")
+
+
+def test_seed_module_imports_and_builds_its_tables():
+    """seed 是 compose 里的必经服务：导入期就崩会让新部署的 API 永远起不来。
+
+    测试套件其余部分都不导入 seed，所以「模块级 NameError」这类问题
+    只会在真正部署时才暴露——这里补一个最便宜的看门狗。
+    """
+    import importlib
+    from decimal import Decimal
+
+    seed = importlib.import_module("backend.app.seed")
+
+    assert [row[0] for row in seed.THRESHOLDS] == ["MODERATE", "HEAVY", "STORM"]
+    assert all(isinstance(row[1], Decimal) for row in seed.THRESHOLDS)
+    assert set(seed.ROLES) == {"ADMIN", "ANALYST", "REVIEWER", "VIEWER"}
+
+
+def test_csrf_comparison_survives_non_ascii():
+    """compare_digest 对含非 ASCII 的 str 会抛 TypeError，必须按字节比较。"""
+    from backend.app.main import csrf_matches
+
+    assert csrf_matches("abc123", "abc123")
+    assert not csrf_matches("abc123", "abc124")
+    assert not csrf_matches(None, "abc123")
+    assert not csrf_matches("abc123", None)
+    assert not csrf_matches("café", "abc123")

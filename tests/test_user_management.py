@@ -274,9 +274,9 @@ def test_concurrent_admin_changes_recheck_revoked_actor(monkeypatch, operation):
         barrier = Barrier(2, timeout=10)
         original = users._lock_admin
 
-        def synchronized_lock(db, current):
+        def synchronized_lock(db, current, request):
             barrier.wait()
-            return original(db, current)
+            return original(db, current, request)
 
         monkeypatch.setattr(users, "_lock_admin", synchronized_lock)
 
@@ -313,6 +313,53 @@ def test_error_responses_use_documented_envelope():
         assert error["request_id"] == response.headers["X-Request-ID"]
         assert "detail" not in response.json()
     assert client.get("/api/v1/no-such-route").json()["error"]["code"] == "NOT_FOUND"
+
+
+@integration
+def test_unhandled_error_uses_the_documented_envelope(monkeypatch):
+    """未捕获异常也必须返回统一错误结构，否则前端拿不到 error.code 与 request_id。"""
+    from fastapi.testclient import TestClient
+
+    from backend.app.main import app
+    from backend.app.services import metrics as metrics_svc
+
+    password = os.environ.get("DEMO_ADMIN_PASSWORD")
+    if not password:
+        pytest.skip("DEMO_ADMIN_PASSWORD not set")
+    # 默认的 TestClient 会把服务端异常重新抛出；这里要的是客户端真实收到的响应
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.post(
+        "/api/v1/auth/login", json={"username": "admin_demo", "password": password}
+    ).status_code == 200
+
+    def boom():
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(metrics_svc, "_load", boom)
+
+    response = client.get("/api/v1/metrics/experiments")
+    assert response.status_code == 500, response.text
+    error = response.json()["error"]
+    assert error["code"] == "INTERNAL_ERROR"
+    assert error["message"]
+    assert error["request_id"] == response.headers["X-Request-ID"]
+
+
+@integration
+def test_denied_admin_operation_is_audited():
+    """被拒绝的自我保护操作同样要留痕，事后能查到这次尝试。"""
+    client, csrf, admin_id = _admin_client()
+    headers = {"X-CSRF-Token": csrf}
+
+    response = client.patch(f"/api/v1/users/{admin_id}/status", headers=headers, json={"is_active": False})
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "SELF_DISABLE_FORBIDDEN"
+
+    logs = client.get("/api/v1/audit-logs", params={"action": "USER_MANAGE_DENIED", "page_size": 10})
+    assert logs.status_code == 200, logs.text
+    assert any(
+        row["resource_id"] == str(admin_id) and row["result"] == "DENIED" for row in logs.json()
+    ), logs.text
 
 
 @integration

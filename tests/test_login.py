@@ -80,25 +80,28 @@ def test_ip_rate_limit_blocks_after_threshold(new_client):
     from backend.app.db import get_redis
     from backend.app.routers.auth import _ip_rate_key
 
-    ip = "10.99.99.99"
-    headers = {"X-Real-IP": ip}
+    # TestClient 的来源地址固定是 "testclient"；没有可信代理时 X-Real-IP 不再被采信
+    key = _ip_rate_key("testclient")
     limit = get_settings().ip_login_attempts
-    # 计数器跨测试运行保留在 Redis 里（ip_lockout_seconds 窗口内），先清零才能稳定从 401 数到 429
-    get_redis().delete(_ip_rate_key(ip))
+    get_redis().delete(key)
 
     for _ in range(limit):
-        resp = _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers)
+        resp = _login(new_client, f"no_such_{uuid4().hex}", "x")
         assert resp.status_code == 401
 
-    blocked = _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers)
+    blocked = _login(new_client, f"no_such_{uuid4().hex}", "x")
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "LOGIN_RATE_LIMITED"
     # 计数器必须带过期时间，否则这个 IP 会被永久限制住
-    assert get_redis().ttl(_ip_rate_key(ip)) > 0
+    assert get_redis().ttl(key) > 0
 
 
-def test_successful_login_clears_ip_failures(new_client):
-    """成功登录应立刻清掉该 IP 的失败计数，而不是等它自然过期。"""
+def test_successful_login_does_not_clear_ip_failures(new_client):
+    """成功登录不得重置 per-IP 失败计数。
+
+    否则只要持有一个有效账号，就能在每轮猜测之间登录一次把额度清零，
+    per-IP 限速对「跨账号喷洒口令」完全失效。计数按固定窗口自然过期。
+    """
     import os
 
     from conftest import DEMO_PASSWORD_ENV
@@ -110,12 +113,11 @@ def test_successful_login_clears_ip_failures(new_client):
     if not password:
         pytest.skip(f"{DEMO_PASSWORD_ENV['viewer_demo']} not set")
 
-    ip = "10.99.99.98"
-    headers = {"X-Real-IP": ip}
-    get_redis().delete(_ip_rate_key(ip))
+    key = _ip_rate_key("testclient")
+    get_redis().delete(key)
 
-    assert _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers).status_code == 401
-    assert get_redis().exists(_ip_rate_key(ip)) == 1
+    assert _login(new_client, f"no_such_{uuid4().hex}", "x").status_code == 401
+    assert get_redis().exists(key) == 1
 
-    assert _login(new_client, "viewer_demo", password, headers=headers).status_code == 200
-    assert get_redis().exists(_ip_rate_key(ip)) == 0
+    assert _login(new_client, "viewer_demo", password).status_code == 200
+    assert get_redis().exists(key) == 1, "成功登录不应清空 IP 失败计数"

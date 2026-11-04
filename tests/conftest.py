@@ -35,6 +35,28 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_ip_limit(request):
+    """每个集成用例开始前清空 per-IP 登录失败计数。
+
+    成功登录**不再**清空该计数（否则持有任意有效账号就能在每轮猜测之间登录一次把额度重置），
+    而整个套件在一分钟内产生的失败登录远超阈值 20，不清理就会整片撞上 429。
+    生产语义不变：计数仍按 ip_lockout_seconds 固定窗口过期。
+    """
+    if "integration" not in request.node.keywords:
+        yield
+        return
+    try:
+        from backend.app.db import get_redis
+
+        redis = get_redis()
+        for key in redis.scan_iter("login:fail:*"):
+            redis.delete(key)
+    except Exception:  # Redis 不可用时让用例失败在更有意义的地方
+        pass
+    yield
+
+
 def csrf_headers(csrf: str) -> dict[str, str]:
     return {"X-CSRF-Token": csrf}
 

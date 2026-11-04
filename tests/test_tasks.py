@@ -284,3 +284,84 @@ def test_inactive_creator_task_goes_to_publisher(login, make_warning):
     # 指派通知投递给新的负责人，停用账号收不到
     assert notifications_for(analyst, task["id"]) == []
     assert [n["kind"] for n in notifications_for(reviewer, task["id"])] == ["TASK_ASSIGNED"]
+
+
+def test_inactive_assignee_gets_no_overdue_notification(login, make_warning):
+    """负责人已停用时不再给它堆超时通知；管理员的升级通知照发。"""
+    from sqlalchemy import select
+
+    from conftest import notifications_for
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import User
+    from backend.app.scheduler import run_scan
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    admin, _ = login("admin_demo")
+
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "task-noassignee")
+    task_id = _tasks(admin, public_id)[0]["id"]
+    _expire_task(task_id)
+
+    def set_active(value: bool) -> None:
+        with SessionLocal() as db:
+            db.scalar(select(User).where(User.username == "analyst_demo")).is_active = value
+            db.commit()
+
+    set_active(False)
+    try:
+        with SessionLocal() as db:
+            run_scan(db)
+            db.commit()
+    finally:
+        set_active(True)
+
+    assert "TASK_OVERDUE" not in {n["kind"] for n in notifications_for(analyst, task_id)}
+    assert [n["kind"] for n in notifications_for(admin, task_id)] == ["TASK_ESCALATED"]
+
+
+def test_demoted_creator_task_goes_to_publisher(login, make_warning):
+    """创建者被降级到只剩 VIEWER：任务同样改派发布人。
+
+    这类账号一打开 /response-tasks 就 403，任务挂在它名下等于没人能处理。
+    """
+    from sqlalchemy import delete, select
+
+    from conftest import notifications_for
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Role, User, UserRole
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    admin, _ = login("admin_demo")
+
+    public_id = make_warning(analyst, analyst_csrf, "task-demoted")
+    assert analyst.post(
+        f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)
+    ).status_code == 200
+
+    with SessionLocal() as db:
+        analyst_id = db.scalar(select(User.id).where(User.username == "analyst_demo"))
+        role_id = db.scalar(select(Role.id).where(Role.code == "ANALYST"))
+        db.execute(delete(UserRole).where(UserRole.user_id == analyst_id, UserRole.role_id == role_id))
+        db.commit()
+
+    try:
+        assert reviewer.post(
+            f"/api/v1/warnings/{public_id}/review",
+            headers=csrf_headers(reviewer_csrf),
+            json={"decision": "APPROVE", "comment": "同意发布"},
+        ).status_code == 200
+        assert reviewer.post(
+            f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf)
+        ).status_code == 200
+    finally:
+        with SessionLocal() as db:
+            db.add(UserRole(user_id=analyst_id, role_id=role_id, granted_by=analyst_id))
+            db.commit()
+
+    task = _tasks(admin, public_id)[0]
+    assert task["assignee"] == "reviewer_demo"
+    assert notifications_for(reviewer, task["id"])[0]["kind"] == "TASK_ASSIGNED"
