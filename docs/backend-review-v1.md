@@ -80,25 +80,62 @@
 ```
 
 - `code` 由 `backend/app/errors.py` 的 `MESSAGES` 定义，是**权威**中文文案来源；前端 `ERROR_ZH` 只作兜底。
-- `422` → `VALIDATION_ERROR`；`429` → `LOGIN_RATE_LIMITED`；依赖故障 `503` → `DEPENDENCY_UNAVAILABLE`。
-- **本轮之后**，任何未捕获异常也返回同一信封（`500 INTERNAL_ERROR`）；在此之前它是纯文本。
+- `422` 有两个来源：请求体校验失败是 `VALIDATION_ERROR`；**业务上的 422 目前只有一个**——
+  驳回时不填审核意见是 `REJECT_REQUIRES_COMMENT`。所以「422 一定是表单格式错」这个假设不成立。
+- `429` → `LOGIN_RATE_LIMITED`；依赖故障 `503` → `DEPENDENCY_UNAVAILABLE`；未捕获异常 `500 INTERNAL_ERROR`。
+- `request_id` 与响应头 `X-Request-ID` 始终一致（含 500）。
+
+### 4.1 请求约定（写操作必读）
+
+**CSRF**：除 `GET` / `HEAD` / `OPTIONS` 与 `POST /auth/login` 之外，**每个请求都必须带
+`X-CSRF-Token` 头**，其值等于登录响应体的 `csrf_token`（同一值也写在非 HttpOnly 的 `ww_csrf` Cookie 里）。
+缺失或不匹配返回 `403 CSRF`。
+
+```js
+fetch('/api/v1/response-tasks/12/ack', {
+  method: 'POST',
+  credentials: 'include',                     // 会话是 HttpOnly Cookie
+  headers: { 'X-CSRF-Token': csrf }           // 少了这个就是 403 CSRF，不是权限问题
+})
+```
+
+注意 `GET /notifications/unread-count` 虽然是 GET（不需要 CSRF 头），但它会刷新会话空闲 TTL——
+这就是前端不对它做定时轮询的原因。
+
+**写操作的返回码不统一**：
+
+| 情形 | 返回 |
+| --- | --- |
+| 常规写操作（发布、接单、标记已读等） | `200` + 资源 JSON |
+| `POST /users`（创建用户） | **`201`** + 用户 JSON |
+| `POST /users/{id}/reset-password`、`DELETE /subscriptions/{id}` | **`204`，无响应体** |
+
+统一的请求层不能对 204 调 `resp.json()`，也不能只把 200 当成功。
 
 ### 4.2 权限矩阵
 
-`403` 表示角色不足（路由级），`404` 表示按资源收敛（「别人的东西对你表现为不存在」）。
+**状态码的三种含义**，前端要分开处理：
+
+| 状态码 | 含义 | 典型场景 |
+| --- | --- | --- |
+| `403` + `FORBIDDEN` | 角色不足（路由级依赖拦下） | 查看者调 `/response-tasks`、非管理员调 `/users*` |
+| `403` + 其他码 | 资源级拒绝，与角色无关 | `SELF_REVIEW_FORBIDDEN`（审核自己创建的预警）、编辑他人草稿 |
+| `404` + `NOT_FOUND` | 该资源对你不可见，表现为不存在 | 他人的预警详情、他人的任务动作接口 |
+| `409` + `INVALID_STATE` | 状态机不允许 | 未接单直接完成、对非 `APPROVED` 的预警发布 |
+| `400` + `INVALID_PARAMETER` | 过滤参数的取值不合法 | `status=NOT_A_STATUS`、`status=OVERDUE` |
 
 | 端点 | 允许角色 | 说明 |
 | --- | --- | --- |
 | `POST /auth/login` | 公开 | 失败统一 `INVALID_CREDENTIALS`；停用账号密码正确才返回 `ACCOUNT_DISABLED` |
 | `GET /auth/me`、`POST /auth/logout` | 已登录 | |
 | `GET /cities`、`GET /replay`、`GET /hazards`、`GET /monitor/status`、`GET /metrics/*` | 已登录 | 只读 |
-| `GET /warnings`、`GET /warnings/{id}`、`GET /warnings/{id}/feedback` | 已登录 | 仅 `VIEWER` 的用户只看得到 `PUBLISHED`，其余一律 404 |
-| `POST /warnings`、`PATCH /warnings/{id}`、`POST .../submit`、`POST .../feedback` | `ANALYST`/`ADMIN` | 反馈只追加 |
-| `POST .../review`、`.../publish`、`.../withdraw` | `REVIEWER`/`ADMIN` | 除角色外还校验状态；**禁止自审**（创建人不能批自己的） |
-| `GET/POST /notifications*`、`/subscriptions*` | 已登录 | 全部按当前用户收敛 |
-| `GET /response-tasks`、`POST .../ack`、`.../complete` | `ANALYST`/`REVIEWER`/`ADMIN` | `VIEWER` 整体 403；详见 4.3 |
+| `GET /warnings`、`GET /warnings/{id}`、`GET /warnings/{id}/feedback` | 已登录 | 仅 `VIEWER` 的用户：列表只返回 `PUBLISHED`（`?status=` 传其他状态则是 **200 + 空数组**，不是 404）；**详情与反馈列表**对非 `PUBLISHED` 才返回 404 |
+| `POST /warnings`、`PATCH /warnings/{id}`、`POST .../submit`、`POST .../feedback` | `ANALYST`/`ADMIN` | 反馈只追加；编辑非本人草稿是 `403 FORBIDDEN` |
+| `POST .../review`、`.../publish`、`.../withdraw` | `REVIEWER`/`ADMIN` | 除角色外还校验状态（不符是 `409 INVALID_STATE`）；**禁止自审**（`403 SELF_REVIEW_FORBIDDEN`） |
+| `GET/POST /notifications*`、`/subscriptions*` | 已登录 | 全部按当前用户收敛；`unread-count` 返回 `{"count":n}`，单条已读返回 `{"read":true}`，全部已读返回 `{"updated":n}` |
+| `GET /response-tasks`、`POST .../ack`、`.../complete` | `ANALYST`/`REVIEWER`/`ADMIN` | `VIEWER` 整体 `403 FORBIDDEN`；详见 4.3 |
 | `GET /audit-logs` | `ADMIN` | 只读 |
-| `/users*` | `ADMIN` | 见 4.4 与第 5 节 |
+| `/users*` | `ADMIN` | 见第 5 节 |
 
 ### 4.3 任务：可见 ≠ 可操作
 
@@ -107,32 +144,53 @@
 | 场景 | 可见性 | 可操作性（`ack`/`complete`） |
 | --- | --- | --- |
 | 看板列表（不带 `warning` 过滤） | 非管理员只看到指派给自己的 | — |
-| `?warning=<public_id>`（详情页） | 能打开该预警的业务角色都能读到它的全部任务 | 仍只允许负责人或 `ADMIN`；其他人调动作接口得 `404 NOT_FOUND` |
+| `?warning=<public_id>`（详情页） | 能打开该预警的业务角色都能读到它的全部任务 | 仍只允许负责人或 `ADMIN`；**其他业务角色**调动作接口得 `404 NOT_FOUND`，`VIEWER` 则是路由级 `403` |
 
 所以详情页的任务卡对审核员是**只读展示**：有数据、无按钮。按钮显隐请按「本人或 `ADMIN`」判断，不要按「有没有数据」判断。
 
-### 4.4 分页与结果集
+### 4.4 分页、结果集与字段
 
 | 端点 | 分页 | 返回形状 |
 | --- | --- | --- |
 | `GET /notifications` | `page`/`page_size`/`unread_only` | `{items,total,page,page_size}` |
 | `GET /users` | `page`/`page_size` | `{items,...}` 带总数 |
-| `GET /audit-logs` | `page`/`page_size`/`action` | **裸数组，没有 total** —— 前端做不出可靠的总页数，只能「下一页/上一页」 |
-| `GET /warnings`、`GET /response-tasks` | **没有分页** | 裸数组；数据量增长后需补，前端别假设一定有上限 |
+| `GET /audit-logs` | `page`/`page_size`/`action` | **裸数组，没有 total** —— 前端做不出可靠总页数，只能「下一页/上一页」 |
+| `GET /warnings`、`GET /response-tasks`、`GET /warnings/{id}/feedback` | **没有分页** | 裸数组；数据量增长后需补，前端别假设一定有上限 |
+
+`page_size` 三个分页接口都是 **`1 ≤ page_size ≤ 100`**，超上限是 `422 VALIDATION_ERROR`（不是自动截断）。
+
+字段名与语义（按这些名字写，别按常见 REST 习惯猜）：
+
+| 对象 | 字段 | 语义 |
+| --- | --- | --- |
+| `WarningOut` | `public_id` | 26 字符不可猜标识，路由里用它 |
+| | `created_by` | **用户名**，不是用户 ID |
+| | `valid_date` | 纯日期 `YYYY-MM-DD`，无时间、无时区 |
+| | `fused_mm` | 数值，单位为 mm |
+| `ResponseTaskOut` | `id` | 自增整数 |
+| | `warning_public_id` / `warning_title` | 直接可用的预警引用与标题 |
+| | `assignee` | **用户名**，不是用户 ID |
+| | `due_at` / `acked_at` / `completed_at` / `escalated_at` / `created_at` | 时间，可能为 `null` |
+| | `escalation_level` | 升级次数，当前只会是 0 或 1 |
+| | `overdue` | **服务端算好的派生布尔**，前端不要自己拿 `due_at` 再判断一次 |
 
 ### 4.5 时间与标识
 
-- 时间一律**朴素 UTC**（`datetime(6)`），JSON 里带毫秒；前端显示前自行处理时区，不要当本地时间。
+- 时间一律**朴素 UTC**（模型是 `DATETIME(6)`）。JSON 里是 ISO 8601、**微秒精度**：整秒时小数部分会被整个省略
+  （`2026-11-04T09:49:34`），否则是 6 位（`...34.123456`）。**不要写死 3 位毫秒**，也不要假设一定有小数。
+  前端按本地时区显示前先当 UTC 解析（`Date.parse` 对无时区后缀的字符串会当本地时间，需要手动补 `Z`）。
 - 对外的预警标识是 `public_id`（26 字符、不可猜）；任务用自增 `id`（仅业务角色可达）。
-- 任务状态只有 `PENDING/ACKED/COMPLETED`；**「已逾期」是派生状态**（`overdue` 字段，服务端算好），不是 `status` 的取值。
+- 任务状态只有 `PENDING/ACKED/COMPLETED`；**「已逾期」是派生状态**（`overdue` 字段），不是 `status` 的取值。
   任何把 `status=OVERDUE` 传给后端的写法都会得到 `400 INVALID_PARAMETER`。
 
 ## 5. 已知限制（前端需自行兜底）
 
 - **未读数不轮询**：只在挂载、切页、标签页回到前台时刷新。这是有意的（该接口会刷新会话空闲 TTL）。
-- `GET /warnings` 全量返回、无分页；任务看板同样无分页。
+- `GET /warnings` 全量返回、无分页；任务看板与预警的反馈列表同样无分页。
 - 通知里不携带预警当前状态，前端只能按已加载列表推断「是否已撤回」。
 - 管理员密码重置**不会**让已有会话失效（有意为之，文档已写明）。
+- 监测页的 `coverage.partial_days` 只统计「有可用记录」的城日；某城某日**一条记录都没有**时不会被计入
+  （`/replay` 对这一天仍判 PARTIAL）。要精确判断某一天，请用 `/replay`，不要只看监测页的计数。
 - 监测页的完整性口径本轮会与回放对齐；此前两页可能给出相反结论。
 
 ## 6. 本轮修复会改变的前端可观测量
@@ -167,3 +225,9 @@
 
 另有两处顺带改动：`fusion.py` 输出新增 `selection_basis: "train_year"` 字段；前端 `ui/labels.js` 补齐
 `USER_*` 与 `USER_MANAGE_DENIED` 审计动作的中文标签（此前审计页对这些动作显示原始代码）。
+
+## 9. 第二轮修正（2026-11-04）
+
+第一轮修完之后又对**修复本身**和**这份文档**复查了一遍，13 项成立，其中与前端直接相关的是 §4 的重写：
+补上 CSRF 契约、状态码语义表、201/204、字段名、`page_size` 上限与时间精度。代码侧的补充修复见
+`docs/test-report-v1.md` §6.18。§5 新增一条：监测页的 `partial_days` 只统计**有可用记录**的城日。
