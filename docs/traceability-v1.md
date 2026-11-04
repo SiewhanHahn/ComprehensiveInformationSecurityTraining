@@ -21,8 +21,8 @@
 | FR-12 | 七类扩展灾种登记 | `app/hazards.py`、`/hazards`、`views/Hazards.vue` | `test_rbac_matrix.py`（8 类、1+7） | 框架已登记，未接入数据 |
 | FR-13 | 订阅与站内通知 | `services/subscriptions.py`、`services/notifications.py`、`routers/notifications.py`、`models.py`（WarningSubscription/Notification）、`views/Notifications.vue` | `tests/test_notifications.py`：发布/撤回投递、范围不匹配不投、重复订阅 409、通知按用户隔离、已读与未读数 | 已实现，已实测 |
 | FR-14 | 定时扫描与投递补偿 | `app/scheduler.py`、`compose.yaml`（`scheduler` 服务）、迁移 `0005`（`notifications.dedupe_key`） | `tests/test_scheduler.py`：补投一条、重跑不重复、SYSTEM 审计；容器内 12 秒实跑验证启动与 SIGTERM 退出 | 已实现，已实测 |
-| FR-15 | 响应任务与处置时限 | `services/tasks.py`、`routers/tasks.py`、`services/warnings.py`（发布钩子）、`views/Tasks.vue`、`views/WarningDetail.vue` | `tests/test_tasks.py`：发布自动派发、时限口径、指派通知、权限、状态机、完成落库 | 已实现，已实测 |
-| FR-16 | 超时升级 | `services/tasks.py::escalate_overdue`、`app/scheduler.py`（第二轮扫描） | `tests/test_tasks.py`：逾期升级一次、重复扫描幂等、未到期不升级 | 已实现，已实测 |
+| FR-15 | 响应任务与处置时限 | `services/tasks.py`、`routers/tasks.py`、`services/warnings.py`（发布钩子）、`views/Tasks.vue`、`views/WarningDetail.vue` | `tests/test_tasks.py`：发布自动派发、时限口径、指派通知、权限（审核员可读不可操作、查看者 403）、状态机、完成落库、创建者停用改派发布人 | 已实现，已实测 |
+| FR-16 | 超时升级 | `services/tasks.py::escalate_overdue`、`app/scheduler.py`（第二轮扫描） | `tests/test_tasks.py`：逾期升级一次、重复扫描幂等、未到期不升级、已完成任务不被升级 | 已实现，已实测 |
 
 ## 2. 安全需求
 

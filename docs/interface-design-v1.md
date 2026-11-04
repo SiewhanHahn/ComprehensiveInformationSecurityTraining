@@ -176,7 +176,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/notifications?unread_only=&page=&page_size=` | 已登录 | 当前用户通知，按时间倒序；返回 `{items,total,page,page_size}`；`page >= 1`，`1 <= page_size <= 100` |
-| GET | `/notifications/unread-count` | 已登录 | 返回 `{"count": n}`，供顶栏角标轮询 |
+| GET | `/notifications/unread-count` | 已登录 | 返回 `{"count": n}`；前端只在挂载、切页、标签页回到前台时刷新，**不做定时轮询**（该接口会刷新会话空闲 TTL） |
 | POST | `/notifications/{notification_id}/read` | 已登录（本人） | 标记已读，返回 `{"read": true}`；重复标记幂等 |
 | POST | `/notifications/read-all` | 已登录 | 全部标为已读，返回 `{"updated": n}` |
 | GET | `/subscriptions` | 已登录 | 当前用户订阅列表 |
@@ -199,11 +199,13 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 
 ## 5.2 响应任务（FR-15 / FR-16）
 
-任务只对业务角色开放（`ANALYST` / `REVIEWER` / `ADMIN`），查看者访问整个路由返回 `403 FORBIDDEN`。非管理员只能看到指派给自己的任务；别人的任务对其表现为 `404 NOT_FOUND`。
+任务只对业务角色开放（`ANALYST` / `REVIEWER` / `ADMIN`），查看者访问整个路由返回 `403 FORBIDDEN`。
+
+可见范围分两种。**看板列表**（不带 `warning`）：非管理员只看到指派给自己的任务。**按预警查看**（带 `warning`，详情页用）：能打开该预警的业务角色都能读到它的任务，用于展示负责人、时限与升级情况；但接单与完成始终只允许负责人或 `ADMIN`，别人的任务在动作接口上表现为 `404 NOT_FOUND`。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/response-tasks?status=&warning=` | 当前可见任务，按 `due_at` 升序；`status` 取 `PENDING/ACKED/COMPLETED`（非法值 `400 INVALID_PARAMETER`），`warning` 传预警 `public_id` 过滤（不存在 `404`） |
+| GET | `/response-tasks?status=&warning=` | 当前可见任务，按 `due_at` 升序；`status` 取 `PENDING/ACKED/COMPLETED`（非法值 `400 INVALID_PARAMETER`），`warning` 传预警 `public_id` 过滤（不存在 `404`；带该过滤时返回该预警的全部任务） |
 | POST | `/response-tasks/{id}/ack` | 接单，`PENDING → ACKED` |
 | POST | `/response-tasks/{id}/complete` | 完成，`ACKED → COMPLETED`；未接单或已完成返回 `409 INVALID_STATE` |
 
@@ -243,7 +245,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 | 预警详情页 | `GET /warnings/{public_id}`、`/feedback`、`/submit`、`/review`、`/publish`、`/withdraw` |
 | 审核工作台 | `GET /warnings?status=PENDING_REVIEW`、`?status=APPROVED`、`/review`、`/publish` |
 | 灾种覆盖页 | `/hazards` |
-| 通知中心 | `/notifications` 路由；`GET /notifications`、`/notifications/unread-count`、`/notifications/{id}/read`、`/notifications/read-all`、`GET/POST /subscriptions`、`DELETE /subscriptions/{id}`；顶栏铃铛轮询未读数 |
+| 通知中心 | `/notifications` 路由；`GET /notifications`、`/notifications/unread-count`、`/notifications/{id}/read`、`/notifications/read-all`、`GET/POST /subscriptions`、`DELETE /subscriptions/{id}`；顶栏铃铛在挂载、切页、标签页回到前台时刷新未读数（不轮询） |
 | 任务看板 | `/tasks` 路由（ANALYST/REVIEWER/ADMIN）；`GET /response-tasks`、`/response-tasks/{id}/ack`、`/response-tasks/{id}/complete` |
 | 审计页 | `/audit-logs` |
 | 用户管理页（ADMIN） | `/users` 路由；`GET/POST /users`、`PUT /users/{user_id}/roles`、`PATCH /users/{user_id}/status`、`POST /users/{user_id}/reset-password` |

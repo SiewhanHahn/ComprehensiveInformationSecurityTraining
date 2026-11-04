@@ -351,6 +351,30 @@
 - **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：分析员建单 → 审核员批准发布 → 分析员在 `/tasks` 看到 1 条「待处置」任务（负责人 `analyst_demo`、时限按配置）→ 点「接单」进入「处置中」→ 填处置说明并完成，出现在「已完成」标签页；预警详情页显示「响应任务」卡，闭环 Stepper 的「响应」阶段变为已完成，标注「负责人 analyst_demo / 已完成处置」。pageerror 为 0，控制台仅有登录前 `/api/v1/auth/me` 的 401。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b2-tasks.png`、`phase-b2-detail.png`。
 - **回归**：`GET /warnings`、`GET /warnings/{public_id}` 响应结构未变（任务通过 `GET /response-tasks?warning=` 单独取，`WarningDetailOut` 未扩展）；订阅、通知与既有状态机测试全部通过。
 
+## 6.16 阶段 B 第二刀 code review 收口（2026-11-04）
+
+对 `phase-b` vs `main` 的全量 diff 跑了 8 个角度的 code review（逐行、删除行为、跨文件、复用、简化、效率、站位、约定），
+去重后 25 个候选逐条验证，**10 项确认成立、2 项证伪**（`Tasks.vue` 与 `WarningDetail.vue` 的 `canAct` 两处实现实际等价；`run_scan` 的两趟结构没有具体代价）。修复全部在隔离 `fr02` 验证，演示部署未动，无新迁移。
+
+- **处置时限配置到不了容器**（`compose.yaml`）：`RESPONSE_TASK_DUE_MINUTES` 只写在 `.env.example` 与 `config.py`，api 服务没转发，Docker 部署下用户指南 §4.3 的「设成 2 分钟演示超时」不生效。已补 `RESPONSE_TASK_DUE_MINUTES: ${RESPONSE_TASK_DUE_MINUTES:-1440}`。证据：`docker compose config` 未设置时解析为 `"1440"`，`.env` 设 2 时解析为 `"2"`。
+- **升级与完成竞态**（`services/tasks.py::escalate_overdue`）：原来是「读出对象再逐字段赋值」，UPDATE 的 `WHERE` 只有 id，扫描读出候选之后并发提交的完成会被覆盖成「已升级」并误报管理员。改成带 `status`/`due_at`/`escalated_at` 条件的单行 UPDATE，用 `rowcount` 判定。一次性探针复现真实交错（会话 A 读候选 → 会话 B 完成并提交 → 会话 A 执行同一条 UPDATE）：`rowcount=0`，任务仍为 `COMPLETED`、`escalated_at` 为空、`escalation_level` 为 0。
+- **指派给已停用账号**（`services/tasks.py::create_for_published`）：创建者在提交草稿后被停用时，任务原先仍挂给该账号，任务永远没人能推进。现在改派给发布人，并在 `RESPONSE_TASK_CREATE` 审计的 `reason` 里写明原因。
+- **审核员看不到任务**（`services/tasks.py::list_tasks`）：任务只派给创建者，而列表对非管理员强制按 `assignee` 过滤，审核员打开别人的已发布预警永远显示「尚未派发任务」。现在**带 `warning` 过滤时**业务角色可读该预警的任务，接单与完成仍只允许负责人或管理员；看板列表（不带过滤）行为不变。
+- **辅助请求失败清空整页**（`WarningDetail.vue`）：任务请求原来与预警主体共用 try/catch，任务接口抖动会把已经取到的预警丢掉并显示「无法加载预警」。现已拆分，任务失败只在卡片内提示；预警与反馈改为 `Promise.all` 并行。
+- **页签竞态**（`Tasks.vue`）：`load()` 在 `await` 之后才读 `activeTab` 且无序号保护，快速切页签会把旧请求结果按新页签解释。已按通知中心的写法加 `loadSeq`，并在发起请求时固定页签。
+- **空状态文案**（`Tasks.vue`）：`emptyTitle` 内联了第二份页签文案，且已与 `tabs` 不一致（「逾期」vs「已逾期」），改为从 `tabs` 派生。
+- **撤回后的死链**（`Notifications.vue`）：`WARNING_PUBLISHED` 通知无条件渲染「查看预警」，预警随后被撤回时仅查看者点进去必然 404。现在按列表里出现的 `WARNING_WITHDRAWN` 收集 `resource_id` 抑制链接；只覆盖已加载的那一页，彻底解决需要后端在通知里带上预警当前状态。
+- **页面内「刷新」不刷未读数**（`Notifications.vue`）：刷新只重拉列表与订阅，页头角标与「全部标记已读」按钮停在旧值。已把 `refreshUnread()` 并入 `refresh()`。
+- **测试残留**（`tests/conftest.py`）：清理只删 `resource_type='warning'` 的通知，发布时产生的 `TASK_ASSIGNED`/`TASK_OVERDUE`/`TASK_ESCALATED` 会以孤儿身份留在库里。现在先按任务 id 删通知、再删任务。
+- **文档口径**：`docs/interface-design-v1.md` 两处与 `frontend/src/style.css` 注释仍写「顶栏铃铛轮询未读数」，与已定决策（不轮询，否则会话空闲 TTL 被续命）相反，已改正。
+
+验证：
+
+- **后端全量**：**64 passed、2 warnings**（62 + 新增 2 项），连续两次运行一致（16.66 / 16.79 秒）；`tests/test_tasks.py` 8 项全过（新增「完成后不再被升级」「创建者停用改派发布人」，并把「审核员看不到他人任务」改为「可读不可操作」）。
+- **前端**：`npm run build` 通过。
+- **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）**12/12 项通过**：审核员在分析员创建的已发布预警详情页看到负责人与时限（不再显示「尚未派发任务」，Stepper 的「响应」标注 `负责人 analyst_demo`）；分析员在详情页接单 → 完成，Stepper 显示「已完成处置」；任务看板「已完成」能看到该任务、「已逾期」空状态为「已逾期任务为空」；通知中心点「刷新」后未读数正常渲染；`viewer_demo` 订阅后收到发布与撤回两条通知，且被撤回预警的「查看预警」链接不再渲染。截图：`review-fix-reviewer.png`、`review-fix-detail.png`、`review-fix-notifications.png`。
+- **未纳入本轮**（按严重度排在 10 名之后，留待后续）：`refreshUnread` 的无序竞态（可自愈）、`/tasks` 与既有「审核」同样不按角色收敛导航、`subscriptions`/`users` 两处 1062 处理重复、`to_out_list(db, [task])[0]`、任务通知标题绕过 `NOTIFICATION_TITLES`、`GET /response-tasks` 无分页、`backfill_published` 每轮重扫 24 小时窗口。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
@@ -363,4 +387,4 @@
 - 管理员用户管理已实现，隔离环境浏览器核心流程通过（§6.10）；审查修复后全套 34 项测试通过（§6.11，含并发撤权/停用、审计异常回滚、缺失参考角色回滚和统一错误结构）；API 重启与依赖故障未验证。
 - 七类扩展灾种仅登记数据源与判定指标，未接入数据、未做量化验证。
 - 监测页展示的是已导入快照，不含实时拉取；定时调度目前只用于通知补投（`scheduler` 服务），不参与数据接入。发布不含短信/邮件等外部渠道。
-- 响应任务、处置时限与超时升级已实现（§6.15）；任务只派发给预警创建者，暂不支持改派或多人协同；升级只做一次（`escalated_at` 写入后不再参与扫描），不做逐级上报。
+- 响应任务、处置时限与超时升级已实现（§6.15）；任务派发给预警创建者，创建者已停用时改派发布人（§6.16），但暂不支持人工改派或多人协同；升级只做一次（`escalated_at` 写入后不再参与扫描），不做逐级上报。
