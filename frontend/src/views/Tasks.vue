@@ -78,7 +78,7 @@
                 <span class="badge-group">
                   <StatusBadge kind="taskStatus" :value="t.status" size="sm" />
                   <span v-if="t.overdue" class="badge badge--danger badge--sm">已逾期</span>
-                  <span v-else-if="t.escalation_level > 0" class="badge badge--orange badge--sm">
+                  <span v-if="t.escalation_level > 0" class="badge badge--orange badge--sm">
                     已升级
                   </span>
                 </span>

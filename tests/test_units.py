@@ -214,3 +214,79 @@ def test_audit_truncates_oversized_fields_and_sorts_roles():
     assert len(row.reason) <= 500
     assert len(row.request_id) <= 36
     assert len(row.ip_address) <= 45
+
+
+def test_import_sample_handles_missing_file_gracefully(tmp_path):
+    from backend.app.services import ingest
+
+    missing = tmp_path / "does_not_exist.json"
+    result = ingest.import_sample(session=None, path=missing, forecast_source_id=1, era5_source_id=2)
+    assert result["imported"] is False
+    assert result.get("unusable") is True
+    assert result["forecast"] == 0
+
+
+def test_seed_sync_passwords_clears_lockout_and_main_orders_users_before_sample(monkeypatch):
+    import sys
+    from datetime import datetime, timedelta
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from backend.app import seed
+
+    existing_user = SimpleNamespace(
+        id=99,
+        username="admin",
+        password_hash="old",
+        is_active=False,
+        failed_login_count=5,
+        locked_until=datetime.utcnow() + timedelta(minutes=10),
+    )
+
+    class FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        def scalar(self, stmt):
+            sql = str(stmt)
+            if "roles" in sql and "users" not in sql:
+                return SimpleNamespace(id=1, code="ADMIN")
+            if existing_user.username in repr(stmt.compile().params):
+                return existing_user
+            return None
+
+        def add(self, _obj):
+            pass
+
+        def flush(self):
+            pass
+
+        def execute(self, _stmt):
+            pass
+
+        def commit(self):
+            self.committed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setenv("DEMO_ADMIN_PASSWORD", "NewAdminPass!123")
+    monkeypatch.delenv("DEMO_ANALYST_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_REVIEWER_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_VIEWER_PASSWORD", raising=False)
+    seed.seed_users(FakeSession(), sync_passwords=True)
+    assert existing_user.is_active is True
+    assert existing_user.failed_login_count == 0
+    assert existing_user.locked_until is None
+
+    order = []
+    monkeypatch.setattr(seed, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(seed, "seed_reference_data", lambda _s: order.append("ref"))
+    monkeypatch.setattr(seed, "seed_users", lambda _s, sync_passwords=False: order.append("users"))
+    monkeypatch.setattr(seed, "import_sample", lambda _s, _p: order.append("sample"))
+    monkeypatch.setattr(sys, "argv", ["seed.py", "--sample", str(Path("data/sample/replay_sample.json"))])
+    seed.main()
+    assert order == ["ref", "users", "sample"]

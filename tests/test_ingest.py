@@ -675,3 +675,42 @@ def test_idempotency_checks_observation_dataset_as_well():
         path.unlink(missing_ok=True)
         with SessionLocal() as session:
             _cleanup_dataset(session, version)
+
+
+def test_period_bounds_exclude_empty_and_forecast_only_days():
+    """period_start/period_end 只统计真实写入记录的日期，不被空日或单侧日期拉偏。"""
+    from datetime import date
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset
+
+    version = f"test_ingest_bounds_{uuid4().hex}"
+    models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}
+    try:
+        res = _import_days_with_version(
+            version,
+            [
+                # 整条全坏：不应计入 period_start
+                {"city_code": "WUHAN", "valid_date": "2024-06-01", "models": None, "proxy_label_mm": None},
+                # 预报+观测都有效
+                {"city_code": "WUHAN", "valid_date": "2024-06-02", "models": models, "proxy_label_mm": 6.0},
+                # 仅预报有效、观测为 None：不应拉宽 ERA5_LABEL.period_end
+                {"city_code": "WUHAN", "valid_date": "2024-06-03", "models": models, "proxy_label_mm": None},
+            ],
+        )
+        assert res["imported"] is True
+        with SessionLocal() as session:
+            fc_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
+            )
+            obs_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "ERA5_LABEL", Dataset.version == version)
+            )
+            assert fc_ds.period_start == date(2024, 6, 2)
+            assert fc_ds.period_end == date(2024, 6, 3)
+            assert obs_ds.period_start == date(2024, 6, 2)
+            assert obs_ds.period_end == date(2024, 6, 2)
+    finally:
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)

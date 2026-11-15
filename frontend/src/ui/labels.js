@@ -62,7 +62,8 @@ export const ROLE_LABELS = {
   ADMIN: '管理员',
   ANALYST: '分析员',
   REVIEWER: '审核员',
-  VIEWER: '查看用户'
+  VIEWER: '查看用户',
+  SYSTEM: '系统定时任务'
 }
 
 export const RESOURCE_TYPE = {
@@ -70,7 +71,8 @@ export const RESOURCE_TYPE = {
   warning: meta('预警', 'info'),
   subscription: meta('订阅', 'purple'),
   notification: meta('通知', 'blue'),
-  response_task: meta('响应任务', 'orange')
+  response_task: meta('响应任务', 'orange'),
+  USER: meta('用户', 'blue')
 }
 
 export const NOTIFICATION_KIND = {

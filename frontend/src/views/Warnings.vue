@@ -184,7 +184,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from '../api'
 import { auth } from '../auth'
@@ -229,7 +229,7 @@ const hasReplayQuery = computed(() =>
 )
 
 const canCreate = computed(
-  () => !preview.value || preview.value.data_status === 'COMPLETE'
+  () => !previewLoading.value && !previewError.value && (!preview.value || preview.value.data_status === 'COMPLETE')
 )
 
 const form = reactive({
@@ -265,20 +265,46 @@ function switchStatus(value) {
   loadWarnings()
 }
 
+let previewSeq = 0
+let lastPreviewKey = ''
+
 async function loadPreview() {
   if (!hasReplayQuery.value) return
+  const key = `${form.city}|${form.date}|${form.threshold}`
+  if (previewLoading.value && lastPreviewKey === key) return
+  lastPreviewKey = key
+  const seq = ++previewSeq
   previewLoading.value = true
   previewError.value = ''
   try {
-    preview.value = await apiFetch(
-      `/replay?city_code=${route.query.city}&date=${route.query.date}&threshold_code=${route.query.threshold}`
+    const data = await apiFetch(
+      `/replay?city_code=${encodeURIComponent(form.city)}&date=${encodeURIComponent(form.date)}&threshold_code=${encodeURIComponent(form.threshold)}`
     )
+    if (seq === previewSeq) preview.value = data
   } catch (e) {
-    previewError.value = e.message
+    if (seq === previewSeq) {
+      preview.value = null
+      previewError.value = e.message
+    }
   } finally {
-    previewLoading.value = false
+    if (seq === previewSeq) previewLoading.value = false
   }
 }
+
+watch(
+  () => [form.city, form.date, form.threshold],
+  () => {
+    const key = `${form.city}|${form.date}|${form.threshold}`
+    if (key === lastPreviewKey) return
+    previewSeq += 1
+    lastPreviewKey = ''
+    preview.value = null
+    previewError.value = ''
+    if (hasReplayQuery.value) {
+      loadPreview()
+    }
+  }
+)
 
 onMounted(async () => {
   if (route.query.city) form.city = route.query.city
@@ -286,11 +312,12 @@ onMounted(async () => {
   if (route.query.threshold) form.threshold = route.query.threshold
   activeStatus.value = isViewerOnly.value ? 'PUBLISHED' : ''
 
+  const previewTask = loadPreview()
   const [citiesResult] = await Promise.allSettled([apiFetch('/cities')])
   if (citiesResult.status === 'fulfilled') {
     cities.value = citiesResult.value
   }
-  await Promise.all([loadPreview(), loadWarnings()])
+  await Promise.all([previewTask, loadWarnings()])
 })
 
 async function create() {

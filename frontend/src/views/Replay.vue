@@ -116,10 +116,16 @@
           缺任一模式时显示 PARTIAL，不生成正式预警；教学风险等级不代表国家气象台官方预警信号。
         </p>
 
-        <div v-if="auth.hasAnyRole('ANALYST', 'ADMIN') && result.data_status === 'COMPLETE'" style="margin-top: 12px">
+        <div
+          v-if="auth.hasAnyRole('ANALYST', 'ADMIN') && result.data_status === 'COMPLETE' && result.risk_level"
+          style="margin-top: 12px"
+        >
           <router-link
             class="btn btn-secondary btn-sm"
-            :to="{ path: '/warnings', query: { city: result.city.code, date: result.valid_date, threshold: threshold } }"
+            :to="{
+              path: '/warnings',
+              query: { city: result.city.code, date: result.valid_date, threshold: result.threshold?.code || threshold }
+            }"
           >
             基于此回放创建预警 →
           </router-link>

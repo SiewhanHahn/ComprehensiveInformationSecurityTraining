@@ -91,7 +91,8 @@ def _validate_days(days: list) -> dict:
     obs_has_issue = False
     seen: set[tuple[str, str, datetime, int]] = set()
     seen_city_dates: set[tuple[str, date]] = set()
-    all_dates: set[date] = set()
+    fc_dates: set[date] = set()
+    obs_dates: set[date] = set()
     last_date_by_city: dict[str, date] = {}
 
     def issue(issue_type, *, city_code=None, model_code=None, valid_date=None, detail=None, on_obs=False):
@@ -120,7 +121,6 @@ def _validate_days(days: list) -> dict:
         if (city, valid_date) in seen_city_dates:
             issue(ISSUE_DUPLICATE, city_code=city, valid_date=valid_date, detail="城市+日期重复")
             continue
-        all_dates.add(valid_date)
 
         previous = last_date_by_city.get(city)
         if previous is not None and valid_date < previous:
@@ -155,6 +155,7 @@ def _validate_days(days: list) -> dict:
                 continue
             seen.add(key)
             fc_rows.append((city, model_code, valid_at, dec))
+            fc_dates.add(valid_date)
 
         # 默认模式之外的键单独记，既不参与融合也不悄悄丢掉
         for model_code in models:
@@ -167,6 +168,7 @@ def _validate_days(days: list) -> dict:
                 issue(ISSUE_INVALID_VALUE, city_code=city, valid_date=valid_date, detail=str(day["proxy_label_mm"]), on_obs=True)
             else:
                 obs_rows.append((city, valid_date, proxy))
+                obs_dates.add(valid_date)
 
         # 只有真正产出记录的条目才占用 (city, date) 去重键；否则一条全坏条目
         # 会把后面修正过的同城同日条目误判为 DUPLICATE，整天数据一起丢失。
@@ -178,7 +180,8 @@ def _validate_days(days: list) -> dict:
         "fc_rows": fc_rows,
         "obs_rows": obs_rows,
         "issues": issues,
-        "all_dates": all_dates,
+        "fc_dates": fc_dates,
+        "obs_dates": obs_dates,
         "fc_has_issue": fc_has_issue,
         "obs_has_issue": obs_has_issue,
     }
@@ -190,7 +193,10 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     幂等：同版本 FORECAST 与 ERA5_LABEL 数据集校验和都未变时跳过；FAILED 或 0 行版本允许用
     修正后的样本重导；已有可用数据时，新文件若无效或产出 0 条预报，不覆盖既有数据集。
     """
-    raw = path.read_bytes()
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        return {"imported": False, "forecast": 0, "observation": 0, "issues": 0, "unusable": True, "error": str(exc)}
     parse_error = None
     try:
         data = json.loads(raw.decode("utf-8"))
@@ -298,7 +304,8 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     fc_rows = staged["fc_rows"]
     obs_rows = staged["obs_rows"]
     staged_issues = staged["issues"]
-    all_dates = staged["all_dates"]
+    fc_dates = staged["fc_dates"]
+    obs_dates = staged["obs_dates"]
     fc_has_issue = staged["fc_has_issue"]
     obs_has_issue = staged["obs_has_issue"]
 
@@ -324,11 +331,12 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     n_obs = len(obs_rows)
     n_issues = len(staged_issues)
 
-    if all_dates:
-        fc_dataset.period_start = min(all_dates)
-        fc_dataset.period_end = max(all_dates)
-        obs_dataset.period_start = min(all_dates)
-        obs_dataset.period_end = max(all_dates)
+    if fc_dates:
+        fc_dataset.period_start = min(fc_dates)
+        fc_dataset.period_end = max(fc_dates)
+    if obs_dates:
+        obs_dataset.period_start = min(obs_dates)
+        obs_dataset.period_end = max(obs_dates)
     fc_dataset.row_count = n_fc
     obs_dataset.row_count = n_obs
     # 0 行数据集绝不能留成 READY/PARTIAL：latest_dataset 只排除 FAILED，
