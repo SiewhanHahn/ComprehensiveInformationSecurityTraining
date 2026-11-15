@@ -44,14 +44,17 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
 
     start = _day_start(valid_date)
     fc_dataset = latest_dataset(db, "FORECAST")
-    stmt = select(ForecastRecord).where(
-        ForecastRecord.city_code == city_code,
-        ForecastRecord.valid_at == start,
-        ForecastRecord.lead_hours == LEAD_HOURS,
-    )
     if fc_dataset is not None:
-        stmt = stmt.where(ForecastRecord.dataset_id == fc_dataset.id)
-    records = db.scalars(stmt).all()
+        records = db.scalars(
+            select(ForecastRecord).where(
+                ForecastRecord.city_code == city_code,
+                ForecastRecord.valid_at == start,
+                ForecastRecord.lead_hours == LEAD_HOURS,
+                ForecastRecord.dataset_id == fc_dataset.id,
+            )
+        ).all()
+    else:
+        records = []
 
     by_model: dict[str, ForecastRecord] = {}
     for r in records:
@@ -80,13 +83,9 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
     baseline = float(ecmwf.precipitation_mm) if ecmwf_usable else None
 
     proxy = None
-    # 代理标签必须来自与预报数据集同一版本：回退到别的 ERA5 版本会让
-    # proxy_label_mm 与响应里的 dataset_version 张冠李戴。
-    obs_dataset = (
-        latest_dataset(db, "ERA5_LABEL", version=fc_dataset.version)
-        if fc_dataset is not None
-        else latest_dataset(db, "ERA5_LABEL")
-    )
+    # 代理标签必须来自与预报数据集同一版本：没有可用预报数据集时不回退到孤立的 ERA5 版本，
+    # 避免已失败/损坏的观测数据单独泄漏，或与 dataset_version="sample" 张冠李戴。
+    obs_dataset = latest_dataset(db, "ERA5_LABEL", version=fc_dataset.version) if fc_dataset is not None else None
     if obs_dataset is not None:
         proxy = db.scalar(
             select(ObservationRecord.precipitation_mm).where(

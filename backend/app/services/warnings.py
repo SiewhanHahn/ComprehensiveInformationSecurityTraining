@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..cities import LEAD_HOURS, MODEL_DISPLAY
 from ..clock import utcnow
-from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER, CurrentUser
+from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
 from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
 from ..security import new_public_id
@@ -56,7 +56,7 @@ WITHDRAW = Transition(frozenset({PUBLISHED}), WITHDRAWN, "WARNING_WITHDRAW", "wi
 
 def is_viewer_only(current: CurrentUser) -> bool:
     privileged = {ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER}
-    return ROLE_VIEWER in current.roles and not (privileged & set(current.roles))
+    return not (privileged & set(current.roles))
 
 
 def _apply(w: Warning, transition: Transition, actor: CurrentUser, audit: AuditContext, reason: str | None = None) -> None:

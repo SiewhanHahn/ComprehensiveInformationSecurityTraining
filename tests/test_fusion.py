@@ -208,3 +208,20 @@ def test_monitor_counts_lead_hours_like_replay(login):
         with SessionLocal() as db:
             db.get(ForecastRecord, record_pk).lead_hours = original_lead
             db.commit()
+
+
+def test_replay_does_not_leak_failed_datasets_when_no_valid_dataset_exists(monkeypatch):
+    """全部预报批次都处于 FAILED（latest_dataset 返回 None）时，不能无过滤读取失败数据。"""
+    from datetime import date
+
+    from backend.app.db import SessionLocal
+    from backend.app.services import replay
+
+    monkeypatch.setattr(replay, "latest_dataset", lambda db, dtype, version=None: None)
+    with SessionLocal() as db:
+        result = replay.compute_replay(db, "CHANGSHA", date(2024, 3, 27), "HEAVY")
+    assert result is not None
+    assert result["data_status"] == "PARTIAL"
+    assert result["fused_mm"] is None
+    assert result["risk_level"] is None
+    assert all(m.precipitation_mm is None for m in result["models"])

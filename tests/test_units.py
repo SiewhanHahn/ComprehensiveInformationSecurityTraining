@@ -60,10 +60,26 @@ def test_offline_sample_structure():
 
 def test_viewer_only():
     assert is_viewer_only(CurrentUser(1, "v", ["VIEWER"]))
+    assert is_viewer_only(CurrentUser(6, "norole", []))
+    assert is_viewer_only(CurrentUser(7, "guest", ["GUEST"]))
     assert not is_viewer_only(CurrentUser(2, "a", ["ANALYST"]))
     assert not is_viewer_only(CurrentUser(3, "va", ["VIEWER", "ANALYST"]))
     assert not is_viewer_only(CurrentUser(4, "admin", ["ADMIN"]))
     assert not is_viewer_only(CurrentUser(5, "r", ["REVIEWER"]))
+
+
+def test_login_request_rejects_oversized_credentials():
+    import pytest
+    from pydantic import ValidationError
+
+    from backend.app.schemas import LoginRequest
+
+    assert LoginRequest(username="", password="").username == ""
+    assert LoginRequest(username="a" * 64, password="p" * 128).password == "p" * 128
+    with pytest.raises(ValidationError):
+        LoginRequest(username="a" * 65, password="secret")
+    with pytest.raises(ValidationError):
+        LoginRequest(username="admin_demo", password="p" * 129)
 
 
 def test_subscription_matching():

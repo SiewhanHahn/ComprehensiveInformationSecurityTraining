@@ -170,7 +170,7 @@
           description="预警批准发布后会自动生成一条处置任务。"
         />
 
-        <template v-else>
+        <template v-else-if="currentTask">
           <div class="detail-grid">
             <div class="detail-item">
               <span class="detail-label">负责人</span>

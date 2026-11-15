@@ -170,3 +170,50 @@ def test_successful_login_does_not_clear_ip_failures(new_client):
 
     assert _login(new_client, "viewer_demo", password).status_code == 200
     assert get_redis().exists(key) == 1, "成功登录不应清空 IP 失败计数"
+
+
+def test_login_rejects_oversized_password_before_hashing(new_client, monkeypatch):
+    from backend.app.routers import auth
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("超长密码应在进入 Argon2 校验前被 schema 拦截")
+
+    monkeypatch.setattr(auth, "verify_password", fail_if_called)
+    resp = _login(new_client, "viewer_demo", "p" * 129)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_concurrent_login_burst_respects_remaining_ip_budget(new_client, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.routers import auth
+
+    settings = get_settings()
+    key = auth._ip_rate_key("testclient")
+    redis = get_redis()
+    redis.set(key, settings.ip_login_attempts - 1, ex=settings.ip_lockout_seconds)
+
+    barrier = Barrier(4, timeout=10)
+    original_verify = auth.verify_password
+
+    def slow_verify(password, hashed):
+        try:
+            barrier.wait(timeout=0.3)
+        except Exception:
+            pass
+        return original_verify(password, hashed)
+
+    monkeypatch.setattr(auth, "verify_password", slow_verify)
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            statuses = list(
+                pool.map(lambda _: _login(new_client, f"no_such_{uuid4().hex}", "bad").status_code, range(4))
+            )
+        assert statuses.count(401) == 1, statuses
+        assert statuses.count(429) == 3, statuses
+    finally:
+        redis.delete(key)
