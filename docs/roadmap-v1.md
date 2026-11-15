@@ -140,16 +140,20 @@ git archive --format=tar.gz --prefix=ComprehensiveInformationSecurityTraining/ \
 
 | 项目 | 状态 |
 | --- | --- |
-| `main` | `v0.2.5-phase-a`（A 档 + 前端暗色 command-center 改版） |
+| `main` | `v0.3.0-phase-b`（B 档完成：订阅通知、响应任务、超时升级 `scheduler`、`0005` 迁移） |
 | `phase-a` | 已合并回 `main`，保留历史 |
-| `phase-b` | B 档两刀均已完成并验证，待验收后合并 `main` 并打 `v0.3.0-phase-b` |
+| `phase-b` | 已合并回 `main` 并打 `v0.3.0-phase-b`（91 测试通过 + VM 端到端验收），保留历史 |
 | A 验收 | 已通过（19 测试 + 浏览器人工验收）；补丁版本见下表 |
-| C | 未开始；B 验收并合并后，从 `main` 切 `phase-c` |
+| B 验收 | 已通过（91 测试 + VM 容器栈端到端验收，`test-report-v1.md` §6.13–§6.19） |
+| C | 未开始；从 `main` 切 `phase-c` |
 
-A 档补丁版本（均无新迁移）：
+版本记录：
 
 | 标签 | 内容 | 测试 |
 | --- | --- | --- |
 | `v0.2.1-phase-a` | PATCH 校验、监测完整性口径 | 19 passed |
 | `v0.2.2-phase-a` | 监测口径说明、权威 F1、指标符号 | 19 passed |
 | `v0.2.3-phase-a` | FR-02 用户与角色管理、全局统一错误结构、`npm ci` 构建 | 34 passed（隔离环境，`test-report-v1.md` §6.10/§6.11） |
+| `v0.2.4-phase-a` | FR-04 融合证据链追溯、FR-01 会话/IP 限速加固、迁移 `0004` `dataset_issues` | 46 passed（`test-report-v1.md` §6.12） |
+| `v0.2.5-phase-a` | 低于阈值拒绝正式预警创建（`409 THRESHOLD_NOT_REACHED`） | 47 passed（`test-report-v1.md` §6.12.5） |
+| `v0.3.0-phase-b` | B 档发布—响应闭环：迁移 `0005`、订阅与站内通知、独立 `scheduler`、响应任务与超时升级、撤回自动关单及三轮审查加固 | 91 passed（`test-report-v1.md` §6.13–§6.19） |

@@ -10,16 +10,16 @@ A B/S teaching demonstration for historical precipitation fusion and warning cre
 
 `report/` holds the instructor-issued course-report templates (.docx/.pptx) and is **gitignored** (课程报告模板，非交付物 — do not commit it or re-open the question). `info.txt` (tracked) records the course assessment discussion (deliverables: runnable source + report + quantified improvement, no video).
 
-## 当前进度与下一步（B 档两刀已交付，接手前必读）
+## 当前进度与下一步（B 档已验收合并 `v0.3.0-phase-b`，接手前必读）
 
-目标：B 档之前把 A 档精细打磨完（不要屎山；A 是 B 的地基）。答辩约 2026-12 下旬。**接手第一步：`git status` 核对，别丢未提交改动。** 当前在 `phase-b`：工作树干净，已推送远端 `origin/phase-b`。
+目标：B 档之前把 A 档精细打磨完（不要屎山；A 是 B 的地基）。答辩约 2026-12 下旬。**接手第一步：`git status` 核对，别丢未提交改动。** 当前 `phase-b` 已合并回 `main` 并打标签 `v0.3.0-phase-b`，工作树干净，已推送远端 `origin/main` 与 `origin/phase-b`。
 
-- 远程 `main` 已合并阶段 2、完成 A 档收口并推送（最新 tag `v0.2.5-phase-a`，其后有 `6956c47` dark command-center 前端重设计、`1065dc2` Dockerfile 阿里云镜像源、`c3bd0bf` CLAUDE.md 刷新）。
-- 演示 VM（`shawn@192.168.100.128`）已于 2026-11-15 更新到 `phase-b` 并完成 B 档部署与端到端验收（迁移 `0005`、`scheduler` 容器、全量 pytest **91 passed**）；部署步骤见 `docs/docker-deployment-plan.md`，`.env` 只留在 VM。
-- **B 档在 `phase-b` 分支进行，分两刀。两刀均已完成并验证**（`docs/test-report-v1.md` §6.13–§6.19）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；响应任务自动派发、处置时限、接单/完成、超时升级、撤回自动关单（`RESPONSE_TASK_CLOSE`）、任务看板与详情页任务卡。全量 pytest **91 passed**；经过三轮 `backend/` 审查收口（§6.17–§6.19，清单与前端契约见 `docs/backend-review-v1.md`）。**第二刀没有新迁移**。
+- 远程 `main` 已合并 `phase-b`、完成 B 档收口并推送（最新 tag `v0.3.0-phase-b`）。
+- 演示 VM（`shawn@192.168.100.128`）已于 2026-11-15 更新到 `v0.3.0-phase-b` 并完成 B 档部署与端到端验收（迁移 `0005`、`scheduler` 容器、全量 pytest **91 passed**）；部署步骤见 `docs/docker-deployment-plan.md`，`.env` 只留在 VM。
+- **B 档在 `phase-b` 分支进行，分两刀。两刀均已完成、端到端验收通过并合并回 `main`**（`docs/test-report-v1.md` §6.13–§6.19）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；响应任务自动派发、处置时限、接单/完成、超时升级、撤回自动关单（`RESPONSE_TASK_CLOSE`）、任务看板与详情页任务卡。全量 pytest **91 passed**；经过三轮 `backend/` 审查收口（§6.17–§6.19，清单与前端契约见 `docs/backend-review-v1.md`）。**第二刀没有新迁移**。
 - **`backend/` 全量审查（§6.17–§6.19）的几条现状**：`services/tasks.py` 的 ack/complete 与 escalate 都改成带期望状态的条件 UPDATE，预警撤回时自动关闭未完成任务并记 `RESPONSE_TASK_CLOSE`；`routers/monitor.py` 与 `services/replay.py` 的完整性口径与数据集 `version` 对齐（lead/mode/非空/is_complete）；`main.py` 有兜底 500 处理器（`INTERNAL_ERROR`），无 Cookie 或过期会话返回 `401 UNAUTHENTICATED` 而非 `403 CSRF`；per-IP 登录限速**不再被成功登录清零**且 429 分支带 TTL 自愈；`fusion.py` 的最优规则按训练年选择。**给新部署前必读**：`seed.py` 曾因漏导入 `Decimal` 导致任何重建的部署起不来，现已修复并有看门狗测试。
 - **第二、三轮审查（§6.18–§6.19）**：`docs/backend-review-v1.md` §4 的契约已重写——**CSRF 契约、状态码语义、201/204、字段名、`page_size` 上限、时间精度都在那里**，前端重构前先读它。代码侧补了：`notify_users` 改 `INSERT IGNORE`（并发撞 dedupe 键不再回滚发布）；扫描两趟各自提交；坏样本/非对象/0 可用行标 `FAILED` 而不是产出空 `READY` 数据集，且同版本被预警引用时拒绝覆盖；锁定与成功登录状态判断均改用 `FOR UPDATE` 加锁读；`Cookie` 校验改到 `settings.validate_for_serving()`（只在 API 进程里跑）。
-- **剩余**：合并 `main` → 打 `v0.3.0-phase-b`。课程报告/PPT 尚未动工（模板在 `report/`）。
+- **剩余**：按需从 `main` 切 `phase-c` 推进 C 档或撰写课程报告/PPT（模板在 `report/`）。
 - **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest（尚未落地——`package.json` 仅 `dev`/`build`/`preview`，无测试依赖/脚本）；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）；定时扫描用独立 `scheduler` 容器而非进程内调度，且不引入 APScheduler/Celery；订阅的「不限」用哨兵值 `'*'`/`''` 而非 NULL；**前端不对未读数做定时轮询**——`/notifications/unread-count` 走 `get_current_user` 会刷新会话空闲 TTL，轮询等于让会话永不过期，只在挂载/切页/标签页回到前台时刷新。
 
 ## Commands
@@ -74,7 +74,7 @@ docker compose exec -T \
 
 Integration tests require initialized MySQL/Redis and demo accounts, and exercise database-writing business flows; use a development instance. Without `RUN_INTEGRATION=1`, those tests are skipped. There is no project pytest configuration or configured lint command.
 
-Test suite layout: `test_units.py` (no services needed), `test_integration.py`, `test_rbac_matrix.py`, `test_state_machine.py`, `test_user_management.py`, `test_login.py`, `test_ingest.py`, `test_fusion.py` (FR-04 fusion traceability + below-threshold rejection), `test_notifications.py` (subscriptions + publish/withdraw delivery, per-user isolation), `test_scheduler.py` (backfill idempotency + SYSTEM audit via a direct `run_scan` call, no sleeping), `test_tasks.py` (publish → task, permissions, state machine, one-shot escalation); `tests/manual_round{2,3,4}.sh` are manual shell scripts. `tests/conftest.py` provides the shared fixtures `new_client`, `login`, `make_warning`, `created_warnings`, `created_users`, `created_subscriptions`, `subscriber`, `bystander`, plus the helpers `publish_warning` and `notifications_for` (notifications and subscriptions FK to `users` without `ondelete`, so the cleanup helpers must delete them first), and auto-skips `@pytest.mark.integration` tests unless `RUN_INTEGRATION=1`. Full suite after two backend review rounds: **80 passed**.
+Test suite layout: `test_units.py` (no services needed), `test_integration.py`, `test_rbac_matrix.py`, `test_state_machine.py`, `test_user_management.py`, `test_login.py`, `test_ingest.py`, `test_fusion.py` (FR-04 fusion traceability + below-threshold rejection), `test_notifications.py` (subscriptions + publish/withdraw delivery, per-user isolation), `test_scheduler.py` (backfill idempotency + SYSTEM audit via a direct `run_scan` call, no sleeping), `test_tasks.py` (publish → task, permissions, state machine, one-shot escalation); `tests/manual_round{2,3,4}.sh` are manual shell scripts. `tests/conftest.py` provides the shared fixtures `new_client`, `login`, `make_warning`, `created_warnings`, `created_users`, `created_subscriptions`, `subscriber`, `bystander`, plus the helpers `publish_warning` and `notifications_for` (notifications and subscriptions FK to `users` without `ondelete`, so the cleanup helpers must delete them first), and auto-skips `@pytest.mark.integration` tests unless `RUN_INTEGRATION=1`. Full suite after three backend review rounds: **91 passed**.
 
 ### Local development
 
