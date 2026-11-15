@@ -432,7 +432,23 @@
   NULL 基线不 500、并发投递同一条通知不抛异常且只留一条、一趟扫描失败不回滚另一趟、坏样本标 FAILED、
   无 TTL 的 IP 计数键自愈。
 - **部署冒烟**：`docker compose -p fr02 run --rm seed` 退出 0。
-- 演示 VM 仍然不动；对外成功响应结构、错误码集合均未变化（本轮只改实现与文档）。
+- 演示 VM 仍然不动；对外成功响应结构、错误码集合均均未变化（本轮只改实现与文档）。
+
+## 6.19 第三轮加固与演示 VM B 档部署验收（2026-11-15）
+
+第三轮继续收口撤回联动、数据集版本配对、样本重导幂等与认证边界，并将 `phase-b` 正式部署到演示 VM（`192.168.100.128`）完成端到端验收：
+
+- **预警撤回自动关闭任务**：`withdraw_warning` 在同一事务内调用 `tasks.close_for_withdrawn`（`SELECT ... FOR UPDATE`），将该预警下未完成的响应任务置为 `COMPLETED` 并写入 `RESPONSE_TASK_CLOSE`（`actor_role = SYSTEM`）审计；`escalate_overdue` 同步排除已撤回预警，前端 `ui/labels.js` 补齐中文标签。
+- **数据集版本配对与精度一致**：`replay.py` 与 `monitor.py` 的观测数据集查询均限定与当前 `FORECAST` 数据集同 `version`，避免跨版本混配；融合阈值判定改用与展示一致的 `round(fused, 3)`。
+- **导入器与 seed 幂等保护**：`services/ingest.py` 改为按文件 SHA-256 `checksum` 判幂等；同版本若已被 `fusion_inputs` 引用则拒绝覆盖（`blocked = dataset_in_use`）；非法 JSON / 非对象顶层 / 非字符串 `city_code` / 0 可用行均安全落为 `FAILED` 并记录 `dataset_issues`；全坏条目不占用 `(city, date)` 去重键。`seed.py` 默认仅创建缺失演示账号，显式传 `--sync-demo-passwords` 才按 `.env` 重置密码与启用状态。
+- **认证与 CSRF 边界**：无会话 Cookie 的写请求放行至认证依赖返回 `401 UNAUTHENTICATED`；有 Cookie 但 Redis 会话已过期同样返回 `401 UNAUTHENTICATED`（前端 `api.js` 收到非登录 401 自动 `auth.clear()`），不再误报 `403 CSRF`；登录成功分支对 `locked_until`/`is_active` 改用 `FOR UPDATE` 当前读，429 分支补 `EXPIRE NX` 自愈。
+- **测试修正**：`test_fusion.py` 中三条直接修改 `ForecastRecord` 的用例补齐 `ForecastRecord.dataset_id == latest_dataset(db, "FORECAST").id` 过滤，避免在含历史数据集的库上改到旧版本行；`test_ingest.py` 补齐 `Dataset` 导入。
+
+验证：
+
+- **演示 VM 部署**：`docker compose build`、`docker compose run --rm migrate`（升级至 `0005_subscriptions_notifications`）、`docker compose run --rm seed` 均退出码 0；`api`、`frontend`、`scheduler`、`mysql`、`redis` 五服务运行正常，`/health`、`/health/db`、`/health/redis` 全部返回 `ok`。
+- **后端全量测试**：在演示 VM 的 `api` 容器内执行全量套件，**91 passed、2 warnings**（18.27 秒）。
+- **B 档端到端闭环验收**：静态资源（HTML/JS/CSS）、未认证 401 vs 缺头 403 CSRF 信封、监测与回放版本对齐（`2026-09-30.2`）、订阅 $\rightarrow$ 建单 $\rightarrow$ 提交 $\rightarrow$ 审核 $\rightarrow$ 发布 $\rightarrow$ 站内通知与未读计数、响应任务权限隔离（审核员详情页可读但 `ack` 返回 404、查看者 403、分析员 `ACKED -> COMPLETED`）与反馈、撤回自动关单与 `RESPONSE_TASK_CLOSE` 审计全部验证通过，验收后已清理临时测试数据。
 
 ## 7. 未完成项与限制
 

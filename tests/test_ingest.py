@@ -533,7 +533,7 @@ def test_non_string_city_code_records_issue():
     from sqlalchemy import select
 
     from backend.app.db import SessionLocal
-    from backend.app.models import DatasetIssue
+    from backend.app.models import Dataset, DatasetIssue
 
     version = f"test_ingest_citytype_{uuid4().hex}"
     models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}

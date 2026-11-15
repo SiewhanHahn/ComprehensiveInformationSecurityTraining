@@ -93,13 +93,17 @@ def test_null_model_value_is_partial_not_a_crash(login):
 
     from backend.app.db import SessionLocal
     from backend.app.models import ForecastRecord
+    from backend.app.services.replay import latest_dataset
 
     analyst, _ = login("analyst_demo")
     baseline = _partial_days(analyst)
 
     with SessionLocal() as db:
+        fc_ds = latest_dataset(db, "FORECAST")
+        assert fc_ds is not None
         record = db.scalar(
             select(ForecastRecord).where(
+                ForecastRecord.dataset_id == fc_ds.id,
                 ForecastRecord.city_code == "CHANGSHA",
                 ForecastRecord.valid_at == datetime(2024, 3, 27),
                 ForecastRecord.model_code == "gem_global",
@@ -135,12 +139,16 @@ def test_null_baseline_does_not_crash(login):
 
     from backend.app.db import SessionLocal
     from backend.app.models import ForecastRecord
+    from backend.app.services.replay import latest_dataset
 
     analyst, _ = login("analyst_demo")
 
     with SessionLocal() as db:
+        fc_ds = latest_dataset(db, "FORECAST")
+        assert fc_ds is not None
         record = db.scalar(
             select(ForecastRecord).where(
+                ForecastRecord.dataset_id == fc_ds.id,
                 ForecastRecord.city_code == "CHANGSHA",
                 ForecastRecord.valid_at == datetime(2024, 3, 27),
                 ForecastRecord.model_code == "ecmwf_ifs025",
@@ -172,13 +180,17 @@ def test_monitor_counts_lead_hours_like_replay(login):
     from backend.app.cities import LEAD_HOURS
     from backend.app.db import SessionLocal
     from backend.app.models import ForecastRecord
+    from backend.app.services.replay import latest_dataset
 
     analyst, _ = login("analyst_demo")
     baseline = _partial_days(analyst)
 
     with SessionLocal() as db:
+        fc_ds = latest_dataset(db, "FORECAST")
+        assert fc_ds is not None
         record = db.scalar(
             select(ForecastRecord).where(
+                ForecastRecord.dataset_id == fc_ds.id,
                 ForecastRecord.city_code == "CHANGSHA",
                 ForecastRecord.valid_at == datetime(2024, 3, 27),
                 ForecastRecord.model_code == "gem_global",

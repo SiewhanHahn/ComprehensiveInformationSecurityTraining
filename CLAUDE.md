@@ -12,14 +12,14 @@ A B/S teaching demonstration for historical precipitation fusion and warning cre
 
 ## 当前进度与下一步（B 档两刀已交付，接手前必读）
 
-目标：B 档之前把 A 档精细打磨完（不要屎山；A 是 B 的地基）。答辩约 2026-12 下旬。**接手第一步：`git status` 核对，别丢未提交改动。** 当前在 `phase-b`：领先 `main` **37 个提交**、工作树干净、HEAD `b5d1595`，且**从未推送**（远端没有 `origin/phase-b`）——合并或换机前先 push，否则这些提交只存在于本机。
+目标：B 档之前把 A 档精细打磨完（不要屎山；A 是 B 的地基）。答辩约 2026-12 下旬。**接手第一步：`git status` 核对，别丢未提交改动。** 当前在 `phase-b`：工作树干净，已推送远端 `origin/phase-b`。
 
 - 远程 `main` 已合并阶段 2、完成 A 档收口并推送（最新 tag `v0.2.5-phase-a`，其后有 `6956c47` dark command-center 前端重设计、`1065dc2` Dockerfile 阿里云镜像源、`c3bd0bf` CLAUDE.md 刷新）。
-- 演示 VM 已于 2026-11-02 更新到 `main` 并验证（暗色 UI、`THRESHOLD_NOT_REACHED`、迁移 `0004`、单元测试通过）；部署步骤见 `docs/docker-deployment-plan.md`，`.env` 只留在 VM。
-- **B 档在 `phase-b` 分支进行，分两刀。两刀均已完成并验证**（`docs/test-report-v1.md` §6.13–§6.16）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；响应任务自动派发、处置时限、接单/完成、超时升级、任务看板与详情页任务卡。fr02 全量 pytest **80 passed**；两刀各自经过一轮多角度 code review 收口（§6.14、§6.16），另有一轮 `backend/` 全量审查收口（§6.17，清单与前端契约见 `docs/backend-review-v1.md`）。**第二刀没有新迁移**。
-- **`backend/` 全量审查（§6.17）的几条现状**：`services/tasks.py` 的 ack/complete 与 escalate 都改成带期望状态的条件 UPDATE；`routers/monitor.py` 的完整性口径与回放对齐（lead/mode/非空/is_complete）；`main.py` 有兜底 500 处理器（`INTERNAL_ERROR`）；per-IP 登录限速**不再被成功登录清零**；`fusion.py` 的最优规则按训练年选择。**给新部署前必读**：`seed.py` 曾因漏导入 `Decimal` 导致任何重建的部署起不来，现已修复并有看门狗测试。
-- **第二轮审查（§6.18）**：`docs/backend-review-v1.md` §4 的契约被人重写过一次——**CSRF 契约、状态码语义、201/204、字段名、`page_size` 上限、时间精度都在那里**，前端重构前先读它。代码侧补了：`notify_users` 改 `INSERT IGNORE`（并发撞 dedupe 键不再回滚发布）；扫描两趟各自提交；坏样本标 `FAILED` 而不是产出空 `READY` 数据集；锁定判断改用加锁读；`Cookie` 校验改到 `settings.validate_for_serving()`（只在 API 进程里跑）。
-- **剩余**：B 档验收 → 合并 `main` → 打 `v0.3.0-phase-b`；**更新演示 VM 前先问用户**（B 档部署要多起一个 `scheduler` 服务）。fr02 栈如不再用可 `docker compose -p fr02 stop`。课程报告/PPT 尚未动工（模板在 `report/`）。
+- 演示 VM（`shawn@192.168.100.128`）已于 2026-11-15 更新到 `phase-b` 并完成 B 档部署与端到端验收（迁移 `0005`、`scheduler` 容器、全量 pytest **91 passed**）；部署步骤见 `docs/docker-deployment-plan.md`，`.env` 只留在 VM。
+- **B 档在 `phase-b` 分支进行，分两刀。两刀均已完成并验证**（`docs/test-report-v1.md` §6.13–§6.19）：迁移 `0005`（`warning_subscriptions` / `notifications` / `response_tasks`）、订阅、站内通知、通知中心页、独立 `scheduler` 容器；响应任务自动派发、处置时限、接单/完成、超时升级、撤回自动关单（`RESPONSE_TASK_CLOSE`）、任务看板与详情页任务卡。全量 pytest **91 passed**；经过三轮 `backend/` 审查收口（§6.17–§6.19，清单与前端契约见 `docs/backend-review-v1.md`）。**第二刀没有新迁移**。
+- **`backend/` 全量审查（§6.17–§6.19）的几条现状**：`services/tasks.py` 的 ack/complete 与 escalate 都改成带期望状态的条件 UPDATE，预警撤回时自动关闭未完成任务并记 `RESPONSE_TASK_CLOSE`；`routers/monitor.py` 与 `services/replay.py` 的完整性口径与数据集 `version` 对齐（lead/mode/非空/is_complete）；`main.py` 有兜底 500 处理器（`INTERNAL_ERROR`），无 Cookie 或过期会话返回 `401 UNAUTHENTICATED` 而非 `403 CSRF`；per-IP 登录限速**不再被成功登录清零**且 429 分支带 TTL 自愈；`fusion.py` 的最优规则按训练年选择。**给新部署前必读**：`seed.py` 曾因漏导入 `Decimal` 导致任何重建的部署起不来，现已修复并有看门狗测试。
+- **第二、三轮审查（§6.18–§6.19）**：`docs/backend-review-v1.md` §4 的契约已重写——**CSRF 契约、状态码语义、201/204、字段名、`page_size` 上限、时间精度都在那里**，前端重构前先读它。代码侧补了：`notify_users` 改 `INSERT IGNORE`（并发撞 dedupe 键不再回滚发布）；扫描两趟各自提交；坏样本/非对象/0 可用行标 `FAILED` 而不是产出空 `READY` 数据集，且同版本被预警引用时拒绝覆盖；锁定与成功登录状态判断均改用 `FOR UPDATE` 加锁读；`Cookie` 校验改到 `settings.validate_for_serving()`（只在 API 进程里跑）。
+- **剩余**：合并 `main` → 打 `v0.3.0-phase-b`。课程报告/PPT 尚未动工（模板在 `report/`）。
 - **已定决策，不要再问**：登录失败统一 `INVALID_CREDENTIALS`（锁定期间也一样），仅密码正确才 `ACCOUNT_DISABLED`；导入质量问题用新表 `dataset_issues`（迁移 0004）；错误文案以后端 `message` 为准、前端 ERROR_ZH 只兜底；前端引入 Vitest（尚未落地——`package.json` 仅 `dev`/`build`/`preview`，无测试依赖/脚本）；对外 HTTP API 只增不改（`WarningOut` 不变，详情用 `WarningDetailOut` 子类）；定时扫描用独立 `scheduler` 容器而非进程内调度，且不引入 APScheduler/Celery；订阅的「不限」用哨兵值 `'*'`/`''` 而非 NULL；**前端不对未读数做定时轮询**——`/notifications/unread-count` 走 `get_current_user` 会刷新会话空闲 TTL，轮询等于让会话永不过期，只在挂载/切页/标签页回到前台时刷新。
 
 ## Commands
