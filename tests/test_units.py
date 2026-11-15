@@ -105,3 +105,21 @@ def test_csrf_comparison_survives_non_ascii():
     assert not csrf_matches(None, "abc123")
     assert not csrf_matches("abc123", None)
     assert not csrf_matches("café", "abc123")
+
+
+def test_reasoning_text_checks_utf8_bytes_not_characters():
+    """TEXT 列按字节计：20,000 个 4 字节字符仍会超过 65,535 字节。"""
+    from datetime import date
+
+    import pytest
+    from pydantic import ValidationError
+
+    from backend.app.schemas import WarningCreate, WarningUpdate
+
+    base = dict(city_code="WUHAN", valid_date=date(2024, 1, 1), threshold_code="HEAVY", title="t", area_text="a")
+    with pytest.raises(ValidationError):
+        WarningCreate(**base, reasoning_text="😀" * 20000)
+    with pytest.raises(ValidationError):
+        WarningUpdate(reasoning_text="😀" * 20000)
+    # 中文按 3 字节计，20,000 字符 = 60,000 字节，仍在 TEXT 容量内
+    assert WarningCreate(**base, reasoning_text="雨" * 20000).reasoning_text

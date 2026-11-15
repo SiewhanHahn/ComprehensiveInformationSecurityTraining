@@ -113,6 +113,38 @@ def test_ip_rate_limit_blocks_after_threshold(new_client):
     assert get_redis().ttl(key) > 0
 
 
+def test_blocked_ip_without_ttl_is_healed(new_client):
+    """旧版本可能留下已超阈值但没有 TTL 的键；429 分支必须给它补上过期时间。"""
+    from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    key = _ip_rate_key("testclient")
+    get_redis().set(key, get_settings().ip_login_attempts + 5)  # 模拟无 TTL 的遗留键
+    try:
+        assert get_redis().ttl(key) == -1
+        assert _login(new_client, f"no_such_{uuid4().hex}", "x").status_code == 429
+        assert get_redis().ttl(key) > 0
+    finally:
+        get_redis().delete(key)
+
+
+def test_expired_session_write_returns_401_not_csrf(login):
+    """Cookie 还在但 Redis 会话已过期：写请求是未认证，不是 CSRF 失败。"""
+    from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.session import _key
+
+    client, csrf = login("viewer_demo")
+    session_id = client.cookies.get(get_settings().session_cookie_name)
+    assert session_id
+    get_redis().delete(_key(session_id))
+
+    resp = client.post("/api/v1/notifications/read-all", headers=csrf_headers(csrf))
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
 def test_successful_login_does_not_clear_ip_failures(new_client):
     """成功登录不得重置 per-IP 失败计数。
 

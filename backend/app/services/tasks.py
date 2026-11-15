@@ -16,7 +16,7 @@ from ..config import get_settings
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Role, ResponseTask, User, UserRole, Warning
 from ..schemas import ResponseTaskOut
-from .audit import AuditContext
+from .audit import AuditContext, add_audit
 from .notifications import notify_users, warning_summary
 
 PENDING = "PENDING"
@@ -78,6 +78,52 @@ def create_for_published(db: Session, w: Warning, actor: CurrentUser, audit: Aud
     return task
 
 
+def close_for_withdrawn(db: Session, w: Warning, audit: AuditContext) -> int:
+    """预警撤回后关闭其未完成的响应任务。
+
+    任务状态机只有 PENDING/ACKED/COMPLETED；撤回不是「已处置」，但继续留着 PENDING
+    会让扫描把它升级，并持续通知负责人/管理员一个已不存在的预警。这里用 SYSTEM 审计
+    记录自动关闭，``is_overdue`` 也会随 COMPLETED 变为 False。
+    """
+    # 加锁读（current read）：普通 SELECT 用的是请求开始时的快照，另一个 reviewer
+    # 刚提交的发布任务在这里看不到；锁定读能看到最新已提交行，并锁住这些任务，
+    # 保证随后的 UPDATE 与审计列表一致。
+    task_ids = list(
+        db.scalars(
+            select(ResponseTask.id)
+            .where(
+                ResponseTask.warning_id == w.id,
+                ResponseTask.status != COMPLETED,
+            )
+            .with_for_update()
+        ).all()
+    )
+    if not task_ids:
+        return 0
+    db.execute(
+        update(ResponseTask)
+        .where(ResponseTask.id.in_(task_ids), ResponseTask.status != COMPLETED)
+        .values(status=COMPLETED, completed_at=utcnow())
+        .execution_options(synchronize_session=False)
+    )
+    actor_note = f"（操作者 {audit.actor.id}）" if audit.actor else ""
+    for task_id in task_ids:
+        add_audit(
+            db,
+            action="RESPONSE_TASK_CLOSE",
+            resource_type="response_task",
+            resource_id=str(task_id),
+            result="SUCCESS",
+            actor_id=None,
+            actor_role="SYSTEM",
+            reason=f"预警撤回，任务自动关闭{actor_note}",
+            request_id=audit.request_id,
+            ip_address=audit.ip_address,
+        )
+    db.flush()
+    return len(task_ids)
+
+
 def ack_task(db: Session, task_id: int, actor: CurrentUser, audit: AuditContext) -> ResponseTask:
     task = get_visible_task(db, task_id, actor)
     # 带期望状态的条件 UPDATE：读出对象后逐字段赋值会让迟到的 ack 把已 COMPLETED 的任务写回 ACKED
@@ -125,11 +171,13 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
     读出候选之后才提交，UPDATE 的 WHERE（含 ``status``）在写时按 current read 求值，
     因此并发完成的任务不会被覆盖成「已升级」并误报管理员。
     """
+    withdrawn_ids = select(Warning.id).where(Warning.status == "WITHDRAWN")
     candidates = db.execute(
         select(ResponseTask.id, ResponseTask.warning_id, ResponseTask.assignee_id).where(
             ResponseTask.status.in_((PENDING, ACKED)),
             ResponseTask.due_at < now,
             ResponseTask.escalated_at.is_(None),
+            ResponseTask.warning_id.not_in(withdrawn_ids),
         )
     ).all()
     if not candidates:
@@ -144,6 +192,7 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
                 ResponseTask.status.in_((PENDING, ACKED)),
                 ResponseTask.due_at < now,
                 ResponseTask.escalated_at.is_(None),
+                ResponseTask.warning_id.not_in(withdrawn_ids),
             )
             .values(escalated_at=now, escalation_level=ResponseTask.escalation_level + 1)
             .execution_options(synchronize_session=False)

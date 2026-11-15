@@ -183,6 +183,15 @@ class WarningCreate(BaseModel):
         v = v.strip()
         return v or None
 
+    @field_validator("reasoning_text")
+    @classmethod
+    def _reasoning_fits_text(cls, v: str) -> str:
+        # max_length 按字符计，TEXT 列按 UTF-8 字节计：4 字节字符（emoji/扩展区）
+        # 在 20,000 字符时仍可能超过 65,535 字节，到 flush 才变成 500。
+        if len(v.encode("utf-8")) > 65535:
+            raise ValueError("reasoning_text 超出 TEXT 列容量（65,535 字节）")
+        return v
+
 
 class WarningUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
@@ -208,6 +217,13 @@ class WarningUpdate(BaseModel):
             return None
         v = v.strip()
         return v or None
+
+    @field_validator("reasoning_text")
+    @classmethod
+    def _reasoning_fits_text_update(cls, v: str | None) -> str | None:
+        if v is not None and len(v.encode("utf-8")) > 65535:
+            raise ValueError("reasoning_text 超出 TEXT 列容量（65,535 字节）")
+        return v
 
 
 class ReviewRequest(BaseModel):

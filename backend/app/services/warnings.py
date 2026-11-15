@@ -22,7 +22,7 @@ from ..security import new_public_id
 from .audit import AuditContext
 from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
-from .tasks import create_for_published
+from .tasks import close_for_withdrawn, create_for_published
 
 DRAFT = "DRAFT"
 PENDING_REVIEW = "PENDING_REVIEW"
@@ -306,6 +306,8 @@ def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: Audi
 def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _transition_existing(db, public_id, WITHDRAW, actor, audit)
     notify_warning(db, w, NOTIFY_WITHDRAWN)
+    # 已撤回的预警不应再产生响应任务升级/通知；在同一个事务里关闭未完成任务
+    close_for_withdrawn(db, w, audit)
     return w
 
 

@@ -240,6 +240,46 @@ def test_completed_task_is_not_escalated(login, make_warning):
     assert notifications_for(admin, task_id) == []
 
 
+def test_withdrawal_closes_task_and_stops_escalation(login, make_warning):
+    """撤回预警后任务自动关闭：不能再出现「已撤回预警超时升级」的通知。"""
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import AuditLog, ResponseTask
+    from backend.app.scheduler import run_scan
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    admin, _ = login("admin_demo")
+
+    public_id = publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "task-withdraw")
+    task_id = _tasks(admin, public_id)[0]["id"]
+
+    withdrawn = reviewer.post(
+        f"/api/v1/warnings/{public_id}/withdraw", headers=csrf_headers(reviewer_csrf)
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+
+    task = _tasks(admin, public_id)[0]
+    assert task["status"] == "COMPLETED"
+    assert task["completed_at"] is not None
+    assert task["overdue"] is False
+
+    _expire_task(task_id)
+    with SessionLocal() as db:
+        run_scan(db)
+        db.commit()
+        task = db.get(ResponseTask, task_id)
+        assert task.escalated_at is None
+        close_audits = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "RESPONSE_TASK_CLOSE",
+                AuditLog.resource_id == str(task_id),
+            )
+        ).all()
+        assert close_audits and close_audits[0].actor_role == "SYSTEM"
+
+
 def test_inactive_creator_task_goes_to_publisher(login, make_warning):
     """创建者提交草稿后被停用：任务改派给发布人，停用账号不再收到通知。
 

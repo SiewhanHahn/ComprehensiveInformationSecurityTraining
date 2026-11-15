@@ -118,7 +118,7 @@
 | 高 | `list_feedback` 缺越权校验，VIEWER 可读未发布反馈 | 增加 `_viewer_only` + 状态校验；`add_feedback` 仅允许 PUBLISHED/WITHDRAWN |
 | 中 | 会话无滑动过期（`touch_session` 未调用） | `get_current_user` 成功后调用 `touch_session` |
 | 中 | `_to_out` 兜底 `risk_level=""` 违反类型 | 兜底改为 `None` |
-| 中 | `seed_users` 不更新既有账号密码、`role` 空会崩溃 | 同步密码哈希/启用状态 + `role` None 守卫 |
+| 中 | `seed_users` 不更新既有账号密码、`role` 空会崩溃 | `role` None 守卫；seed 默认只创建缺失账号，按 `.env` 重置需显式 `--sync-demo-passwords` |
 | 低 | ERA5 观测唯一约束按 `station_code` 未去重 | 迁移 `0003_observation_unique_city` 改为 `city_code` 维度 |
 | 低 | 审计 `ip_address` 记 nginx 内网 IP | `client_ip()` 读取 `X-Forwarded-For` 首跳 |
 | 低 | `/health/db` 泄露 MySQL 版本 | 移除响应中的 `version` |

@@ -70,6 +70,9 @@ export async function apiFetch(path, options = {}) {
     if (resp.status === 204) return null
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) {
+      // 会话过期/已登出时后端返回 401；清掉本地登录态，下一次路由跳转会回到登录页。
+      // /auth/login 的 401 是密码错误，不是会话失效；已登录用户误输密码不该被登出。
+      if (resp.status === 401 && !url.endsWith('/auth/login')) auth.clear()
       // 后端统一返回 { error: { code, message, request_id } }；detail 分支仅兼容未经全局处理的旧格式
       let code = data?.error?.code
       let detail = data?.error?.message

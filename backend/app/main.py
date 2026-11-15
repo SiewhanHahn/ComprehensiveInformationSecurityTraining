@@ -73,14 +73,18 @@ async def csrf_middleware(request: Request, call_next):
 
     token = request.headers.get("x-csrf-token")
     session_id = request.cookies.get(settings.session_cookie_name)
-    expected = None
-    if session_id:
-        try:
-            payload = read_session(session_id)
-            expected = payload.get("csrf_token") if payload else None
-        except Exception:
-            return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
-    if not csrf_matches(token, expected):
+    # 没有会话 Cookie 时不要报 CSRF：请求会由 get_current_user 返回 401。
+    # 否则未登录的写请求会被误报成「CSRF 校验失败」，前端无法据此回到登录页。
+    if not session_id:
+        return await call_next(request)
+    try:
+        payload = read_session(session_id)
+    except Exception:
+        return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
+    # 有 Cookie 但 Redis 会话已过期/已登出：这是未认证，不是 CSRF 失败。
+    if payload is None:
+        return error_response(request, 401, "UNAUTHENTICATED")
+    if not csrf_matches(token, payload.get("csrf_token")):
         return error_response(request, 403, "CSRF")
     return await call_next(request)
 

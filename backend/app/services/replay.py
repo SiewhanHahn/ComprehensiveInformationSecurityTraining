@@ -9,14 +9,16 @@ from ..schemas import CityOut, ModelValue, ReplaySource, ThresholdOut
 from ..security import new_public_id
 
 
-def latest_dataset(db: Session, dataset_type: str) -> Dataset | None:
-    # PARTIAL 数据集仍可用于回放（缺测按数据不完整处理）；只排除 FAILED 批次
-    return db.scalar(
-        select(Dataset)
-        .where(Dataset.dataset_type == dataset_type, Dataset.quality_status != "FAILED")
-        .order_by(Dataset.imported_at.desc(), Dataset.id.desc())
-        .limit(1)
+def latest_dataset(db: Session, dataset_type: str, version: str | None = None) -> Dataset | None:
+    # PARTIAL 数据集仍可用于回放（缺测按数据不完整处理）；只排除 FAILED 批次。
+    # version 用于把同一次导入的 FORECAST 与 ERA5_LABEL 配成一对，避免混版本。
+    stmt = select(Dataset).where(
+        Dataset.dataset_type == dataset_type,
+        Dataset.quality_status != "FAILED",
     )
+    if version is not None:
+        stmt = stmt.where(Dataset.version == version)
+    return db.scalar(stmt.order_by(Dataset.imported_at.desc(), Dataset.id.desc()).limit(1))
 
 
 def _day_start(d: date) -> datetime:
@@ -69,23 +71,34 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
 
     complete = len(present) == len(DEFAULT_MODELS)
     fused = float(sum(r.precipitation_mm for r in present) / len(present)) if present else 0.0
+    # 判定与展示用同一精度：否则 24.99975 会被四舍五入显示成 25.0，
+    # 却因为未舍入的值小于阈值而没有风险等级，页面自相矛盾。
+    fused_mm = round(fused, 3)
     # 基线同样要过 usable 判定：ECMWF 那条值为 NULL 时直接 float() 会抛 TypeError
     ecmwf = by_model.get("ecmwf_ifs025")
     ecmwf_usable = ecmwf is not None and ecmwf.precipitation_mm is not None and ecmwf.is_complete
     baseline = float(ecmwf.precipitation_mm) if ecmwf_usable else None
 
-    proxy_stmt = select(ObservationRecord.precipitation_mm).where(
-        ObservationRecord.city_code == city_code,
-        ObservationRecord.observed_date == valid_date,
-        ObservationRecord.observation_type == "ERA5_PROXY",
+    proxy = None
+    # 代理标签必须来自与预报数据集同一版本：回退到别的 ERA5 版本会让
+    # proxy_label_mm 与响应里的 dataset_version 张冠李戴。
+    obs_dataset = (
+        latest_dataset(db, "ERA5_LABEL", version=fc_dataset.version)
+        if fc_dataset is not None
+        else latest_dataset(db, "ERA5_LABEL")
     )
-    obs_dataset = latest_dataset(db, "ERA5_LABEL")
     if obs_dataset is not None:
-        proxy_stmt = proxy_stmt.where(ObservationRecord.dataset_id == obs_dataset.id)
-    proxy = db.scalar(proxy_stmt)
+        proxy = db.scalar(
+            select(ObservationRecord.precipitation_mm).where(
+                ObservationRecord.city_code == city_code,
+                ObservationRecord.observed_date == valid_date,
+                ObservationRecord.observation_type == "ERA5_PROXY",
+                ObservationRecord.dataset_id == obs_dataset.id,
+            )
+        )
 
     risk_level: str | None = None
-    if complete and fused >= float(threshold.threshold_mm):
+    if complete and fused_mm >= float(threshold.threshold_mm):
         risk_level = threshold.level
 
     return {
@@ -98,7 +111,7 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
             level=threshold.level,
         ),
         "models": model_values,
-        "fused_mm": round(fused, 3) if complete else None,
+        "fused_mm": fused_mm if complete else None,
         "baseline_mm": round(baseline, 3) if baseline is not None else None,
         "proxy_label_mm": float(proxy) if proxy is not None else None,
         "risk_level": risk_level,

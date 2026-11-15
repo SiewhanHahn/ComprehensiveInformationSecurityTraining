@@ -49,7 +49,7 @@
 
 ## 2.1 用户管理（FR-02）
 
-以下接口挂载在 `/api/v1` 下，仅 `ADMIN` 可调用；服务端再次检查当前账号启用状态和实时角色，前端隐藏按钮不构成授权。写操作必须带 `X-CSRF-Token`，其值与登录响应 `csrf_token`/非 HttpOnly `ww_csrf` Cookie 一致；缺失或不匹配返回 `403 CSRF`。
+以下接口挂载在 `/api/v1` 下，仅 `ADMIN` 可调用；服务端再次检查当前账号启用状态和实时角色，前端隐藏按钮不构成授权。写操作必须带 `X-CSRF-Token`，其值与登录响应 `csrf_token`/非 HttpOnly `ww_csrf` Cookie 一致；缺失或不匹配返回 `403 CSRF`。没有会话 Cookie 或 Redis 会话已过期时返回 `401 UNAUTHENTICATED`，不要当作 CSRF 错误处理。
 
 | 方法 | 路径 | 输入边界与说明 |
 | --- | --- | --- |
@@ -217,7 +217,7 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 
 预警详情页通过 `GET /response-tasks?warning=<public_id>` 取任务，因此 `WarningDetailOut` 不需要扩展。
 
-写操作审计：`RESPONSE_TASK_CREATE`、`RESPONSE_TASK_ACK`、`RESPONSE_TASK_COMPLETE`（资源类型 `response_task`），扫描升级写 `RESPONSE_TASK_ESCALATE`（`actor_role = SYSTEM`，只在真的升级了任务时写）。
+写操作审计：`RESPONSE_TASK_CREATE`、`RESPONSE_TASK_ACK`、`RESPONSE_TASK_COMPLETE`、`RESPONSE_TASK_CLOSE`（预警撤回时系统自动关闭未完成任务，`actor_role = SYSTEM`）（资源类型 `response_task`），扫描升级写 `RESPONSE_TASK_ESCALATE`（`actor_role = SYSTEM`，只在真的升级了任务时写）。
 
 ## 6. 监测、灾种、审计与健康检查
 

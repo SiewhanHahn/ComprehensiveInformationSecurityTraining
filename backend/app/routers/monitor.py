@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from ..cities import DEFAULT_MODELS, LEAD_HOURS
@@ -25,21 +25,18 @@ def monitor_status(
 ) -> dict:
     sources = db.scalars(select(DataSource).order_by(DataSource.id)).all()
     datasets = db.scalars(select(Dataset).order_by(Dataset.id.desc())).all()
-    forecast_count = db.scalar(select(func.count()).select_from(ForecastRecord)) or 0
-    # 观测统计只含 ERA5 代理标签，避免与 GHCN 站点观测混称为同一种真值
-    observation_count = db.scalar(
-        select(func.count()).select_from(ObservationRecord).where(ObservationRecord.observation_type == "ERA5_PROXY")
-    ) or 0
-    latest_valid_at = db.scalar(select(func.max(ForecastRecord.valid_at)))
-    latest_observed_date = db.scalar(
-        select(func.max(ObservationRecord.observed_date)).where(ObservationRecord.observation_type == "ERA5_PROXY")
-    )
-    cities = sorted(db.scalars(select(ForecastRecord.city_code).distinct()).all())
 
     # 与回放口径对齐：最新非 FAILED 的 FORECAST 数据集、固定 24 小时提前量、只认四个默认模式、
     # 且只算有值且标记完整的记录。否则监测页会说 COMPLETE，同一天的 /replay 判 PARTIAL、
-    # 创建预警再返回 409 PARTIAL_DATA。
+    # 创建预警再返回 409 PARTIAL_DATA。所有计数都必须落在同一个数据集上，不能把
+    # 历史数据集/其他提前量的行混进来。
     forecast_dataset = latest_dataset(db, "FORECAST")
+    # 观测必须与预报同一版本，不能各自取最新：否则卡片会用 V2 的预报配 V1 的观测。
+    observation_dataset = (
+        latest_dataset(db, "ERA5_LABEL", version=forecast_dataset.version)
+        if forecast_dataset is not None
+        else None
+    )
     expected = len(DEFAULT_MODELS)
     aligned = (
         ForecastRecord.lead_hours == LEAD_HOURS,
@@ -47,14 +44,43 @@ def monitor_status(
         ForecastRecord.precipitation_mm.is_not(None),
         ForecastRecord.is_complete.is_(True),
     )
+    forecast_scope = (
+        (ForecastRecord.dataset_id == forecast_dataset.id,) if forecast_dataset is not None else (false(),)
+    )
+    observation_scope = (
+        (ObservationRecord.dataset_id == observation_dataset.id,)
+        if observation_dataset is not None
+        else (false(),)
+    )
 
-    models_stmt = select(func.distinct(ForecastRecord.model_code)).where(*aligned)
+    forecast_count = db.scalar(
+        select(func.count()).select_from(ForecastRecord).where(*forecast_scope)
+    ) or 0
+    # 观测统计只含 ERA5 代理标签，避免与 GHCN 站点观测混称为同一种真值
+    observation_count = db.scalar(
+        select(func.count())
+        .select_from(ObservationRecord)
+        .where(ObservationRecord.observation_type == "ERA5_PROXY", *observation_scope)
+    ) or 0
+    latest_valid_at = db.scalar(select(func.max(ForecastRecord.valid_at)).where(*forecast_scope))
+    latest_observed_date = db.scalar(
+        select(func.max(ObservationRecord.observed_date)).where(
+            ObservationRecord.observation_type == "ERA5_PROXY", *observation_scope
+        )
+    )
+    cities = sorted(
+        db.scalars(
+            select(ForecastRecord.city_code).distinct().where(*forecast_scope, *aligned)
+        ).all()
+    )
+
+    models_stmt = select(func.distinct(ForecastRecord.model_code)).where(*aligned, *forecast_scope)
     per_city_stmt = (
         select(
             ForecastRecord.city_code,
             func.count(func.distinct(ForecastRecord.model_code)),
         )
-        .where(*aligned)
+        .where(*aligned, *forecast_scope)
         .group_by(ForecastRecord.city_code)
     )
     partial_stmt = (
@@ -62,14 +88,10 @@ def monitor_status(
             ForecastRecord.city_code,
             ForecastRecord.valid_at,
         )
-        .where(*aligned)
+        .where(*aligned, *forecast_scope)
         .group_by(ForecastRecord.city_code, ForecastRecord.valid_at)
         .having(func.count(func.distinct(ForecastRecord.model_code)) < expected)
     )
-    if forecast_dataset is not None:
-        models_stmt = models_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
-        per_city_stmt = per_city_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
-        partial_stmt = partial_stmt.where(ForecastRecord.dataset_id == forecast_dataset.id)
 
     models = sorted(db.scalars(models_stmt).all())
     per_city_rows = db.execute(per_city_stmt).all()

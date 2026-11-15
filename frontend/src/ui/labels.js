@@ -44,6 +44,7 @@ export const AUDIT_ACTION = {
   RESPONSE_TASK_CREATE: meta('派发任务', 'info'),
   RESPONSE_TASK_ACK: meta('接单', 'info'),
   RESPONSE_TASK_COMPLETE: meta('完成任务', 'success'),
+  RESPONSE_TASK_CLOSE: meta('撤回关闭任务', 'warning'),
   RESPONSE_TASK_ESCALATE: meta('超时升级', 'danger'),
   USER_CREATE: meta('创建用户', 'info'),
   USER_STATUS_CHANGE: meta('启用/停用用户', 'warning'),

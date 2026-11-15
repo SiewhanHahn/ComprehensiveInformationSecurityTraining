@@ -55,8 +55,17 @@ def _ip_rate_limited(ip: str | None) -> bool:
     """按来源 IP 的失败计数是否已达阈值。只读，不递增。"""
     if not ip:
         return False
-    count = get_redis().get(_ip_rate_key(ip))
-    return count is not None and int(count) >= get_settings().ip_login_attempts
+    redis = get_redis()
+    key = _ip_rate_key(ip)
+    count = redis.get(key)
+    if count is None:
+        return False
+    limited = int(count) >= get_settings().ip_login_attempts
+    if limited:
+        # 429 分支不会再走 _record_ip_failure；旧版本留下的无 TTL 键会因此永久锁死
+        # 该 IP。返回 429 前先补一次过期时间（已有 TTL 时 NX 不会重设）。
+        redis.expire(key, get_settings().ip_lockout_seconds, nx=True)
+    return limited
 
 
 def _record_ip_failure(ip: str | None) -> None:
@@ -126,10 +135,18 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
         _record_ip_failure(ip)
         _deny(db, request, "INVALID_CREDENTIALS", "bad password", actor_id=user.id)
 
-    # 密码正确后才区分状态：锁定仍返回统一失败；停用才单独提示（密码已证明本人）
-    if user.locked_until is not None and user.locked_until > utcnow():
+    # 密码正确后才区分状态：锁定仍返回统一失败；停用才单独提示（密码已证明本人）。
+    # 这里必须用加锁读拿最新状态：前面的普通 SELECT 在 REPEATABLE READ 下是快照，
+    # 并发请求刚提交的锁定/停用看不到；成功分支还会把 locked_until 清空。
+    # 锁会一直持有到本次 commit，避免读完之后又被并发锁定。
+    locked_until, is_active = db.execute(
+        select(User.locked_until, User.is_active).where(User.id == user.id).with_for_update()
+    ).one()
+    user.locked_until = locked_until
+    user.is_active = is_active
+    if locked_until is not None and locked_until > utcnow():
         _deny(db, request, "INVALID_CREDENTIALS", "locked", actor_id=user.id)
-    if not user.is_active:
+    if not is_active:
         _deny(db, request, "ACCOUNT_DISABLED", "disabled", actor_id=user.id)
 
     user.failed_login_count = 0

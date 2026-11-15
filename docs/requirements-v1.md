@@ -241,7 +241,7 @@ DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED → WITHDRAWN
 
 - 预警发布时自动生成一条响应任务，指派给该预警的创建者，与状态变更、审计、订阅通知在同一事务提交。
 - 处置时限 = 任务创建时刻 + `RESPONSE_TASK_DUE_MINUTES`（默认 1440 分钟，可用环境变量覆盖）。
-- 任务状态只走 `PENDING → ACKED → COMPLETED`：必须先接单才能完成；已完成的任务不能再次接单或完成。
+- 任务状态只走 `PENDING → ACKED → COMPLETED`：必须先接单才能完成；已完成的任务不能再次接单或完成。例外：预警撤回时系统在同一事务里把该预警未完成的任务直接置 `COMPLETED`（审计 `RESPONSE_TASK_CLOSE`，`actor_role = SYSTEM`）。
 - 只有被指派人本人或管理员可以接单与完成；其他人的任务对非管理员一律表现为不存在。
 - 任务只对业务角色（ANALYST/REVIEWER/ADMIN）开放，查看者无权访问。
 - 完成时可选填处置说明（≤1000 字符）。任务不修改预警本身，也不改变已发布内容。

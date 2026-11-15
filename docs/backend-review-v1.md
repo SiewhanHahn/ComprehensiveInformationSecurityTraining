@@ -89,7 +89,8 @@
 
 **CSRF**：除 `GET` / `HEAD` / `OPTIONS` 与 `POST /auth/login` 之外，**每个请求都必须带
 `X-CSRF-Token` 头**，其值等于登录响应体的 `csrf_token`（同一值也写在非 HttpOnly 的 `ww_csrf` Cookie 里）。
-缺失或不匹配返回 `403 CSRF`。
+缺失或不匹配返回 `403 CSRF`。若请求没有会话 Cookie，或 Cookie 对应的 Redis 会话已过期/已登出，
+中间件放行到认证依赖并返回 `401 UNAUTHENTICATED`——这表示需要重新登录，不是 CSRF 错误。
 
 ```js
 fetch('/api/v1/response-tasks/12/ack', {
