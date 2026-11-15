@@ -15,10 +15,12 @@ const ERROR_ZH = {
   REJECT_REQUIRES_COMMENT: '驳回时必须填写审核意见',
   CSRF: 'CSRF 校验失败，请刷新页面后重试',
   DEPENDENCY_UNAVAILABLE: '依赖服务不可用，请稍后重试',
+  INTERNAL_ERROR: '服务器内部错误，请稍后重试',
   USERNAME_EXISTS: '用户名已存在',
   SELF_DISABLE_FORBIDDEN: '不能停用当前登录账号',
   SELF_ADMIN_REMOVAL_FORBIDDEN: '不能撤销当前登录账号的管理员角色',
-  LAST_ADMIN_REQUIRED: '系统至少需要一名管理员'
+  LAST_ADMIN_REQUIRED: '系统至少需要一名管理员',
+  SUBSCRIPTION_EXISTS: '该订阅已存在'
 }
 
 // 仅缓存静态参考数据，避免页面切换时重复请求后端；认证/预警/审计不缓存。
@@ -68,6 +70,9 @@ export async function apiFetch(path, options = {}) {
     if (resp.status === 204) return null
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) {
+      // 会话过期/已登出时后端返回 401；清掉本地登录态，下一次路由跳转会回到登录页。
+      // /auth/login 的 401 是密码错误，不是会话失效；已登录用户误输密码不该被登出。
+      if (resp.status === 401 && !url.endsWith('/auth/login')) auth.clear()
       // 后端统一返回 { error: { code, message, request_id } }；detail 分支仅兼容未经全局处理的旧格式
       let code = data?.error?.code
       let detail = data?.error?.message

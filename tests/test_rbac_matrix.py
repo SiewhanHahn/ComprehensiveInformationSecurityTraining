@@ -6,7 +6,15 @@ from conftest import COMPLETE_DAY, csrf_headers
 
 pytestmark = pytest.mark.integration
 
-READ_ENDPOINTS = ("/api/v1/warnings", "/api/v1/hazards", "/api/v1/monitor/status")
+READ_ENDPOINTS = (
+    "/api/v1/warnings",
+    "/api/v1/hazards",
+    "/api/v1/monitor/status",
+    # 通知与订阅按当前用户收敛，四种角色都应可读
+    "/api/v1/notifications",
+    "/api/v1/notifications/unread-count",
+    "/api/v1/subscriptions",
+)
 
 
 def _create_payload(title):
@@ -95,6 +103,15 @@ def test_admin_can_audit_and_monitor(login):
 def test_invalid_status_filter_is_rejected(login):
     client, _ = login("admin_demo")
     assert client.get("/api/v1/warnings?status=BOGUS").status_code == 400
+
+
+def test_viewer_cannot_reach_response_tasks(login):
+    """任务看板只对业务角色开放，查看者整体 403（因此不放进 READ_ENDPOINTS）。"""
+    client, _ = login("viewer_demo")
+    assert client.get("/api/v1/response-tasks").status_code == 403
+
+    analyst, _ = login("analyst_demo")
+    assert analyst.get("/api/v1/response-tasks").status_code == 200
 
 
 def test_hazards_registry_contains_eight_entries(login):

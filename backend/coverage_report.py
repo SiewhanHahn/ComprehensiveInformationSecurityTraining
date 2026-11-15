@@ -48,9 +48,11 @@ def analyse(lat: float, lon: float, start: str, end: str, lead_days: int = LEAD_
     label_24h = _rolling_24h(lb)
     fc_24h = _rolling_24h(fc)
 
-    by_month: dict[str, dict] = defaultdict(lambda: {"hours": 0, "fc_valid": 0, "label_valid": 0, "paired": 0, "hourly_events": {}, "daily_events": {}})
+    global_daily_days: dict[str, set[str]] = {f"{t:g}mm/24h": set() for t in DAILY_THRESHOLDS}
+    by_month: dict[str, dict] = defaultdict(lambda: {"hours": 0, "fc_valid": 0, "label_valid": 0, "paired": 0, "hourly_events": {}, "daily_days": {}})
     for i, ts in enumerate(times):
         month = ts[:7]
+        day = ts[:10]
         rec = by_month[month]
         rec["hours"] += 1
         rec["fc_valid"] += int(fc_valid[i])
@@ -62,14 +64,23 @@ def analyse(lat: float, lon: float, start: str, end: str, lead_days: int = LEAD_
         for thr in DAILY_THRESHOLDS:
             key = f"{thr:g}mm/24h"
             hit = (not np.isnan(label_24h[i])) and label_24h[i] >= thr
-            rec["daily_events"][key] = rec["daily_events"].get(key, 0) + int(hit)
+            if hit:
+                # 同一场暴雨会命中连续 24 个滑动窗口；按自然日去重，
+                # 否则「事件数」会被放大约 24 倍，误导站点/阈值选择。
+                global_daily_days[key].add(day)
+                by_month[month]["daily_days"].setdefault(key, set()).add(day)
+
+    for rec in by_month.values():
+        days = rec.pop("daily_days", {})
+        # 每个月都输出全部阈值键（没有事件就是 0），保持稳定结构
+        rec["daily_events"] = {key: len(days.get(key, set())) for key in global_daily_days}
 
     summary = {
         "paired_hours": int((fc_valid & lb_valid).sum()),
         "fc_missing_pct": round(100.0 * (1 - fc_valid.mean()), 2) if len(fc) else None,
         "label_missing_pct": round(100.0 * (1 - lb_valid.mean()), 2) if len(lb) else None,
         "hourly_events": {f"{t:g}mm/h": int(np.nansum((lb >= t) & lb_valid)) for t in HOURLY_THRESHOLDS},
-        "daily_events": {f"{t:g}mm/24h": int(np.nansum((label_24h >= t))) for t in DAILY_THRESHOLDS},
+        "daily_events": {key: len(days) for key, days in global_daily_days.items()},
         "fc24h_max": round(float(np.nanmax(fc_24h)), 1) if not np.isnan(fc_24h).all() else None,
         "label24h_max": round(float(np.nanmax(label_24h)), 1) if not np.isnan(label_24h).all() else None,
     }

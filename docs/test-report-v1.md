@@ -118,7 +118,7 @@
 | 高 | `list_feedback` 缺越权校验，VIEWER 可读未发布反馈 | 增加 `_viewer_only` + 状态校验；`add_feedback` 仅允许 PUBLISHED/WITHDRAWN |
 | 中 | 会话无滑动过期（`touch_session` 未调用） | `get_current_user` 成功后调用 `touch_session` |
 | 中 | `_to_out` 兜底 `risk_level=""` 违反类型 | 兜底改为 `None` |
-| 中 | `seed_users` 不更新既有账号密码、`role` 空会崩溃 | 同步密码哈希/启用状态 + `role` None 守卫 |
+| 中 | `seed_users` 不更新既有账号密码、`role` 空会崩溃 | `role` None 守卫；seed 默认只创建缺失账号，按 `.env` 重置需显式 `--sync-demo-passwords` |
 | 低 | ERA5 观测唯一约束按 `station_code` 未去重 | 迁移 `0003_observation_unique_city` 改为 `city_code` 维度 |
 | 低 | 审计 `ip_address` 记 nginx 内网 IP | `client_ip()` 读取 `X-Forwarded-For` 首跳 |
 | 低 | `/health/db` 泄露 MySQL 版本 | 移除响应中的 `version` |
@@ -284,6 +284,172 @@
 - **前端**：审核工作台改为逐行填写审核意见（驳回时客户端强制非空），预警详情新增「融合追溯」卡片展示四模式输入、基线、代理标签与数据集版本；`npm run build` 通过。
 - **浏览器复查**：本机 Vite → SSH 转发隔离 API，Chrome headless 驱动。分析师建单并提交 → 详情页显示 4 模式与基线/代理标签；审核员工作台空意见驳回被拦截，填入意见后批准成功；仅有的控制台错误为登录前 `/auth/me` 的 401 与 favicon 404，属预期资源请求。
 
+## 6.13 阶段 B 第一刀验证（2026-11-03，FR-13/FR-14）
+
+在隔离 `fr02` 环境验证订阅、站内通知与定时扫描（未触碰演示部署；演示 VM 仍是 A 档版本）。
+
+- **迁移**：`docker compose -p fr02 run --rm migrate` 由 `0004_dataset_issues` 升级到 `0005_subscriptions_notifications`，创建 `warning_subscriptions`、`notifications`、`response_tasks` 三张表。`response_tasks` 本阶段只建表，B 档第二刀才开始读写。
+- **后端全量**：同步 `backend/` 与 `tests/` 后执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **54 passed、2 warnings**（首次 11.68 秒；修正下述两处测试隔离后连续两次运行均为 54 passed，13.17 / 13.86 秒）。本轮之前同一环境的基线是 45 项（§6.12 记录的 43 项之后又新增 2 项），本轮 +9 项：
+  - `tests/test_notifications.py`（7 项）：发布投递给匹配订阅者、范围不匹配不投递、撤回投递、重复订阅 409 `SUBSCRIPTION_EXISTS`、非法灾种/城市 422、通知按用户隔离且不能标记他人通知（404）、已读与未读数与全部已读。
+  - `tests/test_scheduler.py`（1 项）：先发布后订阅 → `run_scan` 补投 1 条 → 再跑补投 0 条 → 留下 `NOTIFICATION_BACKFILL` 审计且 `actor_id` 为空、`actor_role = SYSTEM`。
+  - `tests/test_units.py`（+1 项）：`subscriptions.matches()` 四维匹配（不限/精确 × 命中/未命中）。
+  - `tests/test_rbac_matrix.py`：`/notifications`、`/notifications/unread-count`、`/subscriptions` 加入四角色可读矩阵与匿名 401 矩阵。
+- **测试隔离修正**（首次全绿后连续复跑暴露的两个既有脆弱点）：
+  - 通知类测试原先用 `viewer_demo` 订阅。演示账号上只要残留一条订阅（例如浏览器验收留下的），建订阅就变成 409，「不应投递」的断言也会因历史通知失真。改为每个测试用 `subscriber` 夹具创建临时 VIEWER 账号，账号删除时订阅与通知随之清理。
+  - `test_login.py::test_ip_rate_limit_blocks_after_threshold` 依赖 Redis 中该合成 IP 的计数器为空；60 秒窗口内连续跑第二遍会直接命中 429。改为测试开始时先删除 `login:fail:<ip>` 键。
+- **定时扫描容器**：在隔离环境以 `NOTIFICATION_SCAN_INTERVAL_SECONDS=5` 实跑 `python -m backend.app.scheduler` 12 秒，`timeout -s TERM` 触发退出。日志显示「定时扫描启动，间隔 5 秒」→「收到信号 15，停止扫描」→「定时扫描已停止」，无异常栈；本轮无待补投内容，因此未写审计（符合「只在实际补投时写审计」的设计）。
+- **前端**：`npm run build` 通过，新增 `Notifications` 懒加载分块（7.69 kB，gzip 3.29 kB）。
+- **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：查看者经真实登录页登录 → 进入 `/notifications` → 选「暴雨 / 全部城市」添加订阅成功（订阅标签出现）→ 分析员经接口建单并提交、审核员批准并发布 → 查看者刷新后收到 1 条未读通知（标题「预警发布：浏览器验收-订阅通知」，正文「长沙 2024-03-27 暴雨；四模式融合 29.6mm」），顶栏铃铛角标显示 1 → 点击「标记已读」后角标归零。pageerror 为 0；控制台仅有登录前 `/auth/me` 的 401 与 favicon 404。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b-notifications.png`。
+- **回归**：`GET /warnings`、`GET /warnings/{public_id}` 响应结构未变（`WarningOut` / `WarningDetailOut` 未改动）；`test_state_machine.py`、`test_rbac_matrix.py`、`test_user_management.py` 全部通过，`conftest.py` 清理逻辑已覆盖新表的外键。
+
+## 6.14 阶段 B 第一刀 code review 收口（2026-11-03）
+
+对 `main..phase-b`（40 文件 / +1763 行）做了多角度评审（逐行、删除行为、跨文件、语言陷阱、封装层、复用、简化、效率、层次、仓库规范）。共 15 条确认问题，全部修复后复测。
+
+**安全与可见缺陷**
+
+- **会话空闲超时被轮询续命**：顶栏未读数原本每 60 秒轮询一次，而 `/notifications/unread-count` 走 `get_current_user` → `touch_session`，会重置 Redis 空闲 TTL。只要标签页开着，SEC-01 承诺的「空闲 1 小时失效」就不再成立，只能靠 8 小时绝对 TTL 收回。改为只在挂载、路由切换、标签页重新可见这三种「用户真实操作」时刷新，去掉定时器。
+- **未定义的设计变量**：角标背景与订阅删除按钮的 hover 色写成 `--color-danger`，而设计系统里是 `--danger`，两处都解析失败退化成透明，角标只剩一圈描边。改为 `--danger`。
+
+**行为修正**
+
+- 重复订阅的预检查与唯一索引之间存在并发窗口，撞索引会返回 500；补上 `IntegrityError` 1062 → `409 SUBSCRIPTION_EXISTS`，与 `routers/users.py` 的既有写法一致。
+- 补投原按「当前状态 = 已发布」取数，导致两次扫描之间被撤回的预警永远补不到「发布」通知，订阅者只收到一条自己没见过的「撤回」。改为按 `published_at` 取窗口，窗口内已撤回的按「发布 → 撤回」两条顺序补齐。
+- 已撤回预警对「仅查看者」是 404，前端原本仍然渲染「查看预警」链接；改为只对 `WARNING_PUBLISHED` 或分析/审核/管理角色渲染。
+- `warning_subscriptions.is_active` 是从未写入的死列（取消订阅是物理删除），从模型与迁移 `0005` 中删除。
+- 未读数刷新失败时把计数清成 0、且并发请求可乱序覆盖；`loadNotifications` 增加请求序号丢弃过期响应，未读筛选下标记已读改为重新取当前页（本地删行会让 `total` 与后端偏移错开）。
+- 订阅与城市列表的加载失败原本被吞成空数组，后端出错时页面看起来像「还没订阅过」；改为走统一错误提示。
+- 标题按整串 `[:200]` 截断会吃掉结尾字符，改为先按剩余长度截预警标题再拼前缀。
+- 停用账号仍会持续收到通知；订阅者查询改为只取启用账号。
+
+**部署、索引与测试**
+
+- `NOTIFICATION_BACKFILL_HOURS` 写进了 `.env.example` 与 `config.py`，但 compose 的 `scheduler` 服务只转发了 `SCAN_INTERVAL`，设了不生效；补上转发。
+- `warnings` 表原本没有任何索引，扫描每轮全表扫；迁移 `0005` 补 `idx_warnings_published_at`。
+- `mark_all_read` 改为单条批量 `UPDATE`。
+- 测试隔离：`_notifications_for(analyst, ...) == []` 仍假设演示账号没有订阅，改用第二个临时账号 `bystander`；`test_mark_read_and_unread_count` 不再断言绝对未读数，改为断言「这一条」在未读集合中的归属；`test_scheduler` 的审计断言只认本次扫描之后新增的行；`conftest` 清理补上 `response_tasks`。
+- `test_login.py` 清空 IP 计数器后丢失了「计数器带过期时间」与「成功登录清计数」的覆盖，补上 TTL 断言并新增 `test_successful_login_clears_ip_failures`。
+
+**迁移回环**
+
+`downgrade()` 原先逐条 `drop_index`，在 `idx_response_tasks_assignee` 上撞 MySQL 1553——该索引被 `assignee_id` 的外键借用，外键在就不能删。改为直接 `drop_table`（MySQL 会连同索引与约束一起删），并在隔离环境实跑 `0004 → 0005 → 0004` 回环验证。
+
+**复测**
+
+- 隔离 `fr02` 环境：`alembic downgrade 0004` → `upgrade head` 成功，`warning_subscriptions` 已无 `is_active`、`warnings` 上有 `idx_warnings_published_at`。
+- 全量 pytest **55 passed**（新增 `test_successful_login_clears_ip_failures`），连续两次运行结果一致。
+- `npm run build` 通过；浏览器复查仍为：订阅 → 发布 → 铃铛角标 1（红色实心）→ 标记已读后归零。
+
+## 6.15 阶段 B 第二刀验证（2026-11-03，FR-15/FR-16）
+
+在隔离 `fr02` 环境验证响应任务、处置时限与超时升级（未触碰演示部署）。本刀**没有新迁移**，`response_tasks` 沿用 `0005` 建好的表。
+
+- **后端全量**：同步 `backend/` 与 `tests/` 后执行 `python -m pytest -q -p no:cacheprovider /app/tests`，结果 **62 passed、2 warnings**（此前 55 项，本轮 +7：新增 `tests/test_tasks.py` 6 项与 `test_rbac_matrix.py` 的查看者 403 断言），连续两次运行一致（14.94 / 15.08 秒）。
+- **新增用例**：发布自动派发任务（负责人为创建者、时限与配置口径相差 <1 分钟）、指派通知、他人任务不可见（业务角色 404、查看者 403、管理员可代接）、状态机（未接单不能完成、重复接单 409）、完成落库与处置说明、逾期任务升级一次且重复扫描不再升级、未到期任务不升级。
+- **定时扫描容器**：在隔离环境插入一条 `due_at` 已过 5 分钟、`status=PENDING`、`escalated_at IS NULL` 的任务，以 `NOTIFICATION_SCAN_INTERVAL_SECONDS=5` 实跑 `python -m backend.app.scheduler` 14 秒。日志出现 `响应任务超时升级 escalated=1`，SIGTERM 后正常退出；数据库确认该任务 `escalation_level=1`、`escalated_at` 非空、**`status` 仍为 `PENDING`**（超时不改流转状态），并生成 `TASK_OVERDUE`（负责人）与 `TASK_ESCALATED`（管理员）两条通知。验证用的任务与通知已清理。
+- **前端**：`npm run build` 通过，新增 `Tasks` 懒加载分块。
+- **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）：分析员建单 → 审核员批准发布 → 分析员在 `/tasks` 看到 1 条「待处置」任务（负责人 `analyst_demo`、时限按配置）→ 点「接单」进入「处置中」→ 填处置说明并完成，出现在「已完成」标签页；预警详情页显示「响应任务」卡，闭环 Stepper 的「响应」阶段变为已完成，标注「负责人 analyst_demo / 已完成处置」。pageerror 为 0，控制台仅有登录前 `/api/v1/auth/me` 的 401。截图：`C:\Users\siewhan\AppData\Local\Temp\phase-b2-tasks.png`、`phase-b2-detail.png`。
+- **回归**：`GET /warnings`、`GET /warnings/{public_id}` 响应结构未变（任务通过 `GET /response-tasks?warning=` 单独取，`WarningDetailOut` 未扩展）；订阅、通知与既有状态机测试全部通过。
+
+## 6.16 阶段 B 第二刀 code review 收口（2026-11-04）
+
+对 `phase-b` vs `main` 的全量 diff 跑了 8 个角度的 code review（逐行、删除行为、跨文件、复用、简化、效率、站位、约定），
+去重后 25 个候选逐条验证，**10 项确认成立、2 项证伪**（`Tasks.vue` 与 `WarningDetail.vue` 的 `canAct` 两处实现实际等价；`run_scan` 的两趟结构没有具体代价）。修复全部在隔离 `fr02` 验证，演示部署未动，无新迁移。
+
+- **处置时限配置到不了容器**（`compose.yaml`）：`RESPONSE_TASK_DUE_MINUTES` 只写在 `.env.example` 与 `config.py`，api 服务没转发，Docker 部署下用户指南 §4.3 的「设成 2 分钟演示超时」不生效。已补 `RESPONSE_TASK_DUE_MINUTES: ${RESPONSE_TASK_DUE_MINUTES:-1440}`。证据：`docker compose config` 未设置时解析为 `"1440"`，`.env` 设 2 时解析为 `"2"`。
+- **升级与完成竞态**（`services/tasks.py::escalate_overdue`）：原来是「读出对象再逐字段赋值」，UPDATE 的 `WHERE` 只有 id，扫描读出候选之后并发提交的完成会被覆盖成「已升级」并误报管理员。改成带 `status`/`due_at`/`escalated_at` 条件的单行 UPDATE，用 `rowcount` 判定。一次性探针复现真实交错（会话 A 读候选 → 会话 B 完成并提交 → 会话 A 执行同一条 UPDATE）：`rowcount=0`，任务仍为 `COMPLETED`、`escalated_at` 为空、`escalation_level` 为 0。
+- **指派给已停用账号**（`services/tasks.py::create_for_published`）：创建者在提交草稿后被停用时，任务原先仍挂给该账号，任务永远没人能推进。现在改派给发布人，并在 `RESPONSE_TASK_CREATE` 审计的 `reason` 里写明原因。
+- **审核员看不到任务**（`services/tasks.py::list_tasks`）：任务只派给创建者，而列表对非管理员强制按 `assignee` 过滤，审核员打开别人的已发布预警永远显示「尚未派发任务」。现在**带 `warning` 过滤时**业务角色可读该预警的任务，接单与完成仍只允许负责人或管理员；看板列表（不带过滤）行为不变。
+- **辅助请求失败清空整页**（`WarningDetail.vue`）：任务请求原来与预警主体共用 try/catch，任务接口抖动会把已经取到的预警丢掉并显示「无法加载预警」。现已拆分，任务失败只在卡片内提示；预警与反馈改为 `Promise.all` 并行。
+- **页签竞态**（`Tasks.vue`）：`load()` 在 `await` 之后才读 `activeTab` 且无序号保护，快速切页签会把旧请求结果按新页签解释。已按通知中心的写法加 `loadSeq`，并在发起请求时固定页签。
+- **空状态文案**（`Tasks.vue`）：`emptyTitle` 内联了第二份页签文案，且已与 `tabs` 不一致（「逾期」vs「已逾期」），改为从 `tabs` 派生。
+- **撤回后的死链**（`Notifications.vue`）：`WARNING_PUBLISHED` 通知无条件渲染「查看预警」，预警随后被撤回时仅查看者点进去必然 404。现在按列表里出现的 `WARNING_WITHDRAWN` 收集 `resource_id` 抑制链接；只覆盖已加载的那一页，彻底解决需要后端在通知里带上预警当前状态。
+- **页面内「刷新」不刷未读数**（`Notifications.vue`）：刷新只重拉列表与订阅，页头角标与「全部标记已读」按钮停在旧值。已把 `refreshUnread()` 并入 `refresh()`。
+- **测试残留**（`tests/conftest.py`）：清理只删 `resource_type='warning'` 的通知，发布时产生的 `TASK_ASSIGNED`/`TASK_OVERDUE`/`TASK_ESCALATED` 会以孤儿身份留在库里。现在先按任务 id 删通知、再删任务。
+- **文档口径**：`docs/interface-design-v1.md` 两处与 `frontend/src/style.css` 注释仍写「顶栏铃铛轮询未读数」，与已定决策（不轮询，否则会话空闲 TTL 被续命）相反，已改正。
+
+验证：
+
+- **后端全量**：**64 passed、2 warnings**（62 + 新增 2 项），连续两次运行一致（16.66 / 16.79 秒）；`tests/test_tasks.py` 8 项全过（新增「完成后不再被升级」「创建者停用改派发布人」，并把「审核员看不到他人任务」改为「可读不可操作」）。
+- **前端**：`npm run build` 通过。
+- **浏览器复查**（本机 Vite → SSH 转发隔离 API，Chrome headless）**12/12 项通过**：审核员在分析员创建的已发布预警详情页看到负责人与时限（不再显示「尚未派发任务」，Stepper 的「响应」标注 `负责人 analyst_demo`）；分析员在详情页接单 → 完成，Stepper 显示「已完成处置」；任务看板「已完成」能看到该任务、「已逾期」空状态为「已逾期任务为空」；通知中心点「刷新」后未读数正常渲染；`viewer_demo` 订阅后收到发布与撤回两条通知，且被撤回预警的「查看预警」链接不再渲染。截图：`review-fix-reviewer.png`、`review-fix-detail.png`、`review-fix-notifications.png`。
+- **未纳入本轮**（按严重度排在 10 名之后，留待后续）：`refreshUnread` 的无序竞态（可自愈）、`/tasks` 与既有「审核」同样不按角色收敛导航、`subscriptions`/`users` 两处 1062 处理重复、`to_out_list(db, [task])[0]`、任务通知标题绕过 `NOTIFICATION_TITLES`、`GET /response-tasks` 无分页、`backfill_published` 每轮重扫 24 小时窗口。
+
+## 6.17 backend 全量代码审查与收口（2026-11-04）
+
+对 `backend/` 整个目录（不按 diff）做了一轮审查，覆盖认证/会话/RBAC、预警与回放、响应任务/通知/扫描、
+模型/迁移/导入器、离线研究管道五个方向。完整清单与对前端的契约见 `docs/backend-review-v1.md`。
+**19 项确认成立**（P0 ×1、P1 ×4、P2 ×7、P3 ×7），另有 3 项被证伪或下调，记录在该文档第 7 节。
+
+- **P0（已修）**：`seed.py` 用了 `Decimal` 却从未导入，`python -m backend.app.seed` 在导入期抛 `NameError`。
+  `compose.yaml` 里 api 依赖 `seed` 成功退出，所以**任何新建或重建的部署都起不来**。演示 VM 仍可用只是因为
+  它的 seed 容器建于 2026-10-20、此后从未重跑。证据：修复前在容器内执行 `python -c "import backend.app.seed"`
+  得到 `NameError: name 'Decimal' is not defined`；修复后 `docker compose -p fr02 run --rm seed` 退出码 0 并输出
+  `[seed] 完成`。
+- **P1**：`ack`/`complete` 改为带期望状态的条件 UPDATE（`rowcount` 判定），迟到的 ack 不再能把 `COMPLETED` 写回 `ACKED`；
+  登录失败计数改为原子自增；成功登录不再清空 per-IP 失败计数；超时通知不再投给已停用的负责人。
+- **P2**：监测页的完整性统计补齐 `lead_hours == 24`、四个默认模式、值非空与 `is_complete` 四项条件，与回放口径一致；
+  回放不再把 NULL 值计入融合（否则 `sum()` 抛 `TypeError`）；离线采集的分块边界不再互相重叠；导入器对
+  `models: null`、超长城市名、整天缺一个模式分别记账而不是崩溃或静默放过；`fusion.py` 的最优规则改为**按训练年选择**。
+- **P3**：补全局 500 处理器（`INTERNAL_ERROR`，含 `X-Request-ID`）；CSRF 比较改为按字节（非 ASCII 头不再 500）；
+  非开发环境强制 `COOKIE_SECURE=true` 且拒绝 `CORS_ORIGINS='*'`；新增 `TRUST_PROXY_HEADERS`（compose 的 api 设为 true）；
+  被拒绝的管理操作写入 `USER_MANAGE_DENIED` 审计；创建者被降级到只剩 VIEWER 时任务也改派发布人。
+
+验证：
+
+- **后端全量**：**75 passed、2 warnings**（此前 64），连续两次一致（17.84 / 18.27 秒）。新增 11 项：
+  seed 导入看门狗、`csrf_matches` 非 ASCII、停用负责人不收超时通知、降级创建者改派发布人、
+  NULL 值日判 PARTIAL 不 500、监测与回放提前量口径一致、`models: null`、超长城市名截断、整天缺模式记账、
+  未捕获异常的 500 信封、被拒管理操作的审计。
+- **部署冒烟**：`docker compose -p fr02 run --rm seed` 退出 0；api 重启后 `/health` 正常。
+- **前端**：`npm run build` 通过（仅新增 `INTERNAL_ERROR` 与 5 个 `USER_*` 审计动作的中文标签）。
+- **口径变化（需知会前端）**：监测页某些城日可能由 `COMPLETE` 变为 `PARTIAL`（这是与回放对齐后的修正）；
+  同一 IP 在一分钟内失败 20 次后，该 IP 的登录会被挡到窗口结束，**成功登录不再重置这个计数**——
+  这正是为了堵住「持有一个有效账号就能反复续额度」的绕过，测试套件因此改为在每个集成用例前自行清空计数。
+- **未改动**：演示 VM 仍未部署；对外成功响应结构不变。
+
+## 6.18 backend 第二轮审查：修复的回归与契约文档纠错（2026-11-04）
+
+第二轮针对上一轮的**修复本身**和**它产出的契约文档**再查一遍（修复回归、事务与锁、输入与滥用面、
+文档是否属实）。**13 项确认成立**，其中 2 项是上一轮修复没改干净、1 项是上一轮改动引入的回归。
+
+- **契约文档（最高价值）**：`docs/backend-review-v1.md` §4 原稿**整份没写 CSRF**——除 `GET/HEAD/OPTIONS`
+  与 `/auth/login` 外所有请求都要带 `X-CSRF-Token`。照那份文档重构前端，每个写操作都会拿到 `403 CSRF`，
+  而界面提示是「无权限」，排查方向会完全错。同节还写错了 403/404/409 的分工、漏了 201/204、
+  关键字段名、`page_size ≤ 100`、以及把微秒精度写成「毫秒」。全部重写。
+- **上一轮的缺口**：`services/replay.py` 的 `baseline_mm` 没走非空判定（ECMWF 值为 NULL 时仍 500）；
+  `auth.py` 的锁定判断用 `db.refresh`，在 REPEATABLE READ 下是快照读，并发失败请求仍可能都不触发锁定。
+- **上一轮引入的回归**：`services/ingest.py` 把非 list 的 `days` 静默换成空列表，会导入一个 **0 行却 READY**
+  的数据集；它 `imported_at` 最新又不是 FAILED，`latest_dataset` 会选中它，把真实数据整体遮蔽。
+- **其余**：`notify_users` 的「先查后插」在并发下撞唯一索引会把调用方事务（含发布）一起回滚；
+  `scheduler` 两趟扫描共用一个事务，第二趟失败会把第一趟的补投一起撤销；`config.py` 的 Cookie 校验放在
+  `Settings()` 构造期会连带把 alembic/seed/scheduler 一起拦死；`_deny` 把 actor_role 硬写成 ADMIN；
+  `login:fail:<ip>` 旧的无 TTL 键不会自愈；`reasoning_text` 没有 `max_length`（超长到 flush 才 1406）。
+
+修复与验证：
+
+- **后端全量**：**80 passed、2 warnings**（此前 75），连续两次一致（19.03 / 18.85 秒）。新增 5 项：
+  NULL 基线不 500、并发投递同一条通知不抛异常且只留一条、一趟扫描失败不回滚另一趟、坏样本标 FAILED、
+  无 TTL 的 IP 计数键自愈。
+- **部署冒烟**：`docker compose -p fr02 run --rm seed` 退出 0。
+- 演示 VM 仍然不动；对外成功响应结构、错误码集合均均未变化（本轮只改实现与文档）。
+
+## 6.19 第三轮加固与演示 VM B 档部署验收（2026-11-15）
+
+第三轮继续收口撤回联动、数据集版本配对、样本重导幂等与认证边界，并将 `phase-b` 正式部署到演示 VM（`192.168.100.128`）完成端到端验收：
+
+- **预警撤回自动关闭任务**：`withdraw_warning` 在同一事务内调用 `tasks.close_for_withdrawn`（`SELECT ... FOR UPDATE`），将该预警下未完成的响应任务置为 `COMPLETED` 并写入 `RESPONSE_TASK_CLOSE`（`actor_role = SYSTEM`）审计；`escalate_overdue` 同步排除已撤回预警，前端 `ui/labels.js` 补齐中文标签。
+- **数据集版本配对与精度一致**：`replay.py` 与 `monitor.py` 的观测数据集查询均限定与当前 `FORECAST` 数据集同 `version`，避免跨版本混配；融合阈值判定改用与展示一致的 `round(fused, 3)`。
+- **导入器与 seed 幂等保护**：`services/ingest.py` 改为按文件 SHA-256 `checksum` 判幂等；同版本若已被 `fusion_inputs` 引用则拒绝覆盖（`blocked = dataset_in_use`）；非法 JSON / 非对象顶层 / 非字符串 `city_code` / 0 可用行均安全落为 `FAILED` 并记录 `dataset_issues`；全坏条目不占用 `(city, date)` 去重键。`seed.py` 默认仅创建缺失演示账号，显式传 `--sync-demo-passwords` 才按 `.env` 重置密码与启用状态。
+- **认证与 CSRF 边界**：无会话 Cookie 的写请求放行至认证依赖返回 `401 UNAUTHENTICATED`；有 Cookie 但 Redis 会话已过期同样返回 `401 UNAUTHENTICATED`（前端 `api.js` 收到非登录 401 自动 `auth.clear()`），不再误报 `403 CSRF`；登录成功分支对 `locked_until`/`is_active` 改用 `FOR UPDATE` 当前读，429 分支补 `EXPIRE NX` 自愈。
+- **测试修正**：`test_fusion.py` 中三条直接修改 `ForecastRecord` 的用例补齐 `ForecastRecord.dataset_id == latest_dataset(db, "FORECAST").id` 过滤，避免在含历史数据集的库上改到旧版本行；`test_ingest.py` 补齐 `Dataset` 导入。
+
+验证：
+
+- **演示 VM 部署**：`docker compose build`、`docker compose run --rm migrate`（升级至 `0005_subscriptions_notifications`）、`docker compose run --rm seed` 均退出码 0；`api`、`frontend`、`scheduler`、`mysql`、`redis` 五服务运行正常，`/health`、`/health/db`、`/health/redis` 全部返回 `ok`。
+- **后端全量测试**：在演示 VM 的 `api` 容器内执行全量套件，**91 passed、2 warnings**（18.27 秒）。
+- **B 档端到端闭环验收**：静态资源（HTML/JS/CSS）、未认证 401 vs 缺头 403 CSRF 信封、监测与回放版本对齐（`2026-09-30.2`）、订阅 $\rightarrow$ 建单 $\rightarrow$ 提交 $\rightarrow$ 审核 $\rightarrow$ 发布 $\rightarrow$ 站内通知与未读计数、响应任务权限隔离（审核员详情页可读但 `ack` 返回 404、查看者 403、分析员 `ACKED -> COMPLETED`）与反馈、撤回自动关单与 `RESPONSE_TASK_CLOSE` 审计全部验证通过，验收后已清理临时测试数据。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。
@@ -295,4 +461,5 @@
 - 本轮 UI 改版的浏览器逐页视觉与动效验收由用户人工执行（构建、路由、接口与中文映射已自动验证）。
 - 管理员用户管理已实现，隔离环境浏览器核心流程通过（§6.10）；审查修复后全套 34 项测试通过（§6.11，含并发撤权/停用、审计异常回滚、缺失参考角色回滚和统一错误结构）；API 重启与依赖故障未验证。
 - 七类扩展灾种仅登记数据源与判定指标，未接入数据、未做量化验证。
-- 监测页展示的是已导入快照，不含实时拉取与定时调度；发布不含短信/邮件等外部渠道。
+- 监测页展示的是已导入快照，不含实时拉取；定时调度目前只用于通知补投（`scheduler` 服务），不参与数据接入。发布不含短信/邮件等外部渠道。
+- 响应任务、处置时限与超时升级已实现（§6.15）；任务派发给预警创建者，创建者已停用时改派发布人（§6.16），但暂不支持人工改派或多人协同；升级只做一次（`escalated_at` 写入后不再参与扫描），不做逐级上报。

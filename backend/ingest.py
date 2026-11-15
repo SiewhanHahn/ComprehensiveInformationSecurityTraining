@@ -77,15 +77,19 @@ def _cached(url: str, tag: str) -> dict:
 
 
 def _month_chunks(start: str, end: str, chunk_days: int = 180):
-    """把长区间切成若干段，避免单次响应过大或超时。"""
+    """把长区间切成若干段，避免单次响应过大或超时。
+
+    各段的日期区间**互不重叠**：`start_date`/`end_date` 都是闭区间，上一段的结束日若又被当作
+    下一段的开始日，边界那天就会取到两遍（48 小时），后续按 24 小时完整性过滤时整天被丢弃。
+    """
     from datetime import date, timedelta
 
     cur = date.fromisoformat(start)
     stop = date.fromisoformat(end)
-    while cur < stop:
-        nxt = min(cur + timedelta(days=chunk_days), stop)
+    while cur <= stop:
+        nxt = min(cur + timedelta(days=chunk_days - 1), stop)
         yield cur.isoformat(), nxt.isoformat()
-        cur = nxt
+        cur = nxt + timedelta(days=1)
 
 
 def fetch_forecast(
@@ -112,8 +116,17 @@ def fetch_forecast(
         )
         payload = _cached(f"{PREV_RUNS_URL}?{query}", f"fc_lead{lead_days}")
         hourly = payload.get("hourly", {})
-        for key, values in hourly.items():
-            merged.setdefault(key, []).extend(values)
+        times = hourly.get("time", [])
+        # 缺变量时不能静默跳过：后面的 build_dataset 按索引对齐，
+        # 少一段会让该变量之后的所有小时整体错位（值仍然有限，难以发现）。
+        missing = [name for name in variables if name not in hourly]
+        if missing:
+            raise ValueError(f"Open-Meteo 预报响应缺少变量：{', '.join(missing)}")
+        for key in variables:
+            if len(hourly[key]) != len(times):
+                raise ValueError(f"Open-Meteo 预报变量 {key} 与 time 长度不一致")
+            merged.setdefault(key, []).extend(hourly[key])
+        merged.setdefault("time", []).extend(times)
     return merged
 
 
@@ -134,8 +147,12 @@ def fetch_label(lat: float, lon: float, start: str, end: str, chunk_days: int = 
         )
         payload = _cached(f"{ARCHIVE_URL}?{query}", "label_era5")
         hourly = payload.get("hourly", {})
-        for key, values in hourly.items():
-            merged.setdefault(key, []).extend(values)
+        times = hourly.get("time", [])
+        values = hourly.get("precipitation", [])
+        if len(values) != len(times):
+            raise ValueError("ERA5 标签的 precipitation 与 time 长度不一致")
+        merged.setdefault("time", []).extend(times)
+        merged.setdefault("precipitation", []).extend(values)
     return merged
 
 
@@ -183,17 +200,27 @@ def build_dataset(lat: float, lon: float, start: str, end: str, lead_days: int =
     forecast = fetch_forecast(lat, lon, start, end, lead_days)
     label = fetch_label(lat, lon, start, end)
 
-    label_by_time = dict(zip(label.get("time", []), label.get("precipitation", [])))
+    times = forecast.get("time", [])
+    series_by_var: dict[str, list] = {}
+    for var in FORECAST_VARS:
+        key = lead_var(var, lead_days)
+        series = forecast.get(key)
+        if series is None or len(series) != len(times):
+            raise ValueError(f"预报变量 {key} 与 time 长度不一致，拒绝按索引对齐")
+        series_by_var[var] = series
+    label_times = label.get("time", [])
+    label_values = label.get("precipitation", [])
+    if len(label_times) != len(label_values):
+        raise ValueError("标签 time 与 precipitation 长度不一致")
+    label_by_time = dict(zip(label_times, label_values))
     rows = []
-    for idx, ts in enumerate(forecast.get("time", [])):
+    for idx, ts in enumerate(times):
         observed = label_by_time.get(ts)
         if observed is None:
             continue
         row = {"time": ts, "label_precip": observed}
         for var in FORECAST_VARS:
-            key = lead_var(var, lead_days)
-            series = forecast.get(key)
-            row[var] = series[idx] if series and idx < len(series) else None
+            row[var] = series_by_var[var][idx]
         rows.append(row)
 
     return {

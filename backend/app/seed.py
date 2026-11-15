@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import select
@@ -99,7 +100,7 @@ def seed_reference_data(session: Session) -> None:
     session.commit()
 
 
-def seed_users(session: Session) -> None:
+def seed_users(session: Session, *, sync_passwords: bool = False) -> None:
     for username, display_name, role_code, env_var in DEMO_ACCOUNTS:
         password = os.environ.get(env_var)
         if not password:
@@ -116,9 +117,12 @@ def seed_users(session: Session) -> None:
             session.flush()
             session.add(UserRole(user_id=user.id, role_id=role.id, granted_at=_now()))
         else:
-            # 幂等更新：同步密码哈希与启用状态，并补齐角色关联
-            user.password_hash = hash_password(password)
-            user.is_active = True
+            # 默认只补齐角色关联：密码与启用状态归管理员管，
+            # 每次 compose up 重跑 seed 时覆盖它们会悄悄撤销 UI 上的重置/停用。
+            # 需要按 .env 重置演示账号时显式加 --sync-demo-passwords。
+            if sync_passwords:
+                user.password_hash = hash_password(password)
+                user.is_active = True
             session.execute(
                 UserRole.__table__.insert().prefix_with("IGNORE").values(
                     user_id=user.id, role_id=role.id, granted_at=_now()
@@ -135,6 +139,12 @@ def import_sample(session: Session, path: Path) -> None:
     fc_source = _source_id(session, "OPEN_METEO_PREVIOUS_RUNS")
     obs_source = _source_id(session, "OPEN_METEO_ERA5")
     result = ingest.import_sample(session, path, fc_source, obs_source)
+    if result.get("blocked") == "dataset_in_use":
+        print("[seed] 同版本数据集已被预警引用，拒绝覆盖；请提升样本 version 后重导")
+        return
+    if result.get("unusable"):
+        print("[seed] 样本没有可用的预报记录，已标记为 FAILED（不会遮蔽已有数据集）")
+        return
     if not result["imported"]:
         print("[seed] 样本已导入或为空，跳过")
         return
@@ -147,12 +157,17 @@ def import_sample(session: Session, path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sample", default="data/sample/replay_sample.json")
+    parser.add_argument(
+        "--sync-demo-passwords",
+        action="store_true",
+        help="按 .env 覆盖既有演示账号的密码与启用状态（默认只创建缺失账号）",
+    )
     args = parser.parse_args()
 
     with SessionLocal() as session:
         seed_reference_data(session)
         import_sample(session, Path(args.sample))
-        seed_users(session)
+        seed_users(session, sync_passwords=args.sync_demo_passwords)
     print("[seed] 完成")
 
 

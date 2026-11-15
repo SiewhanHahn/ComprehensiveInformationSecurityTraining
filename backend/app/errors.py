@@ -18,6 +18,7 @@ MESSAGES: dict[str, str] = {
     "INVALID_STATE": "当前状态不允许此操作",
     "CSRF": "缺少或错误的 CSRF Token",
     "DEPENDENCY_UNAVAILABLE": "依赖服务不可用，请稍后重试",
+    "INTERNAL_ERROR": "服务器内部错误，请稍后重试",
     "HTTP_ERROR": "请求失败",
     # 认证
     "INVALID_CREDENTIALS": "用户名或密码错误",
@@ -33,6 +34,8 @@ MESSAGES: dict[str, str] = {
     "LAST_ADMIN_REQUIRED": "系统至少需要一名管理员",
     "SELF_DISABLE_FORBIDDEN": "不能停用当前登录账号",
     "SELF_ADMIN_REMOVAL_FORBIDDEN": "不能撤销当前登录账号的管理员角色",
+    # 通知与订阅
+    "SUBSCRIPTION_EXISTS": "该订阅已存在",
 }
 
 # 框架自身抛出的 HTTP 错误（如未匹配路由）没有业务码，按状态码兜底

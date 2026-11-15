@@ -27,6 +27,23 @@ def _login(new_client, username, password, headers=None):
     return new_client().post("/api/v1/auth/login", json={"username": username, "password": password}, headers=headers or {})
 
 
+def test_ip_counter_without_ttl_heals_itself(new_client):
+    """旧版本可能在 INCR 与 EXPIRE 之间崩溃，留下没有 TTL 的计数键。
+
+    那种键不会因为 SET NX 而重设过期时间，该 IP 会被永久 429。补的 EXPIRE NX 要能自愈。
+    """
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    key = _ip_rate_key("testclient")
+    redis = get_redis()
+    redis.set(key, 3)  # 故意不带过期时间
+    assert redis.ttl(key) == -1
+
+    assert _login(new_client, f"no_such_{uuid4().hex}", "x").status_code == 401
+    assert redis.ttl(key) > 0
+
+
 def test_unknown_and_wrong_password_are_indistinguishable(new_client):
     unknown = _login(new_client, f"no_such_{uuid4().hex}", "anything")
     wrong = _login(new_client, "viewer_demo", "definitely-wrong")
@@ -77,15 +94,79 @@ def test_logout_invalidates_session(login):
 
 def test_ip_rate_limit_blocks_after_threshold(new_client):
     from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
 
-    ip = "10.99.99.99"
-    headers = {"X-Real-IP": ip}
+    # TestClient 的来源地址固定是 "testclient"；没有可信代理时 X-Real-IP 不再被采信
+    key = _ip_rate_key("testclient")
     limit = get_settings().ip_login_attempts
+    get_redis().delete(key)
 
     for _ in range(limit):
-        resp = _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers)
+        resp = _login(new_client, f"no_such_{uuid4().hex}", "x")
         assert resp.status_code == 401
 
-    blocked = _login(new_client, f"no_such_{uuid4().hex}", "x", headers=headers)
+    blocked = _login(new_client, f"no_such_{uuid4().hex}", "x")
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "LOGIN_RATE_LIMITED"
+    # 计数器必须带过期时间，否则这个 IP 会被永久限制住
+    assert get_redis().ttl(key) > 0
+
+
+def test_blocked_ip_without_ttl_is_healed(new_client):
+    """旧版本可能留下已超阈值但没有 TTL 的键；429 分支必须给它补上过期时间。"""
+    from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    key = _ip_rate_key("testclient")
+    get_redis().set(key, get_settings().ip_login_attempts + 5)  # 模拟无 TTL 的遗留键
+    try:
+        assert get_redis().ttl(key) == -1
+        assert _login(new_client, f"no_such_{uuid4().hex}", "x").status_code == 429
+        assert get_redis().ttl(key) > 0
+    finally:
+        get_redis().delete(key)
+
+
+def test_expired_session_write_returns_401_not_csrf(login):
+    """Cookie 还在但 Redis 会话已过期：写请求是未认证，不是 CSRF 失败。"""
+    from backend.app.config import get_settings
+    from backend.app.db import get_redis
+    from backend.app.session import _key
+
+    client, csrf = login("viewer_demo")
+    session_id = client.cookies.get(get_settings().session_cookie_name)
+    assert session_id
+    get_redis().delete(_key(session_id))
+
+    resp = client.post("/api/v1/notifications/read-all", headers=csrf_headers(csrf))
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+def test_successful_login_does_not_clear_ip_failures(new_client):
+    """成功登录不得重置 per-IP 失败计数。
+
+    否则只要持有一个有效账号，就能在每轮猜测之间登录一次把额度清零，
+    per-IP 限速对「跨账号喷洒口令」完全失效。计数按固定窗口自然过期。
+    """
+    import os
+
+    from conftest import DEMO_PASSWORD_ENV
+
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    password = os.environ.get(DEMO_PASSWORD_ENV["viewer_demo"])
+    if not password:
+        pytest.skip(f"{DEMO_PASSWORD_ENV['viewer_demo']} not set")
+
+    key = _ip_rate_key("testclient")
+    get_redis().delete(key)
+
+    assert _login(new_client, f"no_such_{uuid4().hex}", "x").status_code == 401
+    assert get_redis().exists(key) == 1
+
+    assert _login(new_client, "viewer_demo", password).status_code == 200
+    assert get_redis().exists(key) == 1, "成功登录不应清空 IP 失败计数"

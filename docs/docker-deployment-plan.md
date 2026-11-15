@@ -39,6 +39,7 @@
 | `migrate` | 一次性 | 执行 `alembic upgrade head` | `mysql` healthy；失败非零退出 |
 | `seed` | 一次性 | 幂等创建角色、数据源、阈值和演示账号（密码由本地配置提供） | 迁移成功；失败阻止 API 启动 |
 | `api` | 长期运行 | FastAPI HTTP API | 数据库健康、迁移及必要 seed 成功 |
+| `scheduler` | 长期运行 | 定时扫描：通知补投（B 档第一刀）；复用 API 镜像，不占端口、不挂 `data/results` | `mysql` healthy 且迁移成功 |
 | `frontend` | 长期运行 | 提供前端页面并调用 API | 前端镜像构建成功；API 地址配置正确 |
 
 根目录规划文件：
@@ -59,7 +60,7 @@ docker compose up --build -d
 
 ```bash
 docker compose ps
-docker compose logs --tail=100 api frontend mysql redis migrate seed
+docker compose logs --tail=100 api frontend scheduler mysql redis migrate seed
 docker compose down
 ```
 

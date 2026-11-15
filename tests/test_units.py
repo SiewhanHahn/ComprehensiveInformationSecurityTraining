@@ -3,6 +3,8 @@ from pathlib import Path
 
 from backend.app.cities import CITIES, DEFAULT_MODELS
 from backend.app.deps import CurrentUser
+from backend.app.models import WarningSubscription
+from backend.app.services.subscriptions import matches
 from backend.app.services.warnings import is_viewer_only
 from backend.app.security import hash_password, new_public_id, verify_password
 from backend.app.services.metrics import get_experiment, list_experiments
@@ -62,3 +64,62 @@ def test_viewer_only():
     assert not is_viewer_only(CurrentUser(3, "va", ["VIEWER", "ANALYST"]))
     assert not is_viewer_only(CurrentUser(4, "admin", ["ADMIN"]))
     assert not is_viewer_only(CurrentUser(5, "r", ["REVIEWER"]))
+
+
+def test_subscription_matching():
+    def sub(hazard_type, city_code):
+        return WarningSubscription(hazard_type=hazard_type, city_code=city_code)
+
+    # 两个维度各自「不限」或精确相等才投递
+    assert matches(sub("*", ""), "RAINSTORM", "CHANGSHA")
+    assert matches(sub("RAINSTORM", ""), "RAINSTORM", "CHANGSHA")
+    assert matches(sub("*", "CHANGSHA"), "RAINSTORM", "CHANGSHA")
+    assert matches(sub("RAINSTORM", "CHANGSHA"), "RAINSTORM", "CHANGSHA")
+    assert not matches(sub("TYPHOON", ""), "RAINSTORM", "CHANGSHA")
+    assert not matches(sub("RAINSTORM", "WUHAN"), "RAINSTORM", "CHANGSHA")
+    assert not matches(sub("TYPHOON", "WUHAN"), "RAINSTORM", "CHANGSHA")
+
+
+def test_seed_module_imports_and_builds_its_tables():
+    """seed 是 compose 里的必经服务：导入期就崩会让新部署的 API 永远起不来。
+
+    测试套件其余部分都不导入 seed，所以「模块级 NameError」这类问题
+    只会在真正部署时才暴露——这里补一个最便宜的看门狗。
+    """
+    import importlib
+    from decimal import Decimal
+
+    seed = importlib.import_module("backend.app.seed")
+
+    assert [row[0] for row in seed.THRESHOLDS] == ["MODERATE", "HEAVY", "STORM"]
+    assert all(isinstance(row[1], Decimal) for row in seed.THRESHOLDS)
+    assert set(seed.ROLES) == {"ADMIN", "ANALYST", "REVIEWER", "VIEWER"}
+
+
+def test_csrf_comparison_survives_non_ascii():
+    """compare_digest 对含非 ASCII 的 str 会抛 TypeError，必须按字节比较。"""
+    from backend.app.main import csrf_matches
+
+    assert csrf_matches("abc123", "abc123")
+    assert not csrf_matches("abc123", "abc124")
+    assert not csrf_matches(None, "abc123")
+    assert not csrf_matches("abc123", None)
+    assert not csrf_matches("café", "abc123")
+
+
+def test_reasoning_text_checks_utf8_bytes_not_characters():
+    """TEXT 列按字节计：20,000 个 4 字节字符仍会超过 65,535 字节。"""
+    from datetime import date
+
+    import pytest
+    from pydantic import ValidationError
+
+    from backend.app.schemas import WarningCreate, WarningUpdate
+
+    base = dict(city_code="WUHAN", valid_date=date(2024, 1, 1), threshold_code="HEAVY", title="t", area_text="a")
+    with pytest.raises(ValidationError):
+        WarningCreate(**base, reasoning_text="😀" * 20000)
+    with pytest.raises(ValidationError):
+        WarningUpdate(reasoning_text="😀" * 20000)
+    # 中文按 3 字节计，20,000 字符 = 60,000 字节，仍在 TEXT 容量内
+    assert WarningCreate(**base, reasoning_text="雨" * 20000).reasoning_text

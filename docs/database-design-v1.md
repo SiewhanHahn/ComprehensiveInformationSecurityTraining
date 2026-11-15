@@ -43,7 +43,7 @@ PUBLISHED -> WITHDRAWN
 
 ## 3. 表设计
 
-以下 16 张表为 MVP 结构，覆盖暴雨端到端闭环；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0004` 已应用，`0004` 新增 `dataset_issues`）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
+以下 19 张表为当前结构：前 16 张覆盖暴雨端到端闭环，`0005` 新增 3 张支撑 B 档的通知与响应任务；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0005` 已应用，`0005` 新增订阅、通知与响应任务表）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
 
 ### 3.1 users
 
@@ -284,16 +284,71 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 | detail | VARCHAR(500) | NULL | 问题说明 |
 | created_at | DATETIME(6) | NOT NULL | 记录时间 |
 
-索引：`idx_dataset_issues_dataset (dataset_id)`。导入时缺测、重复、乱序、异常值、未知城市/模式/日期等问题逐条写入本表；对应的预报/观测记录不入库。含问题的数据集 `quality_status` 置为 `PARTIAL`（仍可用于回放），不置 `READY`。
+索引：`idx_dataset_issues_dataset (dataset_id)`。导入时缺测、重复、乱序、异常值、未知城市/模式/日期等问题逐条写入本表；对应的预报/观测记录不入库。含问题的数据集 `quality_status` 置为 `PARTIAL`（仍可用于回放），不置 `READY`；一条可用预报记录都没有时置为 `FAILED`，不参与回放。导入按文件 checksum 幂等，同版本文件修正后可重导，已被预警引用的版本拒绝覆盖。
+
+### 3.17 warning_subscriptions（迁移 `0005` 新增）
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| id | BIGINT UNSIGNED | PK | 主键 |
+| user_id | BIGINT UNSIGNED | FK, NOT NULL | 订阅人 |
+| hazard_type | VARCHAR(32) | NOT NULL DEFAULT `'*'` | `'*'` 表示全部灾种 |
+| city_code | VARCHAR(32) | NOT NULL DEFAULT `''` | `''` 表示全部城市 |
+| created_at / updated_at | DATETIME(6) | NOT NULL | UTC 时间 |
+
+唯一约束：`uq_subscription_scope (user_id, hazard_type, city_code)`。
+
+「全部」用哨兵值而不是 NULL：MySQL 唯一索引把 NULL 视为互不相等，用 NULL 会让同一用户重复插入相同范围的订阅。取消订阅是物理删除，不设「暂停」状态位。
+
+### 3.18 notifications（迁移 `0005` 新增）
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| id | BIGINT UNSIGNED | PK | 主键 |
+| user_id | BIGINT UNSIGNED | FK, NOT NULL | 收件人 |
+| kind | VARCHAR(32) | NOT NULL | WARNING_PUBLISHED / WARNING_WITHDRAWN（预留 TASK_*） |
+| title | VARCHAR(200) | NOT NULL | 标题 |
+| body | VARCHAR(1000) | NOT NULL | 正文 |
+| resource_type | VARCHAR(64) | NOT NULL DEFAULT `'warning'` | 与 audit_logs 同风格 |
+| resource_id | VARCHAR(64) | NOT NULL | 预警 public_id（弱引用，不建外键） |
+| dedupe_key | VARCHAR(160) | UNIQUE, NULL | 幂等键 |
+| read_at | DATETIME(6) | NULL | 已读时间 |
+| created_at | DATETIME(6) | NOT NULL | UTC 时间 |
+
+索引：`idx_notifications_dedupe (dedupe_key)`、`idx_notifications_user_created (user_id, created_at)`、`idx_notifications_user_read (user_id, read_at)`。
+
+`dedupe_key` 形如 `warning_published:<public_id>:<user_id>`，让定时扫描的补投天然幂等：同一（预警, 用户, 种类）只可能有一条通知。通知只增不改，已读只写 `read_at`。
+
+迁移 `0005` 还给既有的 `warnings` 表补了 `idx_warnings_published_at (published_at)`：定时扫描按发布窗口取数，而该表建表时没有索引。
+
+### 3.19 response_tasks（迁移 `0005` 新增）
+
+| 字段 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| id | BIGINT UNSIGNED | PK | 主键 |
+| warning_id | BIGINT UNSIGNED | FK, NOT NULL | 关联预警 |
+| assignee_id | BIGINT UNSIGNED | FK, NOT NULL | 处置责任人 |
+| created_by | BIGINT UNSIGNED | FK, NOT NULL | 派发人 |
+| status | VARCHAR(32) | NOT NULL DEFAULT `'PENDING'` | PENDING/ACKED/COMPLETED（撤回时系统可直接置 COMPLETED，见 §3.19） |
+| due_at | DATETIME(6) | NOT NULL | 处置时限 |
+| acked_at / completed_at / escalated_at | DATETIME(6) | NULL | 各阶段时间 |
+| escalation_level | SMALLINT | NOT NULL DEFAULT 0 | 升级次数 |
+| note | VARCHAR(1000) | NULL | 处置说明 |
+| created_at / updated_at | DATETIME(6) | NOT NULL | UTC 时间 |
+
+索引：`idx_response_tasks_due (status, due_at)`、`idx_response_tasks_assignee (assignee_id, status)`。
+
+预警发布时自动插入一条任务（`assignee_id` = 预警创建者，`due_at` = 创建时刻 + `RESPONSE_TASK_DUE_MINUTES`）。用户操作路径只走 `PENDING → ACKED → COMPLETED`；**超时不改 `status`**，只写 `escalated_at` 并让 `escalation_level` 加一，因此「已逾期」由 `status != COMPLETED AND due_at < now` 计算，而不是一个独立状态。扫描只取 `escalated_at IS NULL` 的任务，保证同一任务只升级一次。预警撤回时，系统在同一事务里把该预警下所有未完成任务直接置 `COMPLETED` 并写 `RESPONSE_TASK_CLOSE`（`actor_role = SYSTEM`），避免已撤回预警继续被升级通知。
 
 ## 4. 事务与约束
 
 - 预警状态变更使用 `SELECT ... FOR UPDATE` 锁定预警行，校验状态后更新。
 - 审批必须检查审核员不是 `created_by`。
 - 预警状态更新、审核记录和成功审计日志同一事务提交。
+- 发布/撤回时生成的订阅通知与状态变更、审计记录同一事务提交；定时扫描的补投单独用一个事务，靠 `notifications.dedupe_key` 唯一索引保证重复执行不产生重复记录。
 - 任何异常回滚业务更新和审计成功记录。
 - 审计日志不提供删除和更新接口。
-- 数据导入使用批次 ID；失败批次标记 `FAILED`，不把部分数据标记为 `READY`。逐条问题写入 `dataset_issues`，含问题的数据集标记 `PARTIAL`（仍可回放，但不能创建正式预警）。
+- 数据导入使用批次 ID；失败批次标记 `FAILED`，不把部分数据标记为 `READY`。逐条问题写入 `dataset_issues`，含问题的数据集标记 `PARTIAL`（仍可回放，但不能创建正式预警）；一条可用预报记录都没有时标记 `FAILED`。导入按文件 checksum 幂等，同版本修正后可重导，被预警引用的版本拒绝覆盖。
 - 外键使用 `RESTRICT` 保护原始数据和审计关联；账号采用停用而非物理删除。
 
 ## 5. 初始化角色与数据源

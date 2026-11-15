@@ -21,6 +21,12 @@ export const FEEDBACK_STATUS = {
   COMPLETED: meta('已完成', 'success')
 }
 
+export const TASK_STATUS = {
+  PENDING: meta('待处置', 'warning'),
+  ACKED: meta('处置中', 'info'),
+  COMPLETED: meta('已完成', 'success')
+}
+
 export const AUDIT_ACTION = {
   LOGIN_SUCCESS: meta('登录成功', 'success'),
   LOGIN_FAILED: meta('登录失败', 'danger'),
@@ -31,7 +37,20 @@ export const AUDIT_ACTION = {
   WARNING_REVIEW: meta('审核预警', 'purple'),
   WARNING_PUBLISH: meta('发布预警', 'success'),
   WARNING_WITHDRAW: meta('撤回预警', 'orange'),
-  WARNING_FEEDBACK: meta('添加反馈', 'purple')
+  WARNING_FEEDBACK: meta('添加反馈', 'purple'),
+  SUBSCRIPTION_CREATE: meta('新增订阅', 'info'),
+  SUBSCRIPTION_DELETE: meta('取消订阅', 'neutral'),
+  NOTIFICATION_BACKFILL: meta('通知补投', 'purple'),
+  RESPONSE_TASK_CREATE: meta('派发任务', 'info'),
+  RESPONSE_TASK_ACK: meta('接单', 'info'),
+  RESPONSE_TASK_COMPLETE: meta('完成任务', 'success'),
+  RESPONSE_TASK_CLOSE: meta('撤回关闭任务', 'warning'),
+  RESPONSE_TASK_ESCALATE: meta('超时升级', 'danger'),
+  USER_CREATE: meta('创建用户', 'info'),
+  USER_STATUS_CHANGE: meta('启用/停用用户', 'warning'),
+  USER_ROLES_CHANGE: meta('修改用户角色', 'warning'),
+  USER_PASSWORD_RESET: meta('重置密码', 'purple'),
+  USER_MANAGE_DENIED: meta('用户管理被拒', 'danger')
 }
 
 export const AUDIT_RESULT = {
@@ -48,7 +67,18 @@ export const ROLE_LABELS = {
 
 export const RESOURCE_TYPE = {
   auth: meta('认证', 'neutral'),
-  warning: meta('预警', 'info')
+  warning: meta('预警', 'info'),
+  subscription: meta('订阅', 'purple'),
+  notification: meta('通知', 'blue'),
+  response_task: meta('响应任务', 'orange')
+}
+
+export const NOTIFICATION_KIND = {
+  WARNING_PUBLISHED: meta('预警发布', 'danger'),
+  WARNING_WITHDRAWN: meta('预警撤回', 'neutral'),
+  TASK_ASSIGNED: meta('任务指派', 'info'),
+  TASK_OVERDUE: meta('任务超时', 'warning'),
+  TASK_ESCALATED: meta('超时升级', 'danger')
 }
 
 export const REASON_LABELS = {

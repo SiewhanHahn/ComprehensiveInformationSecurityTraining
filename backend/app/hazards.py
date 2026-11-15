@@ -10,6 +10,9 @@ from __future__ import annotations
 HAZARD_STATUS_IMPLEMENTED = "IMPLEMENTED"
 HAZARD_STATUS_FRAMEWORK = "FRAMEWORK"
 
+# 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
+ALL_HAZARDS = "*"
+
 HAZARDS: list[dict] = [
     {
         "code": "RAINSTORM",

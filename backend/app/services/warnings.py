@@ -20,7 +20,9 @@ from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warn
 from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
 from ..security import new_public_id
 from .audit import AuditContext
+from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
+from .tasks import close_for_withdrawn, create_for_published
 
 DRAFT = "DRAFT"
 PENDING_REVIEW = "PENDING_REVIEW"
@@ -294,11 +296,19 @@ def _transition_existing(db: Session, public_id: str, transition: Transition, ac
 
 
 def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
-    return _transition_existing(db, public_id, PUBLISH, actor, audit)
+    w = _transition_existing(db, public_id, PUBLISH, actor, audit)
+    # 通知与响应任务都和状态变更、审计同事务（服务只 flush，路由 commit）
+    notify_warning(db, w, NOTIFY_PUBLISHED)
+    create_for_published(db, w, actor, audit)
+    return w
 
 
 def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
-    return _transition_existing(db, public_id, WITHDRAW, actor, audit)
+    w = _transition_existing(db, public_id, WITHDRAW, actor, audit)
+    notify_warning(db, w, NOTIFY_WITHDRAWN)
+    # 已撤回的预警不应再产生响应任务升级/通知；在同一个事务里关闭未完成任务
+    close_for_withdrawn(db, w, audit)
+    return w
 
 
 def add_feedback(db: Session, public_id: str, body: FeedbackRequest, actor: CurrentUser, audit: AuditContext) -> WarningFeedback:

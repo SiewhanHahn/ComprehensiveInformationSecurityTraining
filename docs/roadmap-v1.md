@@ -41,6 +41,11 @@
 
 交付物：订阅表、站内通知、响应任务、处置时限、超时升级、通知中心、定时扫描。
 
+分两刀实施（两刀均已落地并经各自的 code review 收口，见 `docs/test-report-v1.md` §6.13–§6.16）：
+
+- **第一刀（已完成）**：迁移 `0005`（订阅、通知、响应任务三张表）+ 订阅 + 站内通知 + 通知中心 + 独立 `scheduler` 容器（通知补投、幂等扫描）。
+- **第二刀（已完成）**：发布自动派发响应任务、处置时限、接单与完成、超时升级（第二趟扫描）、任务看板与详情页任务卡。复用已建好的 `response_tasks` 表，没有新迁移。
+
 验收：一条预警从发布到通知、响应、超时升级、反馈，全程可在浏览器演示。
 
 ### C. B + 真实多灾种
@@ -135,15 +140,20 @@ git archive --format=tar.gz --prefix=ComprehensiveInformationSecurityTraining/ \
 
 | 项目 | 状态 |
 | --- | --- |
-| `main` | `v0.2.3-phase-a`（A 档 + FR-02 用户管理 + 统一错误结构） |
-| `phase-a` | 继续承载 A 档打磨：FR-01/03/04 验证证据、代码结构整理 |
+| `main` | `v0.3.0-phase-b`（B 档完成：订阅通知、响应任务、超时升级 `scheduler`、`0005` 迁移） |
+| `phase-a` | 已合并回 `main`，保留历史 |
+| `phase-b` | 已合并回 `main` 并打 `v0.3.0-phase-b`（91 测试通过 + VM 端到端验收），保留历史 |
 | A 验收 | 已通过（19 测试 + 浏览器人工验收）；补丁版本见下表 |
-| B / C | 未开始；A 档打磨完成并合并后，从 `main` 切 `phase-b` |
+| B 验收 | 已通过（91 测试 + VM 容器栈端到端验收，`test-report-v1.md` §6.13–§6.19） |
+| C | 未开始；从 `main` 切 `phase-c` |
 
-A 档补丁版本（均无新迁移）：
+版本记录：
 
 | 标签 | 内容 | 测试 |
 | --- | --- | --- |
 | `v0.2.1-phase-a` | PATCH 校验、监测完整性口径 | 19 passed |
 | `v0.2.2-phase-a` | 监测口径说明、权威 F1、指标符号 | 19 passed |
 | `v0.2.3-phase-a` | FR-02 用户与角色管理、全局统一错误结构、`npm ci` 构建 | 34 passed（隔离环境，`test-report-v1.md` §6.10/§6.11） |
+| `v0.2.4-phase-a` | FR-04 融合证据链追溯、FR-01 会话/IP 限速加固、迁移 `0004` `dataset_issues` | 46 passed（`test-report-v1.md` §6.12） |
+| `v0.2.5-phase-a` | 低于阈值拒绝正式预警创建（`409 THRESHOLD_NOT_REACHED`） | 47 passed（`test-report-v1.md` §6.12.5） |
+| `v0.3.0-phase-b` | B 档发布—响应闭环：迁移 `0005`、订阅与站内通知、独立 `scheduler`、响应任务与超时升级、撤回自动关单及三轮审查加固 | 91 passed（`test-report-v1.md` §6.13–§6.19） |

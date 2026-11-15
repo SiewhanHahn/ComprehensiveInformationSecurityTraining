@@ -14,7 +14,31 @@ router = APIRouter(prefix="/users")
 admin_required = require_roles(ROLE_ADMIN)
 
 
-def _lock_admin(db: Session, current: CurrentUser) -> Role:
+def _deny(
+    db: Session, current: CurrentUser, request: Request, *,
+    user_id: int, reason: str, status_code: int, code: str,
+) -> None:
+    """拒绝也要留痕：失败的越权/自我保护尝试与成功的变更一样进审计。
+
+    这些检查都发生在任何业务字段被修改之前，所以先提交审计再抛异常不会带出半截改动；
+    提交同时释放 FOR UPDATE 锁。
+
+    ``actor_role`` 记操作者**实际**持有的角色，而不是想当然写 ADMIN：``_lock_admin``
+    拒绝的正是「已经失去 ADMIN」的账号，写死 ADMIN 会让审计里这条记录变成一句假话。
+    """
+    audit_context(request, db, current).record(
+        "USER_MANAGE_DENIED",
+        resource_type="USER",
+        resource_id=str(user_id),
+        reason=reason,
+        actor_role=",".join(current.roles) or None,
+        result="DENIED",
+    )
+    db.commit()
+    raise HTTPException(status_code=status_code, detail=code)
+
+
+def _lock_admin(db: Session, current: CurrentUser, request: Request) -> Role:
     admin = db.scalar(select(Role).where(Role.code == ROLE_ADMIN).with_for_update())
     # Locking reads bypass MySQL's earlier authentication snapshot after a concurrent revocation.
     actor = db.execute(select(User.is_active).where(User.id == current.id).with_for_update()).scalar_one_or_none()
@@ -22,7 +46,11 @@ def _lock_admin(db: Session, current: CurrentUser) -> Role:
         UserRole.user_id == current.id, UserRole.role_id == admin.id,
     ).with_for_update())
     if not actor or membership is None:
-        raise HTTPException(status_code=403, detail="FORBIDDEN")
+        _deny(
+            db, current, request, user_id=current.id,
+            reason="操作者已被停用或已失去 ADMIN 角色",
+            status_code=403, code="FORBIDDEN",
+        )
     return admin
 
 
@@ -55,12 +83,16 @@ def _audit(db: Session, current: CurrentUser, request: Request, user_id: int, ac
     )
 
 
-def _require_other_admin(db: Session, admin: Role, user_id: int):
+def _require_other_admin(db: Session, admin: Role, user_id: int, current: CurrentUser, request: Request):
     others = db.scalars(select(User.id).join(UserRole, UserRole.user_id == User.id).where(
         UserRole.role_id == admin.id, User.is_active.is_(True), User.id != user_id,
     ).with_for_update()).all()
     if not others:
-        raise HTTPException(status_code=409, detail="LAST_ADMIN_REQUIRED")
+        _deny(
+            db, current, request, user_id=user_id,
+            reason="该操作会让系统没有管理员",
+            status_code=409, code="LAST_ADMIN_REQUIRED",
+        )
 
 
 @router.get("", response_model=UserPage)
@@ -78,7 +110,7 @@ def list_users(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=1
 def create_user(payload: UserCreate, request: Request, current: CurrentUser = Depends(admin_required),
                 db: Session = Depends(get_db)):
     password_hash = hash_password(payload.password)
-    _lock_admin(db, current)
+    _lock_admin(db, current, request)
     if db.scalar(select(User.id).where(User.username == payload.username).with_for_update()) is not None:
         raise HTTPException(status_code=409, detail="USERNAME_EXISTS")
     user = User(username=payload.username, display_name=payload.display_name, password_hash=password_hash, is_active=True)
@@ -103,13 +135,17 @@ def create_user(payload: UserCreate, request: Request, current: CurrentUser = De
 @router.patch("/{user_id}/status", response_model=UserOut)
 def update_status(user_id: int, payload: UserStatusUpdate, request: Request,
                   current: CurrentUser = Depends(admin_required), db: Session = Depends(get_db)):
-    admin = _lock_admin(db, current)
+    admin = _lock_admin(db, current, request)
     user = _target(db, user_id)
     if not payload.is_active and user_id == current.id:
-        raise HTTPException(status_code=409, detail="SELF_DISABLE_FORBIDDEN")
+        _deny(
+            db, current, request, user_id=user_id,
+            reason="试图停用当前登录账号",
+            status_code=409, code="SELF_DISABLE_FORBIDDEN",
+        )
     if user.is_active != payload.is_active:
         if not payload.is_active:
-            _require_other_admin(db, admin, user_id)
+            _require_other_admin(db, admin, user_id, current, request)
         user.is_active = payload.is_active
         _audit(db, current, request, user_id, "USER_STATUS_CHANGE", f"is_active={payload.is_active}")
     result = _out(db, user)
@@ -120,10 +156,14 @@ def update_status(user_id: int, payload: UserStatusUpdate, request: Request,
 @router.put("/{user_id}/roles", response_model=UserOut)
 def update_roles(user_id: int, payload: UserRolesUpdate, request: Request,
                  current: CurrentUser = Depends(admin_required), db: Session = Depends(get_db)):
-    admin = _lock_admin(db, current)
+    admin = _lock_admin(db, current, request)
     user = _target(db, user_id)
     if user_id == current.id and ROLE_ADMIN not in payload.roles:
-        raise HTTPException(status_code=409, detail="SELF_ADMIN_REMOVAL_FORBIDDEN")
+        _deny(
+            db, current, request, user_id=user_id,
+            reason="试图撤销当前登录账号的 ADMIN 角色",
+            status_code=409, code="SELF_ADMIN_REMOVAL_FORBIDDEN",
+        )
     existing = db.execute(select(UserRole.role_id, Role.code).join(Role, Role.id == UserRole.role_id)
                           .where(UserRole.user_id == user_id).with_for_update()).all()
     old = {code for _, code in existing}
@@ -131,7 +171,7 @@ def update_roles(user_id: int, payload: UserRolesUpdate, request: Request,
     if old != new:
         roles = _roles(db, new)
         if ROLE_ADMIN in old and ROLE_ADMIN not in new and user.is_active:
-            _require_other_admin(db, admin, user_id)
+            _require_other_admin(db, admin, user_id, current, request)
         removed = [role_id for role_id, code in existing if code not in new]
         if removed:
             db.execute(delete(UserRole).where(UserRole.user_id == user_id, UserRole.role_id.in_(removed)))
@@ -149,7 +189,7 @@ def update_roles(user_id: int, payload: UserRolesUpdate, request: Request,
 def reset_password(user_id: int, payload: UserPasswordReset, request: Request,
                    current: CurrentUser = Depends(admin_required), db: Session = Depends(get_db)):
     password_hash = hash_password(payload.password)
-    _lock_admin(db, current)
+    _lock_admin(db, current, request)
     user = _target(db, user_id)
     user.password_hash = password_hash
     user.failed_login_count = 0

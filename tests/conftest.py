@@ -35,8 +35,54 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_ip_limit(request):
+    """每个集成用例开始前清空 per-IP 登录失败计数。
+
+    成功登录**不再**清空该计数（否则持有任意有效账号就能在每轮猜测之间登录一次把额度重置），
+    而整个套件在一分钟内产生的失败登录远超阈值 20，不清理就会整片撞上 429。
+    生产语义不变：计数仍按 ip_lockout_seconds 固定窗口过期。
+    """
+    if "integration" not in request.node.keywords:
+        yield
+        return
+    try:
+        from backend.app.db import get_redis
+
+        redis = get_redis()
+        for key in redis.scan_iter("login:fail:*"):
+            redis.delete(key)
+    except Exception:  # Redis 不可用时让用例失败在更有意义的地方
+        pass
+    yield
+
+
 def csrf_headers(csrf: str) -> dict[str, str]:
     return {"X-CSRF-Token": csrf}
+
+
+def publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, prefix, **overrides) -> str:
+    """建草稿 → 提交 → 批准 → 发布，返回 public_id。三个集成测试文件共用。"""
+    public_id = make_warning(analyst, analyst_csrf, prefix, **overrides)
+    assert analyst.post(
+        f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)
+    ).status_code == 200
+    assert reviewer.post(
+        f"/api/v1/warnings/{public_id}/review",
+        headers=csrf_headers(reviewer_csrf),
+        json={"decision": "APPROVE", "comment": "同意发布"},
+    ).status_code == 200
+    resp = reviewer.post(f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf))
+    assert resp.status_code == 200, resp.text
+    return public_id
+
+
+def notifications_for(client, resource_id) -> list[dict]:
+    """按资源标识（预警 public_id 或任务 id）过滤当前用户的通知。"""
+    resp = client.get("/api/v1/notifications", params={"page_size": 100})
+    assert resp.status_code == 200, resp.text
+    target = str(resource_id)
+    return [n for n in resp.json()["items"] if n["resource_id"] == target]
 
 
 @pytest.fixture
@@ -105,6 +151,45 @@ def created_users():
     _delete_users(usernames)
 
 
+@pytest.fixture
+def created_subscriptions():
+    """测试把创建的订阅 id 追加到此列表，结束时删除，避免污染演示库和后续扫描。"""
+    ids: list[int] = []
+    yield ids
+    _delete_subscriptions(ids)
+
+
+def _make_viewer(login, created_users):
+    """建一个临时 VIEWER 账号并返回 ``(client, csrf)``；账号删除时订阅与通知一起清理。"""
+    admin, admin_csrf = login("admin_demo")
+    username = f"subtest_{uuid4().hex[:8]}"
+    password = f"Aa1-{uuid4().hex[:12]}"
+    resp = admin.post(
+        "/api/v1/users",
+        headers=csrf_headers(admin_csrf),
+        json={"username": username, "display_name": "订阅测试", "password": password, "roles": ["VIEWER"]},
+    )
+    assert resp.status_code == 201, resp.text
+    created_users.add(username)
+    return login(username, password)
+
+
+@pytest.fixture
+def subscriber(login, created_users):
+    """临时 VIEWER 账号作为订阅者，返回 ``(client, csrf)``。
+
+    用独立账号而不是 ``viewer_demo``：演示库里的演示账号可能已有订阅和通知，
+    会让「是否投递」「未读数」这类断言依赖环境残留。
+    """
+    return _make_viewer(login, created_users)
+
+
+@pytest.fixture
+def bystander(login, created_users):
+    """另一个同样没有订阅的临时账号，用来验证通知不会串到别人头上。"""
+    return _make_viewer(login, created_users)
+
+
 def _delete_warnings(public_ids):
     from sqlalchemy import delete, select
 
@@ -112,6 +197,8 @@ def _delete_warnings(public_ids):
     from backend.app.models import (
         FusionInput,
         FusionRun,
+        Notification,
+        ResponseTask,
         Warning,
         WarningFeedback,
         WarningResult,
@@ -122,10 +209,32 @@ def _delete_warnings(public_ids):
     if not ids:
         return
     with SessionLocal() as db:
+        # 通知按 public_id 弱引用预警（不建外键），必须显式清理
+        db.execute(
+            delete(Notification).where(
+                Notification.resource_type == "warning", Notification.resource_id.in_(ids)
+            )
+        )
         for warning in db.scalars(select(Warning).where(Warning.public_id.in_(ids))).all():
             result = db.get(WarningResult, warning.warning_result_id)
             db.execute(delete(WarningFeedback).where(WarningFeedback.warning_id == warning.id))
             db.execute(delete(WarningReview).where(WarningReview.warning_id == warning.id))
+            # 任务类通知按 str(task_id) 弱引用任务（同样不建外键），必须连同任务行一起清掉，
+            # 否则反复跑测试会在演示账号的通知中心堆出指向已删任务的孤立通知
+            task_ids = [
+                str(task_id)
+                for task_id in db.scalars(
+                    select(ResponseTask.id).where(ResponseTask.warning_id == warning.id)
+                ).all()
+            ]
+            if task_ids:
+                db.execute(
+                    delete(Notification).where(
+                        Notification.resource_type == "response_task",
+                        Notification.resource_id.in_(task_ids),
+                    )
+                )
+            db.execute(delete(ResponseTask).where(ResponseTask.warning_id == warning.id))
             db.delete(warning)
             db.flush()
             if result is not None:
@@ -137,11 +246,24 @@ def _delete_warnings(public_ids):
         db.commit()
 
 
+def _delete_subscriptions(ids):
+    from sqlalchemy import delete
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import WarningSubscription
+
+    if not ids:
+        return
+    with SessionLocal() as db:
+        db.execute(delete(WarningSubscription).where(WarningSubscription.id.in_(list(ids))))
+        db.commit()
+
+
 def _delete_users(usernames):
     from sqlalchemy import delete, select
 
     from backend.app.db import SessionLocal
-    from backend.app.models import AuditLog, User, UserRole
+    from backend.app.models import AuditLog, Notification, ResponseTask, User, UserRole, WarningSubscription
 
     if not usernames:
         return
@@ -149,6 +271,14 @@ def _delete_users(usernames):
         ids = list(db.scalars(select(User.id).where(User.username.in_(list(usernames)))).all())
         if not ids:
             return
+        # 三张新表都外键到 users 且没有 ondelete，必须先清
+        db.execute(
+            delete(ResponseTask).where(
+                ResponseTask.assignee_id.in_(ids) | ResponseTask.created_by.in_(ids)
+            )
+        )
+        db.execute(delete(Notification).where(Notification.user_id.in_(ids)))
+        db.execute(delete(WarningSubscription).where(WarningSubscription.user_id.in_(ids)))
         db.execute(delete(UserRole).where(UserRole.user_id.in_(ids)))
         db.execute(
             delete(AuditLog).where(

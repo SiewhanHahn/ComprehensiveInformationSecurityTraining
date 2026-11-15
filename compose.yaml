@@ -60,6 +60,9 @@ services:
       APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
       APP_ENV: development
       COOKIE_SECURE: "false"
+      RESPONSE_TASK_DUE_MINUTES: ${RESPONSE_TASK_DUE_MINUTES:-1440}
+      # API 只经 Nginx 暴露，由 Nginx 覆写 X-Real-IP；不信任该头时所有请求都算同一个 IP
+      TRUST_PROXY_HEADERS: "true"
     volumes:
       - ./data/results:/app/data/results:ro
     healthcheck:
@@ -73,6 +76,23 @@ services:
       redis:
         condition: service_healthy
       seed:
+        condition: service_completed_successfully
+
+  # 定时扫描：复用 API 镜像，不占 HTTP 端口，也不挂 data/results。
+  scheduler:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql+pymysql://weather_app:${MYSQL_APP_PASSWORD}@mysql:3306/weather_warning?charset=utf8mb4
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?set APP_SECRET_KEY}
+      APP_ENV: development
+      NOTIFICATION_SCAN_INTERVAL_SECONDS: ${NOTIFICATION_SCAN_INTERVAL_SECONDS:-300}
+      NOTIFICATION_BACKFILL_HOURS: ${NOTIFICATION_BACKFILL_HOURS:-24}
+    command: ["python", "-m", "backend.app.scheduler"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
         condition: service_completed_successfully
 
   frontend:

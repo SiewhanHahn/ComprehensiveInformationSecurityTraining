@@ -152,6 +152,86 @@
         </div>
       </div>
 
+      <div v-if="canUseTasks" class="card">
+        <div class="card-head">
+          <h3 class="card-title">响应任务</h3>
+          <span class="card-subtitle">发布时自动派发给预警创建者（创建者已停用时改派发布人）· 时限按配置计算</span>
+        </div>
+
+        <div v-if="taskError" class="alert alert--error" role="alert" style="margin-bottom: 16px">
+          <span class="alert-icon" aria-hidden="true">!</span>
+          <div>响应任务加载失败：{{ taskError }}</div>
+        </div>
+
+        <EmptyState
+          v-if="!currentTask && !taskError"
+          compact
+          title="尚未派发任务"
+          description="预警批准发布后会自动生成一条处置任务。"
+        />
+
+        <template v-else>
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">负责人</span>
+              <span class="detail-value">{{ currentTask.assignee }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">状态</span>
+              <span class="detail-value">
+                <StatusBadge kind="taskStatus" :value="currentTask.status" size="sm" />
+                <span v-if="currentTask.overdue" class="badge badge--danger badge--sm">已逾期</span>
+              </span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">处置时限</span>
+              <span class="detail-value mono">{{ formatDateTime(currentTask.due_at) }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">升级</span>
+              <span class="detail-value">
+                {{ currentTask.escalation_level ? `已升级 ${currentTask.escalation_level} 次` : '未升级' }}
+              </span>
+            </div>
+          </div>
+
+          <div v-if="currentTask.note" class="detail-block">
+            <span class="detail-label">处置说明</span>
+            <p class="detail-value">{{ currentTask.note }}</p>
+          </div>
+
+          <div v-if="canActOnTask" class="action-bar">
+            <button
+              v-if="currentTask.status === 'PENDING'"
+              class="btn btn-primary"
+              type="button"
+              :disabled="taskBusy !== null"
+              @click="actOnTask('ack')"
+            >
+              接单
+            </button>
+            <template v-else-if="currentTask.status === 'ACKED'">
+              <div class="review-panel">
+                <input
+                  v-model="taskNote"
+                  class="review-comment"
+                  placeholder="处置说明（可选）"
+                  maxlength="1000"
+                />
+              </div>
+              <button
+                class="btn btn-primary"
+                type="button"
+                :disabled="taskBusy !== null"
+                @click="actOnTask('complete')"
+              >
+                完成任务
+              </button>
+            </template>
+          </div>
+        </template>
+      </div>
+
       <div class="card">
         <div class="card-head">
           <h3 class="card-title">融合追溯</h3>
@@ -258,6 +338,19 @@ const comment = ref('')
 const feedbackStatus = ref('RECEIVED')
 const feedbackContent = ref('')
 
+const tasks = ref([])
+const taskError = ref('')
+const taskNote = ref('')
+const taskBusy = ref(null)
+
+const canUseTasks = computed(() => auth.hasAnyRole('ANALYST', 'REVIEWER', 'ADMIN'))
+const currentTask = computed(() => tasks.value[0] || null)
+const canActOnTask = computed(() => {
+  const task = currentTask.value
+  if (!task || task.status === 'COMPLETED') return false
+  return auth.hasRole('ADMIN') || task.assignee === auth.user?.username
+})
+
 const isMine = computed(
   () => w.value && auth.user && w.value.created_by === auth.user.username
 )
@@ -289,7 +382,17 @@ const stages = computed(() => {
       : s === 'PENDING_REVIEW' || s === 'APPROVED'
         ? 'current'
         : 'pending'
-  const responseState = hasFeedback ? 'done' : s === 'PUBLISHED' ? 'current' : 'pending'
+  // 响应阶段优先由响应任务驱动；没有任务时退回原来的「有没有反馈」判断
+  const task = currentTask.value
+  const responseState = task
+    ? task.status === 'COMPLETED'
+      ? 'done'
+      : 'current'
+    : hasFeedback
+      ? 'done'
+      : s === 'PUBLISHED'
+        ? 'current'
+        : 'pending'
   const feedbackState = completed ? 'done' : hasFeedback ? 'current' : 'pending'
 
   let publishTime = ''
@@ -330,8 +433,19 @@ const stages = computed(() => {
       key: 'response',
       label: '响应',
       state: responseState,
-      time: latest ? formatDateTime(latest.created_at) : '',
-      role: '分析员/管理员'
+      time: task?.completed_at
+        ? formatDateTime(task.completed_at)
+        : latest
+          ? formatDateTime(latest.created_at)
+          : '',
+      role: task ? `负责人 ${task.assignee}` : '分析员/管理员',
+      note: task
+        ? task.status === 'COMPLETED'
+          ? '已完成处置'
+          : task.overdue
+            ? '已逾期'
+            : `时限 ${formatDateTime(task.due_at)}`
+        : ''
     },
     {
       key: 'feedback',
@@ -354,15 +468,57 @@ function hazardLabel(value) {
 async function load(showSkeleton = true) {
   if (showSkeleton) loading.value = true
   error.value = ''
+  taskError.value = ''
+  const id = route.params.publicId
   try {
-    w.value = await apiFetch(`/warnings/${route.params.publicId}`)
-    feedbacks.value = await apiFetch(`/warnings/${route.params.publicId}/feedback`)
+    const [detail, list] = await Promise.all([
+      apiFetch(`/warnings/${id}`),
+      apiFetch(`/warnings/${id}/feedback`)
+    ])
+    w.value = detail
+    feedbacks.value = list
   } catch (e) {
     // 动作成功后的刷新失败不置空，保留现有数据并提示
     if (showSkeleton) w.value = null
     error.value = e.message
+    loading.value = false
+    return
+  }
+
+  // 响应任务是辅助信息：它失败只影响任务卡，不能把已经取到的预警主体一起清掉
+  try {
+    tasks.value = canUseTasks.value ? await apiFetch(`/response-tasks?warning=${id}`) : []
+  } catch (e) {
+    tasks.value = []
+    taskError.value = e.message
   } finally {
     loading.value = false
+  }
+}
+
+async function actOnTask(kind) {
+  const task = currentTask.value
+  if (!task) return
+  taskBusy.value = task.id
+  error.value = ''
+  notice.value = ''
+  try {
+    if (kind === 'ack') {
+      await apiFetch(`/response-tasks/${task.id}/ack`, { method: 'POST' })
+      notice.value = '已接单，请按期完成处置'
+    } else {
+      await apiFetch(`/response-tasks/${task.id}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ note: taskNote.value })
+      })
+      taskNote.value = ''
+      notice.value = '响应任务已完成'
+    }
+    await load(false)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    taskBusy.value = null
   }
 }
 

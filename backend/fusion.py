@@ -141,18 +141,27 @@ def run(site, lat, lon, start, end, threshold, models, train_years, val_years, t
     for j, m in enumerate(models):
         scores = X[te, j]
         results[f"single:{m}"] = metrics(y[te], (scores >= threshold).astype(float), scores)
-    for name, scores in {
-        "fusion:mean": ens_mean[te],
-        "fusion:median": ens_median[te],
-        "fusion:weighted": ens_weighted[te],
-    }.items():
+    fusion_full = {
+        "fusion:mean": ens_mean,
+        "fusion:median": ens_median,
+        "fusion:weighted": ens_weighted,
+    }
+    for name, full in fusion_full.items():
+        scores = full[te]
         results[name] = metrics(y[te], (scores >= threshold).astype(float), scores)
 
-    single_names = [k for k in results if k.startswith("single:")]
-    best_single = max(single_names, key=lambda k: results[k]["f1"])
-    fusion_names = [k for k in results if k.startswith("fusion:")]
-    best_fusion = max(fusion_names, key=lambda k: results[k]["f1"])
-    best_name = best_fusion
+    # 选择只看训练年，测试年只用来评分一次：否则报告的 delta 是「在测试年上挑完再报」的乐观值，
+    # 与 docs/data-and-method.md 的「测试年只评估一次」直接冲突
+    train_f1 = {}
+    for j, m in enumerate(models):
+        train_f1[f"single:{m}"] = metrics(y[tr], (X[tr, j] >= threshold).astype(float), X[tr, j])["f1"]
+    for name, full in fusion_full.items():
+        train_f1[name] = metrics(y[tr], (full[tr] >= threshold).astype(float), full[tr])["f1"]
+
+    single_names = [k for k in train_f1 if k.startswith("single:")]
+    best_single = max(single_names, key=lambda k: train_f1[k])
+    fusion_names = [k for k in train_f1 if k.startswith("fusion:")]
+    best_fusion = max(fusion_names, key=lambda k: train_f1[k])
     return {
         "site": site,
         "period": {"start": start, "end": end},
@@ -160,6 +169,8 @@ def run(site, lat, lon, start, end, threshold, models, train_years, val_years, t
         "models": models,
         "fusion_weights": {m: round(float(x), 4) for m, x in zip(models, w)},
         "split": {"train": train_years, "val": val_years, "test": test_years},
+        # best_single/best_fusion 按训练年选出，测试年只评分一次（见 docs/data-and-method.md）
+        "selection_basis": "train_year",
         "counts": {
             "days": len(days),
             "train": int(tr.sum()), "val": int(va.sum()), "test": int(te.sum()),

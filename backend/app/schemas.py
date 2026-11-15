@@ -3,7 +3,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from .cities import ALL_CITIES, CITIES
 from .deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER
+from .hazards import ALL_HAZARDS, HAZARDS
 
 
 # ---- auth ----
@@ -161,7 +163,9 @@ class WarningCreate(BaseModel):
     title: str = Field(max_length=200)
     area_text: str = Field(max_length=500)
     impact_text: str | None = Field(default=None, max_length=2000)
-    reasoning_text: str
+    # 列是 TEXT（65,535 字节）。中文按 utf8mb4 占 3 字节，20,000 字符留有余量；
+    # 不设上限时超长输入要到 flush 才触发 MySQL 1406，变成 500 而不是 422
+    reasoning_text: str = Field(max_length=20000)
 
     @field_validator("title", "area_text", "reasoning_text")
     @classmethod
@@ -179,12 +183,21 @@ class WarningCreate(BaseModel):
         v = v.strip()
         return v or None
 
+    @field_validator("reasoning_text")
+    @classmethod
+    def _reasoning_fits_text(cls, v: str) -> str:
+        # max_length 按字符计，TEXT 列按 UTF-8 字节计：4 字节字符（emoji/扩展区）
+        # 在 20,000 字符时仍可能超过 65,535 字节，到 flush 才变成 500。
+        if len(v.encode("utf-8")) > 65535:
+            raise ValueError("reasoning_text 超出 TEXT 列容量（65,535 字节）")
+        return v
+
 
 class WarningUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     area_text: str | None = Field(default=None, max_length=500)
     impact_text: str | None = Field(default=None, max_length=2000)
-    reasoning_text: str | None = None
+    reasoning_text: str | None = Field(default=None, max_length=20000)
 
     @field_validator("title", "area_text", "reasoning_text")
     @classmethod
@@ -204,6 +217,13 @@ class WarningUpdate(BaseModel):
             return None
         v = v.strip()
         return v or None
+
+    @field_validator("reasoning_text")
+    @classmethod
+    def _reasoning_fits_text_update(cls, v: str | None) -> str | None:
+        if v is not None and len(v.encode("utf-8")) > 65535:
+            raise ValueError("reasoning_text 超出 TEXT 列容量（65,535 字节）")
+        return v
 
 
 class ReviewRequest(BaseModel):
@@ -283,3 +303,81 @@ class AuditOut(BaseModel):
     reason: str | None
     ip_address: str | None
     created_at: datetime
+
+
+# ---- 通知与订阅 ----
+HAZARD_CODES = frozenset(h["code"] for h in HAZARDS)
+CITY_CODES = frozenset(CITIES)
+
+
+class NotificationOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    body: str
+    resource_type: str
+    resource_id: str
+    read_at: datetime | None
+    created_at: datetime
+
+
+class NotificationPage(BaseModel):
+    items: list[NotificationOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SubscriptionCreate(BaseModel):
+    """``hazard_type='*'`` / ``city_code=''`` 表示该维度不限。"""
+
+    hazard_type: str = ALL_HAZARDS
+    city_code: str = ALL_CITIES
+
+    @field_validator("hazard_type")
+    @classmethod
+    def known_hazard(cls, value: str) -> str:
+        if value != ALL_HAZARDS and value not in HAZARD_CODES:
+            raise ValueError("未知灾种")
+        return value
+
+    @field_validator("city_code")
+    @classmethod
+    def known_city(cls, value: str) -> str:
+        if value != ALL_CITIES and value not in CITY_CODES:
+            raise ValueError("未知城市")
+        return value
+
+
+class SubscriptionOut(BaseModel):
+    id: int
+    hazard_type: str
+    city_code: str
+    created_at: datetime
+
+
+# ---- 响应任务 ----
+class ResponseTaskOut(BaseModel):
+    id: int
+    warning_public_id: str
+    warning_title: str
+    assignee: str
+    status: str
+    due_at: datetime
+    acked_at: datetime | None
+    completed_at: datetime | None
+    escalated_at: datetime | None
+    escalation_level: int
+    note: str | None
+    # 由服务端按「未完成且已过时限」计算，前端不重复判断
+    overdue: bool
+    created_at: datetime
+
+
+class TaskCompleteRequest(BaseModel):
+    note: str = Field(default="", max_length=1000)
+
+    @field_validator("note")
+    @classmethod
+    def _strip_note(cls, value: str) -> str:
+        return value.strip()

@@ -30,10 +30,12 @@ def get_session_id(request: Request) -> str | None:
 
 
 def client_ip(request: Request) -> str | None:
-    # 只信任 nginx 覆盖写入的 X-Real-IP（= $remote_addr）；X-Forwarded-For 首跳可被客户端伪造
-    real = request.headers.get("x-real-ip")
-    if real:
-        return real.strip()
+    # 只信任 nginx 覆盖写入的 X-Real-IP（= $remote_addr）；X-Forwarded-For 首跳可被客户端伪造。
+    # 没配可信代理时不读该头，否则直连 API 就能伪造限速键与审计 IP。
+    if get_settings().trust_proxy_headers:
+        real = request.headers.get("x-real-ip")
+        if real:
+            return real.strip()
     return request.client.host if request.client else None
 
 
