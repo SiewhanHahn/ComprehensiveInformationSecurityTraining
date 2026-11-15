@@ -84,7 +84,7 @@
 
         <div class="action-bar">
           <button
-            v-if="isMine && (w.status === 'DRAFT' || w.status === 'REJECTED')"
+            v-if="isMine && auth.hasAnyRole('ANALYST', 'ADMIN') && (w.status === 'DRAFT' || w.status === 'REJECTED')"
             class="btn btn-primary"
             type="button"
             :disabled="busy"
@@ -93,7 +93,7 @@
             提交审核
           </button>
 
-          <template v-if="auth.hasAnyRole('REVIEWER', 'ADMIN') && w.status === 'PENDING_REVIEW'">
+          <template v-if="!isMine && auth.hasAnyRole('REVIEWER', 'ADMIN') && w.status === 'PENDING_REVIEW'">
             <div class="review-panel">
               <input v-model="comment" placeholder="审核意见" aria-label="审核意见" />
             </div>
@@ -441,7 +441,9 @@ const stages = computed(() => {
       role: task ? `负责人 ${task.assignee}` : '分析员/管理员',
       note: task
         ? task.status === 'COMPLETED'
-          ? '已完成处置'
+          ? s === 'WITHDRAWN' && !task.acked_at
+            ? '已随撤回关闭'
+            : '已完成处置'
           : task.overdue
             ? '已逾期'
             : `时限 ${formatDateTime(task.due_at)}`

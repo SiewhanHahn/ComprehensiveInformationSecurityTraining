@@ -184,8 +184,8 @@ const navGroups = computed(() => {
       path: '/warnings',
       children: [
         { path: '/warnings', label: '预警管理' },
-        { path: '/review', label: '审核' },
-        { path: '/tasks', label: '任务看板' },
+        ...(auth.hasAnyRole('REVIEWER', 'ADMIN') ? [{ path: '/review', label: '审核' }] : []),
+        ...(auth.hasAnyRole('ANALYST', 'REVIEWER', 'ADMIN') ? [{ path: '/tasks', label: '任务看板' }] : []),
         { path: '/hazards', label: '灾种' },
         { path: '/notifications', label: '通知中心' }
       ]

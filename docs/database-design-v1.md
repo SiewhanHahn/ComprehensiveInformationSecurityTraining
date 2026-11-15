@@ -43,7 +43,7 @@ PUBLISHED -> WITHDRAWN
 
 ## 3. 表设计
 
-以下 19 张表为当前结构：前 16 张覆盖暴雨端到端闭环，`0005` 新增 3 张支撑 B 档的通知与响应任务；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0005` 已应用，`0005` 新增订阅、通知与响应任务表）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
+以下 19 张表为当前结构：前 16 张覆盖暴雨端到端闭环，`0005` 新增 3 张支撑 B 档的通知与响应任务，`0006` 为 `users(is_active)` 补建 `idx_users_active`；ORM 与 Alembic 迁移已在 MySQL 8.4 容器中验证（`0001`~`0006` 已应用）。其余七类灾种复用用户、角色、预警状态机、审批和审计结构，灾种专属指标字段通过后续迁移扩展，不把未实现字段写成已完成。
 
 ### 3.1 users
 
@@ -54,11 +54,11 @@ PUBLISHED -> WITHDRAWN
 | password_hash | VARCHAR(255) | NOT NULL | 密码摘要 |
 | display_name | VARCHAR(100) | NOT NULL | 显示名 |
 | is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 账号状态 |
-| failed_login_count | SMALLINT UNSIGNED | NOT NULL DEFAULT 0 | 连续失败次数 |
+| failed_login_count | INT | NOT NULL DEFAULT 0 | 连续失败次数 |
 | locked_until | DATETIME(6) | NULL | 临时锁定到期 |
 | created_at / updated_at | DATETIME(6) | NOT NULL | UTC 时间 |
 
-索引：`uq_users_username`，`idx_users_active`。
+唯一约束：`username`；索引：`idx_users_active (is_active)`。
 
 ### 3.2 roles
 
@@ -106,10 +106,10 @@ PUBLISHED -> WITHDRAWN
 | dataset_type | VARCHAR(32) | NOT NULL | FORECAST/ERA5_LABEL/GHCN_OBSERVATION |
 | version | VARCHAR(100) | NOT NULL | 数据或实验版本 |
 | period_start / period_end | DATE | NOT NULL | 覆盖日期 |
-| row_count | INT UNSIGNED | NOT NULL DEFAULT 0 | 行数 |
+| row_count | INT | NOT NULL DEFAULT 0 | 行数 |
 | quality_status | VARCHAR(32) | NOT NULL | READY/PARTIAL/FAILED |
 | imported_at | DATETIME(6) | NOT NULL | 导入时间 |
-| checksum | CHAR(64) | NULL | 内容校验摘要 |
+| checksum | VARCHAR(64) | NULL | 内容校验摘要 |
 
 唯一建议：`source_id, dataset_type, version`。
 
@@ -124,7 +124,7 @@ PUBLISHED -> WITHDRAWN
 | city_code | VARCHAR(32) | NOT NULL | 城市代码 |
 | model_code | VARCHAR(32) | NOT NULL | ECMWF/GFS/ICON/GEM |
 | valid_at | DATETIME(6) | NOT NULL | 预报有效时间 UTC |
-| lead_hours | SMALLINT UNSIGNED | NOT NULL | 提前量，MVP 为 24 |
+| lead_hours | INT | NOT NULL | 提前量，MVP 为 24 |
 | precipitation_mm | DECIMAL(10,3) | NULL | 预报降水 |
 | is_complete | BOOLEAN | NOT NULL DEFAULT TRUE | 数据完整性 |
 | created_at | DATETIME(6) | NOT NULL | 入库时间 |
@@ -157,9 +157,9 @@ PUBLISHED -> WITHDRAWN
 | id | BIGINT UNSIGNED | PK | 主键 |
 | algorithm_version | VARCHAR(64) | NOT NULL | 算法版本 |
 | method | VARCHAR(32) | NOT NULL | EQUAL_MEAN 等 |
-| lead_hours | SMALLINT UNSIGNED | NOT NULL | 提前量 |
+| lead_hours | INT | NOT NULL | 提前量 |
 | weights_json | JSON | NOT NULL | 模式权重 |
-| input_count | SMALLINT UNSIGNED | NOT NULL | 输入模式数 |
+| input_count | INT | NOT NULL | 输入模式数 |
 | status | VARCHAR(32) | NOT NULL | SUCCESS/PARTIAL/FAILED |
 | executed_at | DATETIME(6) | NOT NULL | 执行时间 |
 | created_by | BIGINT UNSIGNED | NULL/FK | 操作者 |
@@ -181,12 +181,12 @@ PUBLISHED -> WITHDRAWN
 | --- | --- | --- | --- |
 | id | BIGINT UNSIGNED | PK | 主键 |
 | hazard_type | VARCHAR(32) | NOT NULL DEFAULT 'RAINSTORM' | 灾种代码；MVP 为 RAINSTORM |
-| code | VARCHAR(32) | NOT NULL | LIGHT/MODERATE/HEAVY |
+| code | VARCHAR(32) | NOT NULL | MODERATE/HEAVY/STORM |
 | threshold_mm | DECIMAL(10,3) | NOT NULL | 24 小时阈值 |
-| level | VARCHAR(16) | NOT NULL | 教学风险等级（BLUE/YELLOW/ORANGE/RED，仅界面可视化分级，不代表官方预警信号） |
+| level | VARCHAR(16) | NOT NULL | 教学风险等级（BLUE/YELLOW/ORANGE，预留 RED；仅界面可视化分级，不代表官方预警信号） |
 | is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 是否启用 |
 
-> 注意：`level` 的色码仅是教学演示用的风险分级标识，对应 10/25/50mm 的日累计阈值，**不代表国家气象台官方蓝/黄/橙/红预警发布标准**。MVP 的 `threshold_mm` 是暴雨专用字段；扩展到其他灾种时需增加指标代码/单位等字段，不能直接复用毫米阈值。唯一键为 `hazard_type, code`。
+> 注意：`level` 的色码仅是教学演示用的风险分级标识，对应 `MODERATE(10mm -> BLUE)` / `HEAVY(25mm -> YELLOW)` / `STORM(50mm -> ORANGE)` 的日累计阈值，**不代表国家气象台官方蓝/黄/橙/红预警发布标准**。MVP 的 `threshold_mm` 是暴雨专用字段；扩展到其他灾种时需增加指标代码/单位等字段，不能直接复用毫米阈值。唯一键为 `hazard_type, code`。
 
 ### 3.11 warning_results
 
@@ -213,7 +213,7 @@ PUBLISHED -> WITHDRAWN
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
 | id | BIGINT UNSIGNED | PK | 主键 |
-| public_id | CHAR(26) | UNIQUE, NOT NULL | 对外不可猜测标识 |
+| public_id | VARCHAR(26) | UNIQUE, NOT NULL | 对外不可猜测标识 |
 | warning_result_id | BIGINT UNSIGNED | FK, NOT NULL | 计算结果 |
 | hazard_type | VARCHAR(32) | NOT NULL DEFAULT 'RAINSTORM' | 灾种代码；MVP 为 RAINSTORM |
 | created_by | BIGINT UNSIGNED | FK, NOT NULL | 分析员 |
@@ -222,7 +222,7 @@ PUBLISHED -> WITHDRAWN
 | area_text | VARCHAR(500) | NOT NULL | 影响区域 |
 | impact_text | TEXT | NULL | 影响说明 |
 | reasoning_text | TEXT | NOT NULL | 研判依据 |
-| version_no | INT UNSIGNED | NOT NULL DEFAULT 1 | 版本 |
+| version_no | INT | NOT NULL DEFAULT 1 | 版本 |
 | submitted_at / approved_at / published_at / withdrawn_at | DATETIME(6) | NULL | 状态时间 |
 | published_by / withdrawn_by | BIGINT UNSIGNED | NULL/FK | 发布人/撤回人，与状态时间戳配套追溯 |
 | created_at / updated_at | DATETIME(6) | NOT NULL | 时间 |
@@ -263,7 +263,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 | resource_id | VARCHAR(64) | NULL | 资源标识 |
 | result | VARCHAR(16) | NOT NULL | SUCCESS/DENIED/FAILED |
 | reason | VARCHAR(500) | NULL | 原因 |
-| request_id | CHAR(36) | NULL | 请求关联 |
+| request_id | VARCHAR(36) | NULL | 请求关联 |
 | ip_address | VARCHAR(45) | NULL | IPv4/IPv6 |
 | created_at | DATETIME(6) | NOT NULL | UTC 时间 |
 
@@ -306,7 +306,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 | --- | --- | --- | --- |
 | id | BIGINT UNSIGNED | PK | 主键 |
 | user_id | BIGINT UNSIGNED | FK, NOT NULL | 收件人 |
-| kind | VARCHAR(32) | NOT NULL | WARNING_PUBLISHED / WARNING_WITHDRAWN（预留 TASK_*） |
+| kind | VARCHAR(32) | NOT NULL | WARNING_PUBLISHED / WARNING_WITHDRAWN / TASK_ASSIGNED / TASK_ESCALATED |
 | title | VARCHAR(200) | NOT NULL | 标题 |
 | body | VARCHAR(1000) | NOT NULL | 正文 |
 | resource_type | VARCHAR(64) | NOT NULL DEFAULT `'warning'` | 与 audit_logs 同风格 |
@@ -315,7 +315,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 | read_at | DATETIME(6) | NULL | 已读时间 |
 | created_at | DATETIME(6) | NOT NULL | UTC 时间 |
 
-索引：`idx_notifications_dedupe (dedupe_key)`、`idx_notifications_user_created (user_id, created_at)`、`idx_notifications_user_read (user_id, read_at)`。
+唯一约束：`uq_notifications_dedupe (dedupe_key)`；索引：`idx_notifications_user_created (user_id, created_at)`、`idx_notifications_user_read (user_id, read_at)`。
 
 `dedupe_key` 形如 `warning_published:<public_id>:<user_id>`，让定时扫描的补投天然幂等：同一（预警, 用户, 种类）只可能有一条通知。通知只增不改，已读只写 `read_at`。
 

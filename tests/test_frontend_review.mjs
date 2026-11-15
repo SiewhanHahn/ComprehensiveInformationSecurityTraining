@@ -491,3 +491,352 @@ test('Tasks.vue renders both overdue and escalated badges simultaneously', async
   assert.match(html, /已逾期/)
   assert.match(html, /已升级/)
 })
+
+test('App.vue navGroups filters /review and /tasks dropdown entries by role', async () => {
+  const authObj = vueRuntime.reactive({
+    user: { username: 'viewer_demo', roles: ['VIEWER'] },
+    ready: true,
+    csrf: 'c',
+    clear() {
+      this.user = null
+      this.csrf = ''
+      this.ready = true
+    },
+    hasRole: (r) => Boolean(authObj.user?.roles?.includes(r)),
+    hasAnyRole: (...roles) => roles.some((r) => authObj.hasRole(r)),
+  })
+  const routeMock = vueRuntime.reactive({ path: '/', fullPath: '/', meta: {}, query: {} })
+  const { exposed, scope } = instantiateSetupScript('src/App.vue', {
+    'vue-router': { useRoute: () => routeMock, useRouter: () => ({ replace: () => {}, push: () => {} }) },
+    './auth': { auth: authObj },
+    './api': { apiFetch: async () => ({}) },
+    './notifications': {
+      notificationState: vueRuntime.reactive({ unread: 0 }),
+      refreshUnread: async () => {},
+      resetUnread: () => {},
+    },
+    './ui/labels': { roleLabel: (r) => r },
+  })
+  try {
+    const warnPaths = () =>
+      exposed.navGroups.value.find((g) => g.label === '预警')?.children.map((c) => c.path) || []
+
+    assert.deepEqual(warnPaths(), ['/warnings', '/hazards', '/notifications'])
+
+    authObj.user = { username: 'analyst_demo', roles: ['ANALYST'] }
+    await vueRuntime.nextTick()
+    assert.deepEqual(warnPaths(), ['/warnings', '/tasks', '/hazards', '/notifications'])
+
+    authObj.user = { username: 'reviewer_demo', roles: ['REVIEWER'] }
+    await vueRuntime.nextTick()
+    assert.deepEqual(warnPaths(), ['/warnings', '/review', '/tasks', '/hazards', '/notifications'])
+  } finally {
+    scope.stop()
+  }
+})
+
+test('WarningDetail.vue enforces ANALYST/ADMIN for submit, hides self-review, and distinguishes withdrawn closed tasks', async () => {
+  const authObj = vueRuntime.reactive({
+    user: { username: 'reviewer_demo', roles: ['REVIEWER'] },
+    hasRole: (r) => Boolean(authObj.user?.roles?.includes(r)),
+    hasAnyRole: (...roles) => roles.some((r) => authObj.hasRole(r)),
+  })
+  const render = compileVueTemplate('src/views/WarningDetail.vue')
+  const { exposed, scope } = instantiateSetupScript('src/views/WarningDetail.vue', {
+    'vue-router': { useRoute: () => ({ params: { id: 'warn-1' } }), useRouter: () => ({ push: () => {} }) },
+    '../auth': { auth: authObj },
+    '../api': { apiFetch: async () => ({}) },
+    '../ui/labels': {
+      HAZARD_TYPE: { RAINSTORM: '暴雨' },
+      RISK_LEVEL: { MODERATE: { label: '中等' } },
+      warningStatusLabel: (s) => s,
+      hazardLabel: (h) => h,
+      cityName: (c) => c,
+      formatDate: (d) => d || '',
+      formatDateTime: (d) => d || '',
+      shortId: (v) => v || '',
+    },
+  })
+  const stub = { template: '<div><slot /></div>' }
+  const renderHtml = async () => {
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...exposed }), render })
+    app.component('EmptyState', stub)
+    app.component('ClosedLoopStepper', stub)
+    app.component('StatusBadge', stub)
+    app.component('ChartPanel', stub)
+    app.component('RouterLink', { template: '<a><slot /></a>' })
+    return renderToString(app)
+  }
+  try {
+    exposed.loading.value = false
+    exposed.error.value = ''
+    exposed.taskError.value = ''
+    exposed.w.value = {
+      public_id: 'warn-1',
+      title: '测试预警',
+      status: 'DRAFT',
+      created_by: 'reviewer_demo',
+      hazard_type: 'RAINSTORM',
+      city_code: 'WUHAN',
+      valid_date: '2024-03-27',
+      fused_mm: 55,
+      risk_level: 'MODERATE',
+      area_text: '市区',
+      impact_text: '',
+      reasoning_text: '达到阈值',
+      models: [],
+      feedbacks: [],
+    }
+    exposed.tasks.value = []
+
+    // 1) REVIEWER cannot submit own DRAFT even if isMine
+    const draftHtml = await renderHtml()
+    assert.doesNotMatch(draftHtml, /<button[^>]*>\s*提交审核\s*<\/button>/)
+
+    // 2) Creator (even ADMIN) must not see self-review approve/reject controls,
+    //    while another reviewer sees them
+    authObj.user = { username: 'admin_demo', roles: ['ADMIN'] }
+    exposed.w.value = { ...exposed.w.value, status: 'PENDING_REVIEW', created_by: 'admin_demo' }
+    await vueRuntime.nextTick()
+    const selfReviewHtml = await renderHtml()
+    assert.doesNotMatch(selfReviewHtml, /<button[^>]*>\s*批准\s*<\/button>/)
+    assert.doesNotMatch(selfReviewHtml, /<button[^>]*>\s*驳回\s*<\/button>/)
+
+    authObj.user = { username: 'reviewer_demo', roles: ['REVIEWER'] }
+    await vueRuntime.nextTick()
+    const peerReviewHtml = await renderHtml()
+    assert.match(peerReviewHtml, /<button[^>]*>\s*批准\s*<\/button>/)
+    assert.match(peerReviewHtml, /<button[^>]*>\s*驳回\s*<\/button>/)
+
+    // 3) Stepper notes task closed upon withdrawal as 已随撤回关闭,
+    //    while normally completed task (with acked_at) stays 已完成处置
+    exposed.w.value = {
+      ...exposed.w.value,
+      status: 'WITHDRAWN',
+      withdrawn_at: '2024-03-27T01:00:00Z',
+    }
+    exposed.tasks.value = [
+      {
+        id: 9,
+        status: 'COMPLETED',
+        acked_at: null,
+        completed_at: '2024-03-27T01:00:00Z',
+        due_at: '2024-03-27T06:00:00Z',
+        assignee: 'analyst_demo',
+        overdue: false,
+        escalation_level: 0,
+      },
+    ]
+    await vueRuntime.nextTick()
+    const responseStage = exposed.stages.value.find((s) => s.key === 'response')
+    assert.equal(responseStage?.note, '已随撤回关闭')
+
+    exposed.tasks.value = [
+      {
+        id: 9,
+        status: 'COMPLETED',
+        acked_at: '2024-03-27T00:30:00Z',
+        completed_at: '2024-03-27T00:45:00Z',
+        due_at: '2024-03-27T06:00:00Z',
+        assignee: 'analyst_demo',
+        overdue: false,
+        escalation_level: 0,
+      },
+    ]
+    await vueRuntime.nextTick()
+    const ackedStage = exposed.stages.value.find((s) => s.key === 'response')
+    assert.equal(ackedStage?.note, '已完成处置')
+  } finally {
+    scope.stop()
+  }
+})
+
+test('Review.vue hides self-review approve/reject controls and marks own pending warning', async () => {
+  const authObj = vueRuntime.reactive({
+    user: { username: 'reviewer_demo', roles: ['REVIEWER'] },
+    hasRole: (r) => Boolean(authObj.user?.roles?.includes(r)),
+    hasAnyRole: (...roles) => roles.some((r) => authObj.hasRole(r)),
+  })
+  const render = compileVueTemplate('src/views/Review.vue')
+  const { exposed, scope } = instantiateSetupScript('src/views/Review.vue', {
+    '../auth': { auth: authObj },
+    '../api': { apiFetch: async () => [] },
+    '../ui/labels': {
+      cityName: (c) => c,
+      formatDate: (d) => d || '',
+      formatDateTime: (d) => d || '',
+      shortId: (v) => v || '',
+    },
+  })
+  const stub = { template: '<div><slot /></div>' }
+  const renderHtml = async () => {
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...exposed }), render })
+    app.component('StatusBadge', stub)
+    app.component('EmptyState', stub)
+    app.component('TableSkeleton', stub)
+    app.component('RouterLink', { template: '<a><slot /></a>' })
+    return renderToString(app)
+  }
+  try {
+    exposed.loading.value = false
+    exposed.activeTab.value = 'PENDING_REVIEW'
+    exposed.rows.value = [
+      {
+        public_id: 'warn-self',
+        title: '本人待审预警',
+        city_code: 'WUHAN',
+        valid_date: '2024-03-27',
+        fused_mm: 60,
+        risk_level: 'HIGH',
+        created_by: 'reviewer_demo',
+        status: 'PENDING_REVIEW',
+      },
+    ]
+    const selfOnlyHtml = await renderHtml()
+    assert.match(selfOnlyHtml, /不可自审/)
+    assert.doesNotMatch(selfOnlyHtml, /批准/)
+    assert.doesNotMatch(selfOnlyHtml, /驳回/)
+
+    exposed.rows.value.push({
+      public_id: 'warn-other',
+      title: '他人待审预警',
+      city_code: 'WUHAN',
+      valid_date: '2024-03-27',
+      fused_mm: 60,
+      risk_level: 'HIGH',
+      created_by: 'analyst_demo',
+      status: 'PENDING_REVIEW',
+    })
+    const mixedHtml = await renderHtml()
+    assert.match(mixedHtml, /批准/)
+    assert.match(mixedHtml, /驳回/)
+  } finally {
+    scope.stop()
+  }
+})
+
+test('api.js ERROR_ZH maps LOGIN_RATE_LIMITED, METHOD_NOT_ALLOWED, and HTTP_ERROR', async () => {
+  const { registerHooks } = await import('node:module')
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier.startsWith('./') && !specifier.endsWith('.js') && context.parentURL?.includes('/frontend/src/')) {
+        return nextResolve(`${specifier}.js`, context)
+      }
+      return nextResolve(specifier, context)
+    },
+  })
+  const prevFetch = globalThis.fetch
+  const prevDoc = globalThis.document
+  globalThis.document = { cookie: '' }
+  try {
+    const { apiFetch } = await import('../frontend/src/api.js')
+    const cases = [
+      { status: 429, code: 'LOGIN_RATE_LIMITED', expected: '尝试过于频繁，请稍后再试' },
+      { status: 405, code: 'METHOD_NOT_ALLOWED', expected: '请求方法不被允许' },
+      { status: 502, code: 'HTTP_ERROR', expected: '请求失败' },
+    ]
+    for (const c of cases) {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ error: { code: c.code, message: '' } }), {
+          status: c.status,
+          headers: { 'content-type': 'application/json' },
+        })
+      await assert.rejects(
+        () => apiFetch(`/test-${c.code.toLowerCase()}`, { method: 'POST' }),
+        (err) => err?.message === c.expected && err?.code === c.code,
+      )
+    }
+  } finally {
+    globalThis.fetch = prevFetch
+    globalThis.document = prevDoc
+  }
+})
+
+test('Monitor.vue renders badge--danger for FAILED dataset quality_status', async () => {
+  const render = compileVueTemplate('src/views/Monitor.vue')
+  const { exposed, scope } = instantiateSetupScript('src/views/Monitor.vue', {
+    '../api': { apiFetch: async () => ({}) },
+    '../ui/useCountUp': { useCountUp: (v) => v },
+    '../ui/labels': {
+      datasetTypeLabel: (v) => v,
+      formatDate: (v) => v || '',
+      formatDateTime: (v) => v || '',
+      modelLabel: (v) => v,
+      sourceTypeLabel: (v) => v,
+    },
+    '../charts/options': { coverageBar: () => ({}) },
+  })
+  try {
+    exposed.loading.value = false
+    exposed.error.value = ''
+    exposed.status.value = {
+      generated_at: '2024-03-27T00:00:00Z',
+      records: {
+        forecast: 10,
+        observation: 10,
+        latest_observed_date: '2024-03-27',
+        latest_forecast_valid_at: '2024-03-27T00:00:00Z',
+      },
+      sources: [],
+      datasets: [
+        {
+          id: 1,
+          dataset_type: 'FORECAST',
+          source_type: 'DEMO_SAMPLE',
+          version: 'v-bad',
+          quality_status: 'FAILED',
+          row_count: 0,
+          ingested_at: '2024-03-27T00:00:00Z',
+        },
+      ],
+      coverage: {
+        models: [],
+        expected_models: ['ECMWF'],
+        cities: [],
+        per_city: [],
+        partial_days: 0,
+        dataset_version: 'v-bad',
+        completeness: 'PARTIAL',
+      },
+    }
+    const stub = { template: '<div><slot /></div>' }
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...exposed }), render })
+    app.component('StatusBadge', stub)
+    app.component('EmptyState', stub)
+    app.component('ChartPanel', stub)
+    app.component('TableSkeleton', stub)
+    app.component('RouterLink', { template: '<a><slot /></a>' })
+    const html = await renderToString(app)
+    assert.match(html, /class="badge badge--sm badge--danger"[^>]*>\s*FAILED\s*</)
+  } finally {
+    scope.stop()
+  }
+})
+
+test('Users.vue reuses shared roleLabel so VIEWER displays 查看用户', async () => {
+  const labels = await import('../frontend/src/ui/labels.js')
+  const render = compileVueTemplate('src/views/Users.vue')
+  const { exposed, scope } = instantiateSetupScript('src/views/Users.vue', {
+    '../auth': { auth: { user: { username: 'admin_demo', roles: ['ADMIN'] } } },
+    '../api': { apiFetch: async () => ({ items: [], total: 0 }) },
+    '../ui/labels': labels,
+  })
+  try {
+    assert.equal(exposed.roleName('VIEWER'), '查看用户')
+    exposed.loading.value = false
+    exposed.users.value = [
+      { id: 1, username: 'viewer_demo', display_name: '查看演示', roles: ['VIEWER'], is_active: true },
+    ]
+    exposed.total.value = 1
+    const stub = { template: '<div><slot /></div>' }
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...exposed }), render })
+    app.component('EmptyState', stub)
+    app.component('TableSkeleton', stub)
+    app.component('PaginationBar', stub)
+    const html = await renderToString(app)
+    assert.match(html, /查看用户/)
+    assert.doesNotMatch(html, /查看员/)
+  } finally {
+    scope.stop()
+  }
+})

@@ -37,6 +37,7 @@ class TimestampMixin:
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
+    __table_args__ = (Index("idx_users_active", "is_active"),)
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)

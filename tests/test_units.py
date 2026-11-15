@@ -435,3 +435,16 @@ def test_lock_admin_raises_503_when_admin_role_missing():
     with pytest.raises(HTTPException) as exc_info:
         users_router._lock_admin(MissingAdminDB(), CurrentUser(1, "admin", ["ADMIN"]), SimpleNamespace())
     assert exc_info.value.status_code == 503
+
+
+def test_user_model_and_0006_migration_define_idx_users_active():
+    import importlib
+
+    from backend.app.models import User
+
+    indexes = {idx.name: [col.name for col in idx.columns] for idx in User.__table__.indexes}
+    assert indexes.get("idx_users_active") == ["is_active"]
+
+    mig = importlib.import_module("backend.migrations.versions.0006_idx_users_active")
+    assert mig.revision == "0006_idx_users_active"
+    assert mig.down_revision == "0005_subscriptions_notifications"
