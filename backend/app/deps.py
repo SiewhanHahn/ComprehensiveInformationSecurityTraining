@@ -1,3 +1,4 @@
+import ipaddress
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -29,14 +30,27 @@ def get_session_id(request: Request) -> str | None:
     return request.cookies.get(get_settings().session_cookie_name)
 
 
+def _parse_ip(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    candidate = raw.strip()
+    if len(candidate) > 45:
+        return None
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return None
+
+
 def client_ip(request: Request) -> str | None:
     # 只信任 nginx 覆盖写入的 X-Real-IP（= $remote_addr）；X-Forwarded-For 首跳可被客户端伪造。
-    # 没配可信代理时不读该头，否则直连 API 就能伪造限速键与审计 IP。
+    # 头格式不合法或超长时回退到连接对端地址，防止伪造限速键或写爆 audit_logs.ip_address。
     if get_settings().trust_proxy_headers:
-        real = request.headers.get("x-real-ip")
-        if real:
-            return real.strip()
-    return request.client.host if request.client else None
+        valid = _parse_ip(request.headers.get("x-real-ip"))
+        if valid is not None:
+            return valid
+    host = request.client.host if request.client else None
+    return host[:45] if host else None
 
 
 def request_id(request: Request) -> str | None:
@@ -57,12 +71,12 @@ def get_current_user(
         delete_session(session_id)
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     user_id = payload.get("user_id")
-    if user_id is None:
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     user = db.scalar(select(User).where(User.id == user_id))
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
-    roles = [r.code for r in user.roles]
+    roles = sorted(r.code for r in user.roles)
     touch_session(session_id)
     return CurrentUser(id=user.id, username=user.username, roles=roles)
 

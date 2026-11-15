@@ -96,7 +96,7 @@ def _require_other_admin(db: Session, admin: Role, user_id: int, current: Curren
 
 
 @router.get("", response_model=UserPage)
-def list_users(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+def list_users(page: int = Query(1, ge=1, le=10000), page_size: int = Query(20, ge=1, le=100),
                current: CurrentUser = Depends(admin_required), db: Session = Depends(get_db)):
     total = db.scalar(select(func.count()).select_from(User))
     users = db.scalars(select(User).options(selectinload(User.roles)).order_by(User.id)

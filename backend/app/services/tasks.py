@@ -53,6 +53,7 @@ def create_for_published(db: Session, w: Warning, actor: CurrentUser, audit: Aud
             Role.code.in_((ROLE_ANALYST, ROLE_REVIEWER, ROLE_ADMIN)),
         )
         .limit(1)
+        .with_for_update()
     )
     assignee_id = w.created_by if creator_eligible is not None else actor.id
     due_at = (w.published_at or utcnow()) + timedelta(minutes=get_settings().response_task_due_minutes)
@@ -185,6 +186,12 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
 
     escalated: list[tuple[int, int, int]] = []
     for task_id, warning_id, assignee_id in candidates:
+        # 与 withdraw_warning 保持相同加锁顺序（先锁 Warning 再改 ResponseTask），避免死锁和快照读误升级
+        warning_status = db.scalar(
+            select(Warning.status).where(Warning.id == warning_id).with_for_update()
+        )
+        if warning_status is None or warning_status == "WITHDRAWN":
+            continue
         result = db.execute(
             update(ResponseTask)
             .where(

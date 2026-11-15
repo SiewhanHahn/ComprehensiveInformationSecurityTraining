@@ -6,7 +6,7 @@ MySQL 唯一索引不把 NULL 视为相等，用 NULL 会让同一人重复插�
 """
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -58,12 +58,14 @@ def create_subscription(db: Session, user_id: int, body: SubscriptionCreate) -> 
     if existing is not None:
         raise HTTPException(status_code=409, detail="SUBSCRIPTION_EXISTS")
     sub = WarningSubscription(user_id=user_id, hazard_type=body.hazard_type, city_code=body.city_code)
-    db.add(sub)
     try:
-        db.flush()
+        # db.add 也必须放在 SAVEPOINT 作用域内：如果在外层事务先 add 再进 begin_nested()，
+        # SQLAlchemy 在 1062 回滚时会连带把外层 SessionTransaction 置为 DEACTIVE。
+        with db.begin_nested():
+            db.add(sub)
+            db.flush()
     except IntegrityError as exc:
         # 预检查与唯一索引之间的并发窗口：与 routers/users.py 的 1062 处理一致，翻译成 409
-        db.rollback()
         if getattr(exc.orig, "args", (None,))[0] == 1062:
             raise HTTPException(status_code=409, detail="SUBSCRIPTION_EXISTS") from exc
         raise
@@ -71,13 +73,13 @@ def create_subscription(db: Session, user_id: int, body: SubscriptionCreate) -> 
 
 
 def delete_subscription(db: Session, user_id: int, subscription_id: int) -> None:
-    """只能删自己的订阅；别人的订阅一律表现为不存在。"""
-    sub = db.scalar(
-        select(WarningSubscription).where(
-            WarningSubscription.id == subscription_id, WarningSubscription.user_id == user_id
+    """只能删自己的订阅；别人的订阅或并发已删除一律表现为不存在。"""
+    result = db.execute(
+        delete(WarningSubscription).where(
+            WarningSubscription.id == subscription_id,
+            WarningSubscription.user_id == user_id,
         )
     )
-    if sub is None:
-        raise HTTPException(status_code=404, detail="NOT_FOUND")
-    db.delete(sub)
     db.flush()
+    if (result.rowcount or 0) == 0:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")

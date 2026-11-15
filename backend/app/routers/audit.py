@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/audit-logs", response_model=list[AuditOut])
 def audit_logs(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=10000),
     page_size: int = Query(20, ge=1, le=100),
     action: str | None = None,
     db: Session = Depends(get_db),

@@ -43,7 +43,7 @@ def _to_sub_out(s: WarningSubscription) -> SubscriptionOut:
 @router.get("/notifications", response_model=NotificationPage)
 def list_notifications(
     unread_only: bool = Query(False),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=10000),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),

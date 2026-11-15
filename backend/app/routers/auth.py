@@ -185,18 +185,19 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
         user.locked_until = locked_until
         user.is_active = is_active
         if locked_until is not None and locked_until > utcnow():
+            _record_ip_failure(ip)
             _deny(db, request, "INVALID_CREDENTIALS", "locked", actor_id=user.id)
         if not is_active:
             _deny(db, request, "ACCOUNT_DISABLED", "disabled", actor_id=user.id)
 
         user.failed_login_count = 0
         user.locked_until = None
-        roles = [r.code for r in user.roles]
+        roles = sorted(r.code for r in user.roles)
         session_id = new_session_id()
         csrf_token = new_csrf_token()
-        create_session(session_id, user.id, roles, csrf_token)
         _audit(db, request, "LOGIN_SUCCESS", "SUCCESS", actor_id=user.id, actor_role=",".join(roles))
         db.commit()
+        create_session(session_id, user.id, roles, csrf_token)
         # 不清空 IP 失败计数：只要持有一个有效账号，就能在每轮猜测之间登录一次把自己的
         # 额度重置掉，per-IP 限速等于失效。账号级计数仍然在成功时清零，正常用户不受影响；
         # IP 计数按 ip_lockout_seconds 窗口自然过期。

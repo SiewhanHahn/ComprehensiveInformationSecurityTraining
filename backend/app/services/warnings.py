@@ -209,7 +209,7 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
                 fusion_run_id=fusion_run.id,
                 forecast_record_id=item["forecast_record_id"],
                 model_code=item["model_code"],
-                value_mm=Decimal(str(item["value_mm"])),
+                value_mm=item.get("value_dec", Decimal(str(item["value_mm"]))),
             )
         )
 
@@ -218,9 +218,9 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
         threshold_id=threshold.id,
         city_code=body.city_code,
         valid_date=body.valid_date,
-        fused_mm=compute["fused_mm"],
-        baseline_mm=compute["baseline_mm"],
-        proxy_label_mm=compute["proxy_label_mm"],
+        fused_mm=compute["fused_dec"] if compute.get("fused_dec") is not None else compute["fused_mm"],
+        baseline_mm=compute["baseline_dec"] if "baseline_dec" in compute else compute["baseline_mm"],
+        proxy_label_mm=compute["proxy_dec"] if "proxy_dec" in compute else compute["proxy_label_mm"],
         risk_level=compute["risk_level"],
         data_status="COMPLETE",
     )
@@ -305,9 +305,9 @@ def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: Audi
 
 def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _transition_existing(db, public_id, WITHDRAW, actor, audit)
-    notify_warning(db, w, NOTIFY_WITHDRAWN)
-    # 已撤回的预警不应再产生响应任务升级/通知；在同一个事务里关闭未完成任务
+    # 先关闭关联响应任务再发送撤回通知，避免并行扫描窗口误判
     close_for_withdrawn(db, w, audit)
+    notify_warning(db, w, NOTIFY_WITHDRAWN)
     return w
 
 

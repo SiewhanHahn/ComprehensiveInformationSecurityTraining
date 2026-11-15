@@ -139,3 +139,78 @@ def test_reasoning_text_checks_utf8_bytes_not_characters():
         WarningUpdate(reasoning_text="😀" * 20000)
     # 中文按 3 字节计，20,000 字符 = 60,000 字节，仍在 TEXT 容量内
     assert WarningCreate(**base, reasoning_text="雨" * 20000).reasoning_text
+
+
+def test_read_session_rejects_non_dict_and_session_expired_handles_tz(monkeypatch):
+    from datetime import datetime, timezone
+
+    from backend.app import session as sess
+
+    class FakeRedis:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def get(self, _key):
+            return self.payload
+
+    monkeypatch.setattr(sess, "get_redis", lambda: FakeRedis("123"))
+    assert sess.read_session("sid") is None
+    monkeypatch.setattr(sess, "get_redis", lambda: FakeRedis('["a"]'))
+    assert sess.read_session("sid") is None
+
+    assert sess.session_expired({"created_at": "2020-01-01T00:00:00+00:00"}) is True
+    recent_aware = datetime.now(timezone.utc).isoformat()
+    assert sess.session_expired({"created_at": recent_aware}) is False
+
+
+def test_client_ip_rejects_malformed_proxy_header(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.app import deps
+
+    monkeypatch.setattr(deps, "get_settings", lambda: SimpleNamespace(trust_proxy_headers=True))
+
+    def make_req(header_val, host="10.0.0.1"):
+        return SimpleNamespace(
+            headers={"x-real-ip": header_val} if header_val is not None else {},
+            client=SimpleNamespace(host=host),
+        )
+
+    assert deps.client_ip(make_req("203.0.113.5")) == "203.0.113.5"
+    assert deps.client_ip(make_req("1.2.3.4, 5.6.7.8")) == "10.0.0.1"
+    assert deps.client_ip(make_req("1" * 60)) == "10.0.0.1"
+
+
+def test_audit_truncates_oversized_fields_and_sorts_roles():
+    from backend.app.deps import CurrentUser
+    from backend.app.services.audit import AuditContext
+
+    added = []
+
+    class FakeDB:
+        def add(self, obj):
+            added.append(obj)
+
+    ctx = AuditContext(
+        db=FakeDB(),
+        actor=CurrentUser(1, "u", ["VIEWER", "ADMIN"]),
+        request_id="r" * 60,
+        ip_address="9" * 80,
+    )
+    ctx.record(
+        "ACT_" * 30,
+        resource_type="RES_" * 30,
+        resource_id="ID_" * 40,
+        result="RESULT_" * 10,
+        reason="why_" * 200,
+    )
+    row = added[0]
+    assert row.actor_role == "ADMIN,VIEWER"
+    assert len(row.actor_role) <= 32
+    assert len(row.action) <= 64
+    assert len(row.resource_type) <= 64
+    assert len(row.resource_id) <= 64
+    assert len(row.result) <= 16
+    assert len(row.reason) <= 500
+    assert len(row.request_id) <= 36
+    assert len(row.ip_address) <= 45

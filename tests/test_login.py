@@ -217,3 +217,133 @@ def test_concurrent_login_burst_respects_remaining_ip_budget(new_client, monkeyp
         assert statuses.count(429) == 3, statuses
     finally:
         redis.delete(key)
+
+
+def test_expired_session_write_returns_401_not_403_and_clears_redis(login):
+    import json
+
+    from backend.app.db import get_redis
+    from backend.app.session import _key
+
+    client, _csrf = login("viewer_demo")
+    session_id = client.cookies.get("ww_session")
+    assert session_id
+    redis = get_redis()
+    payload = json.loads(redis.get(_key(session_id)))
+    payload["created_at"] = "2020-01-01T00:00:00"
+    redis.setex(_key(session_id), 300, json.dumps(payload))
+
+    resp = client.post("/api/v1/notifications/read-all")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "UNAUTHENTICATED"
+    assert redis.get(_key(session_id)) is None
+
+
+def test_cors_headers_present_on_csrf_403_and_restricted_methods(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from backend.app.config import get_settings
+
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:5173")
+    get_settings.cache_clear()
+    try:
+        main_path = Path(__file__).resolve().parents[1] / "backend" / "app" / "main.py"
+        spec = importlib.util.spec_from_file_location("backend.app._cors_p1_test", main_path)
+        mod = importlib.util.module_from_spec(spec)
+        mod.__package__ = "backend.app"
+        spec.loader.exec_module(mod)
+
+        client = TestClient(mod.app)
+        allowed_preflight = client.options(
+            "/api/v1/notifications/read-all",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "X-CSRF-Token",
+            },
+        )
+        assert allowed_preflight.status_code in (200, 204)
+        allowed_headers = allowed_preflight.headers.get("access-control-allow-headers", "")
+        assert "*" not in allowed_headers
+        assert "x-csrf-token" in allowed_headers.lower()
+
+        disallowed_preflight = client.options(
+            "/api/v1/notifications/read-all",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "X-Forbidden-Header",
+            },
+        )
+        assert disallowed_preflight.status_code == 400
+
+        client.cookies.set(mod.settings.session_cookie_name, "missing-csrf-check-sid")
+        resp = client.post(
+            "/api/v1/notifications/read-all",
+            headers={"Origin": "http://localhost:5173"},
+        )
+        assert resp.status_code == 401
+        assert resp.headers.get("access-control-allow-origin") == "http://localhost:5173"
+        assert resp.headers.get("x-request-id")
+    finally:
+        get_settings.cache_clear()
+
+
+def test_login_commit_failure_does_not_create_redis_session(monkeypatch):
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+
+    from backend.app.db import get_redis
+    from backend.app.main import app
+
+    redis = get_redis()
+    before_keys = set(redis.keys("session:*"))
+
+    def broken_commit(self):
+        raise RuntimeError("simulated commit failure")
+
+    monkeypatch.setattr(Session, "commit", broken_commit)
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"username": "viewer_demo", "password": __import__("os").environ["DEMO_VIEWER_PASSWORD"]},
+            )
+            assert resp.status_code == 500
+        after_keys = set(redis.keys("session:*"))
+        assert after_keys == before_keys
+    finally:
+        for k in set(redis.keys("session:*")) - before_keys:
+            redis.delete(k)
+
+
+def test_oversized_page_param_rejected(login):
+    admin, _csrf = login("admin_demo")
+    for path in ("/api/v1/audit-logs", "/api/v1/notifications", "/api/v1/users"):
+        resp = admin.get(f"{path}?page=10001")
+        assert resp.status_code == 422, (path, resp.text)
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_locked_account_correct_password_records_ip_failure(login, created_users, new_client):
+    from backend.app.db import get_redis
+    from backend.app.routers.auth import _ip_rate_key
+
+    admin, admin_csrf = login("admin_demo")
+    username = _create_user(admin, admin_csrf, created_users, "lockip")
+    for _ in range(5):
+        assert _login(new_client, username, "wrong-password").status_code == 401
+
+    redis = get_redis()
+    key = _ip_rate_key("testclient")
+    redis.delete(key)
+    try:
+        resp = _login(new_client, username, PASSWORD)
+        assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "INVALID_CREDENTIALS"
+        assert int(redis.get(key) or 0) == 1
+    finally:
+        redis.delete(key)

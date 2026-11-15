@@ -205,3 +205,64 @@ def test_concurrent_delivery_of_one_key_does_not_raise():
         with SessionLocal() as db:
             db.execute(delete(Notification).where(Notification.resource_id == marker))
             db.commit()
+
+
+def test_subscription_savepoint_preserves_outer_tx_and_delete_is_atomic(subscriber, monkeypatch):
+    from uuid import uuid4
+
+    from fastapi import HTTPException
+    from sqlalchemy import delete as sa_delete
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Notification, User, WarningSubscription
+    from backend.app.schemas import SubscriptionCreate
+    from backend.app.services import subscriptions as sub_svc
+
+    sub_client, _sub_csrf = subscriber
+    username = sub_client.get("/api/v1/auth/me").json()["user"]["username"]
+    marker = f"savepoint_{uuid4().hex[:12]}"
+    with SessionLocal() as db:
+        sub_uid = db.scalar(select(User.id).where(User.username == username))
+        assert sub_uid is not None
+        sub = sub_svc.create_subscription(db, sub_uid, SubscriptionCreate(hazard_type="RAINSTORM", city_code="WUHAN"))
+        db.commit()
+        sub_id = sub.id
+
+        try:
+            # 同一外层事务先写一条尚未提交的通知，再跳过预检查触发真实 MySQL 1062，外层记录不能丢失
+            db.add(
+                Notification(
+                    user_id=sub_uid,
+                    kind="WARNING_PUBLISHED",
+                    title="外层未提交记录",
+                    body="body",
+                    resource_type="warning",
+                    resource_id=marker,
+                )
+            )
+            db.flush()
+
+            orig_scalar = db.scalar
+            monkeypatch.setattr(db, "scalar", lambda *a, **kw: None)
+            try:
+                with pytest.raises(HTTPException) as exc_info:
+                    sub_svc.create_subscription(db, sub_uid, SubscriptionCreate(hazard_type="RAINSTORM", city_code="WUHAN"))
+                assert exc_info.value.status_code == 409
+            finally:
+                monkeypatch.setattr(db, "scalar", orig_scalar)
+
+            db.commit()
+            kept = db.scalar(select(Notification).where(Notification.resource_id == marker))
+            assert kept is not None
+
+            sub_svc.delete_subscription(db, sub_uid, sub_id)
+            db.commit()
+            with pytest.raises(HTTPException) as del_exc:
+                sub_svc.delete_subscription(db, sub_uid, sub_id)
+            assert del_exc.value.status_code == 404
+        finally:
+            db.rollback()
+            db.execute(sa_delete(Notification).where(Notification.resource_id == marker))
+            db.execute(sa_delete(WarningSubscription).where(WarningSubscription.id == sub_id))
+            db.commit()
