@@ -266,3 +266,36 @@ def test_subscription_savepoint_preserves_outer_tx_and_delete_is_atomic(subscrib
             db.execute(sa_delete(Notification).where(Notification.resource_id == marker))
             db.execute(sa_delete(WarningSubscription).where(WarningSubscription.id == sub_id))
             db.commit()
+
+
+def test_backfill_published_preloads_subscriptions_once(login, subscriber, make_warning, created_subscriptions, monkeypatch):
+    from backend.app.clock import utcnow
+    from backend.app.db import SessionLocal
+    from backend.app.services import notifications as notif_svc
+    from backend.app.services import subscriptions as sub_svc
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    viewer, viewer_csrf = subscriber
+    _subscribe(viewer, viewer_csrf, created_subscriptions)
+
+    publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "bf-preload-1")
+    publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "bf-preload-2")
+
+    calls = 0
+    orig = sub_svc.active_subscriptions if hasattr(sub_svc, "active_subscriptions") else sub_svc._all_subscriptions
+
+    def spy(session):
+        nonlocal calls
+        calls += 1
+        return orig(session)
+
+    if hasattr(sub_svc, "active_subscriptions"):
+        monkeypatch.setattr(sub_svc, "active_subscriptions", spy)
+        monkeypatch.setattr(notif_svc, "active_subscriptions", spy)
+    else:
+        monkeypatch.setattr(sub_svc, "_all_subscriptions", spy)
+
+    with SessionLocal() as db:
+        notif_svc.backfill_published(db, hours=1, now=utcnow())
+        assert calls == 1

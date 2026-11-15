@@ -347,3 +347,76 @@ def test_locked_account_correct_password_records_ip_failure(login, created_users
         assert int(redis.get(key) or 0) == 1
     finally:
         redis.delete(key)
+
+
+def test_relogin_revokes_previous_session_and_empty_cookie_skips_redis(login, monkeypatch):
+    import os
+
+    from conftest import DEMO_PASSWORD_ENV
+
+    from backend.app import deps
+    from backend.app.config import get_settings
+    from backend.app.session import read_session
+
+    client, _csrf = login("viewer_demo")
+    old_sid = client.cookies.get(get_settings().session_cookie_name)
+    assert old_sid and read_session(old_sid) is not None
+
+    password = os.environ[DEMO_PASSWORD_ENV["viewer_demo"]]
+    relogin_resp = client.post("/api/v1/auth/login", json={"username": "viewer_demo", "password": password})
+    assert relogin_resp.status_code == 200
+    assert read_session(old_sid) is None
+
+    # Empty ww_session cookie must short-circuit before hitting Redis read_session
+    calls = 0
+
+    def spy_read_session(sid):
+        nonlocal calls
+        calls += 1
+        return None
+
+    monkeypatch.setattr(deps, "read_session", spy_read_session)
+    client.cookies.set(get_settings().session_cookie_name, "")
+    me_resp = client.get("/api/v1/auth/me")
+    assert me_resp.status_code == 401
+    assert calls == 0
+
+
+def test_csrf_exempts_only_post_exact_login_path(login):
+    client, _csrf = login("viewer_demo")
+    for method, path in (
+        ("PUT", "/api/v1/auth/login"),
+        ("POST", "/api/v1/evil/auth/login"),
+    ):
+        resp = client.request(method, path, json={})
+        assert resp.status_code == 403, (method, path, resp.status_code, resp.text)
+        assert resp.json()["error"]["code"] == "CSRF"
+
+
+def test_rbac_403_writes_permission_denied_audit_and_empty_action_filter(login):
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import AuditLog
+
+    viewer, _ = login("viewer_demo")
+    resp = viewer.get("/api/v1/audit-logs")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "FORBIDDEN"
+
+    with SessionLocal() as db:
+        denied = db.scalar(
+            select(AuditLog)
+            .where(
+                AuditLog.action == "PERMISSION_DENIED",
+                AuditLog.resource_id == "/api/v1/audit-logs",
+                AuditLog.result == "DENIED",
+            )
+            .order_by(AuditLog.id.desc())
+        )
+        assert denied is not None
+
+    admin, _ = login("admin_demo")
+    filtered = admin.get("/api/v1/audit-logs?action=")
+    assert filtered.status_code == 200
+    assert filtered.json() == []

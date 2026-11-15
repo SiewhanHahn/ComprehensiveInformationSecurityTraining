@@ -107,21 +107,27 @@ def _release_ip_slot(ip: str | None) -> None:
     get_redis().eval(_RELEASE_IP_SLOT_LUA, 1, _ip_inflight_key(ip))
 
 
-def _record_ip_failure(ip: str | None) -> None:
-    """登录失败时递增来源 IP 的失败计数，防止对已知账号的锁号与爆破。
+_RECORD_IP_FAILURE_LUA = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+else
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]), 'NX')
+end
+return count
+"""
 
-    ``SET NX EX`` 保证键一旦创建就带固定窗口的过期时间：不会出现「自增成功但没设过期」
-    的永久键，也不会因为持续失败把窗口一直往后推（滑动窗口会让该 IP 永远出不来）。
-    再补一次 ``EXPIRE NX``：旧版本可能留下过没有 TTL 的键，那些键不会因为 NX 而重设。
-    """
+
+def _record_ip_failure(ip: str | None) -> None:
+    """登录失败时原子递增来源 IP 的固定窗口失败计数，并自愈缺失 TTL 的遗留键。"""
     if not ip:
         return
-    redis = get_redis()
-    key = _ip_rate_key(ip)
-    ttl = get_settings().ip_lockout_seconds
-    redis.set(key, 0, ex=ttl, nx=True)
-    redis.incr(key)
-    redis.expire(key, ttl, nx=True)  # 自愈：已存在但没有过期时间的键在这里补上
+    get_redis().eval(
+        _RECORD_IP_FAILURE_LUA,
+        1,
+        _ip_rate_key(ip),
+        get_settings().ip_lockout_seconds,
+    )
 
 
 def _set_cookies(response: Response, session_id: str, csrf_token: str) -> None:
@@ -193,10 +199,16 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
         user.failed_login_count = 0
         user.locked_until = None
         roles = sorted(r.code for r in user.roles)
+        old_session_id = get_session_id(request)
         session_id = new_session_id()
         csrf_token = new_csrf_token()
         _audit(db, request, "LOGIN_SUCCESS", "SUCCESS", actor_id=user.id, actor_role=",".join(roles))
         db.commit()
+        if old_session_id and old_session_id != session_id:
+            try:
+                delete_session(old_session_id)
+            except Exception:
+                pass
         create_session(session_id, user.id, roles, csrf_token)
         # 不清空 IP 失败计数：只要持有一个有效账号，就能在每轮猜测之间登录一次把自己的
         # 额度重置掉，per-IP 限速等于失效。账号级计数仍然在成功时清零，正常用户不受影响；
@@ -223,10 +235,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db), 
 
 
 @router.get("/auth/me", response_model=MeResponse)
-def me(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.id == current.id))
-    if user is None:
-        raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
+def me(current: CurrentUser = Depends(get_current_user)):
     return MeResponse(
-        user=AuthUser(id=current.id, username=current.username, display_name=user.display_name, roles=current.roles)
+        user=AuthUser(id=current.id, username=current.username, display_name=current.display_name, roles=current.roles)
     )

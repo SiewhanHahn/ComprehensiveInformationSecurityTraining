@@ -1,6 +1,7 @@
 import logging
 import re
 import secrets
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,10 +20,18 @@ settings = get_settings()
 settings.validate_for_serving()
 logger = logging.getLogger("backend.api")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    auth._dummy_password_hash()
+    yield
+
+
 app = FastAPI(
     title="气象灾害预测与预警系统",
     version="0.1.0",
     description="教学演示用气象预警系统 API",
+    lifespan=lifespan,
 )
 
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
@@ -59,7 +68,7 @@ def csrf_matches(token: str | None, expected: str | None) -> bool:
 async def csrf_middleware(request: Request, call_next):
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return await call_next(request)
-    if request.url.path.endswith("/auth/login"):
+    if request.method == "POST" and request.url.path == "/api/v1/auth/login":
         return await call_next(request)
 
     token = request.headers.get("x-csrf-token")

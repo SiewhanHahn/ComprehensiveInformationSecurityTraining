@@ -58,6 +58,8 @@ class Settings(BaseSettings):
         if self.app_env != "development" and not self.cookie_secure:
             # 非开发环境按 HTTPS 部署：Cookie 不带 Secure 时，明文链路可被直接重放
             raise ValueError("非 development 环境必须设置 COOKIE_SECURE=true")
+        if self.cookie_samesite.lower() == "none" and not self.cookie_secure:
+            raise ValueError("COOKIE_SAMESITE=none 时必须设置 COOKIE_SECURE=true")
         if "*" in self.cors_origin_list:
             # 通配来源 + allow_credentials 会让任意站点带着会话跨域读接口
             raise ValueError("CORS_ORIGINS 不允许使用 '*'，请逐个列出前端来源")

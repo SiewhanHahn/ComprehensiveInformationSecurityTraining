@@ -46,16 +46,16 @@ def run_scan(db: Session, *, now: datetime | None = None, hours: int | None = No
         result.backfilled = _run_backfill(db, hours=hours, now=now)
         db.commit()
     except Exception:
-        db.rollback()
         logger.exception("通知补投失败")
+        db.rollback()
         result.failed = (*result.failed, "backfill")
 
     try:
         result.escalated = _run_escalation(db, now=now)
         db.commit()
     except Exception:
-        db.rollback()
         logger.exception("响应任务升级失败")
+        db.rollback()
         result.failed = (*result.failed, "escalate")
 
     return result

@@ -23,6 +23,7 @@ PENDING = "PENDING"
 ACKED = "ACKED"
 COMPLETED = "COMPLETED"
 TASK_STATUSES = frozenset({PENDING, ACKED, COMPLETED})
+WARNING_WITHDRAWN = "WITHDRAWN"
 
 NOTIFY_TASK_ASSIGNED = "TASK_ASSIGNED"
 NOTIFY_TASK_OVERDUE = "TASK_OVERDUE"
@@ -172,7 +173,7 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
     读出候选之后才提交，UPDATE 的 WHERE（含 ``status``）在写时按 current read 求值，
     因此并发完成的任务不会被覆盖成「已升级」并误报管理员。
     """
-    withdrawn_ids = select(Warning.id).where(Warning.status == "WITHDRAWN")
+    withdrawn_ids = select(Warning.id).where(Warning.status == WARNING_WITHDRAWN)
     candidates = db.execute(
         select(ResponseTask.id, ResponseTask.warning_id, ResponseTask.assignee_id).where(
             ResponseTask.status.in_((PENDING, ACKED)),
@@ -190,7 +191,7 @@ def escalate_overdue(db: Session, *, now: datetime) -> int:
         warning_status = db.scalar(
             select(Warning.status).where(Warning.id == warning_id).with_for_update()
         )
-        if warning_status is None or warning_status == "WITHDRAWN":
+        if warning_status is None or warning_status == WARNING_WITHDRAWN:
             continue
         result = db.execute(
             update(ResponseTask)

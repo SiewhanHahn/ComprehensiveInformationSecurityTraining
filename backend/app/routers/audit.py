@@ -19,7 +19,7 @@ def audit_logs(
     _=Depends(require_roles(ROLE_ADMIN)),
 ):
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-    if action:
+    if action is not None:
         stmt = stmt.where(AuditLog.action == action)
     rows = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
     return [

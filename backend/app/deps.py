@@ -21,6 +21,7 @@ class CurrentUser:
     id: int
     username: str
     roles: list[str]
+    display_name: str = ""
 
     def has_role(self, role: str) -> bool:
         return role in self.roles
@@ -62,7 +63,7 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> CurrentUser:
     session_id = get_session_id(request)
-    if session_id is None:
+    if not session_id:
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     payload = read_session(session_id)
     if payload is None:
@@ -78,12 +79,31 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
     roles = sorted(r.code for r in user.roles)
     touch_session(session_id)
-    return CurrentUser(id=user.id, username=user.username, roles=roles)
+    return CurrentUser(id=user.id, username=user.username, roles=roles, display_name=user.display_name)
 
 
 def require_roles(*roles: str):
-    def dependency(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    def dependency(
+        request: Request,
+        db: Session = Depends(get_db),
+        current: CurrentUser = Depends(get_current_user),
+    ) -> CurrentUser:
         if not any(current.has_role(r) for r in roles):
+            from .services.audit import AuditContext
+
+            AuditContext(
+                db=db,
+                actor=current,
+                request_id=request_id(request),
+                ip_address=client_ip(request),
+            ).record(
+                "PERMISSION_DENIED",
+                resource_type="auth",
+                resource_id=request.url.path,
+                result="DENIED",
+                reason=f"requires={','.join(roles)}",
+            )
+            db.commit()
             raise HTTPException(status_code=403, detail="FORBIDDEN")
         return current
 
