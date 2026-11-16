@@ -582,3 +582,135 @@ def test_valid_duplicate_after_invalid_duplicate_is_kept():
 
         with SessionLocal() as session:
             _cleanup_dataset(session, version)
+
+
+def test_unusable_reimport_does_not_overwrite_usable_dataset():
+    """同版本已有 READY/PARTIAL 数据集时，坏文件/0可用行重导不得抹掉既有数据。"""
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset
+    from backend.app.services import ingest
+
+    version = f"test_ingest_preserve_{uuid4().hex}"
+    models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}
+    first = _import_days_with_version(
+        version,
+        [{"city_code": "WUHAN", "valid_date": "2024-06-01", "models": models, "proxy_label_mm": 12.0}],
+    )
+    assert first["imported"] is True
+    assert first["forecast"] == 4
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"version": version, "days": {}}, f)
+        bad_structure_path = Path(f.name)
+    try:
+        with SessionLocal() as session:
+            blocked1 = ingest.import_sample(
+                session,
+                bad_structure_path,
+                _source_id(session, "OPEN_METEO_PREVIOUS_RUNS"),
+                _source_id(session, "OPEN_METEO_ERA5"),
+            )
+        assert blocked1["imported"] is False
+        assert blocked1.get("unusable") is True
+
+        blocked2 = _import_days_with_version(
+            version,
+            [{"city_code": "ATLANTIS", "valid_date": "2024-06-02", "models": {}, "proxy_label_mm": None}],
+        )
+        assert blocked2["imported"] is False
+        assert blocked2.get("unusable") is True
+
+        with SessionLocal() as session:
+            fc_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
+            )
+            obs_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "ERA5_LABEL", Dataset.version == version)
+            )
+            assert fc_ds.quality_status == "READY"
+            assert fc_ds.row_count == 4
+            assert obs_ds.quality_status == "READY"
+            assert obs_ds.row_count == 1
+    finally:
+        bad_structure_path.unlink(missing_ok=True)
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)
+
+
+def test_idempotency_checks_observation_dataset_as_well():
+    """仅 FORECAST checksum 相同但缺失 ERA5_LABEL 数据集时不应静默跳过。"""
+    from sqlalchemy import delete, select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset, ObservationRecord
+    from backend.app.services import ingest
+
+    version = f"test_ingest_obs_chk_{uuid4().hex}"
+    models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(
+            {"version": version, "days": [{"city_code": "WUHAN", "valid_date": "2024-06-03", "models": models, "proxy_label_mm": 8.0}]},
+            f,
+        )
+        path = Path(f.name)
+    try:
+        with SessionLocal() as session:
+            fc_src = _source_id(session, "OPEN_METEO_PREVIOUS_RUNS")
+            obs_src = _source_id(session, "OPEN_METEO_ERA5")
+            first = ingest.import_sample(session, path, fc_src, obs_src)
+            assert first["imported"] is True
+            obs_id = session.scalar(
+                select(Dataset.id).where(Dataset.dataset_type == "ERA5_LABEL", Dataset.version == version)
+            )
+            session.execute(delete(ObservationRecord).where(ObservationRecord.dataset_id == obs_id))
+            session.execute(delete(Dataset).where(Dataset.id == obs_id))
+            session.commit()
+
+            reimported = ingest.import_sample(session, path, fc_src, obs_src)
+            assert reimported["imported"] is True
+            assert reimported["observation"] == 1
+    finally:
+        path.unlink(missing_ok=True)
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)
+
+
+def test_period_bounds_exclude_empty_and_forecast_only_days():
+    """period_start/period_end 只统计真实写入记录的日期，不被空日或单侧日期拉偏。"""
+    from datetime import date
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset
+
+    version = f"test_ingest_bounds_{uuid4().hex}"
+    models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}
+    try:
+        res = _import_days_with_version(
+            version,
+            [
+                # 整条全坏：不应计入 period_start
+                {"city_code": "WUHAN", "valid_date": "2024-06-01", "models": None, "proxy_label_mm": None},
+                # 预报+观测都有效
+                {"city_code": "WUHAN", "valid_date": "2024-06-02", "models": models, "proxy_label_mm": 6.0},
+                # 仅预报有效、观测为 None：不应拉宽 ERA5_LABEL.period_end
+                {"city_code": "WUHAN", "valid_date": "2024-06-03", "models": models, "proxy_label_mm": None},
+            ],
+        )
+        assert res["imported"] is True
+        with SessionLocal() as session:
+            fc_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
+            )
+            obs_ds = session.scalar(
+                select(Dataset).where(Dataset.dataset_type == "ERA5_LABEL", Dataset.version == version)
+            )
+            assert fc_ds.period_start == date(2024, 6, 2)
+            assert fc_ds.period_end == date(2024, 6, 3)
+            assert obs_ds.period_start == date(2024, 6, 2)
+            assert obs_ds.period_end == date(2024, 6, 2)
+    finally:
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)

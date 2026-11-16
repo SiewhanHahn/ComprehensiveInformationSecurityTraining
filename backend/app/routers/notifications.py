@@ -43,7 +43,7 @@ def _to_sub_out(s: WarningSubscription) -> SubscriptionOut:
 @router.get("/notifications", response_model=NotificationPage)
 def list_notifications(
     unread_only: bool = Query(False),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=10000),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),
@@ -103,8 +103,12 @@ def create_subscription(
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),
 ):
-    sub = sub_svc.create_subscription(db, current.id, body)
-    audit_context(request, db, current).record("SUBSCRIPTION_CREATE", resource_type="subscription", resource_id=str(sub.id))
+    sub = sub_svc.create_subscription(
+        db,
+        current.id,
+        body,
+        audit=audit_context(request, db, current),
+    )
     db.commit()
     return _to_sub_out(sub)
 
@@ -116,7 +120,11 @@ def delete_subscription(
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(get_current_user),
 ):
-    sub_svc.delete_subscription(db, current.id, subscription_id)
-    audit_context(request, db, current).record("SUBSCRIPTION_DELETE", resource_type="subscription", resource_id=str(subscription_id))
+    sub_svc.delete_subscription(
+        db,
+        current.id,
+        subscription_id,
+        audit=audit_context(request, db, current),
+    )
     db.commit()
     return Response(status_code=204)

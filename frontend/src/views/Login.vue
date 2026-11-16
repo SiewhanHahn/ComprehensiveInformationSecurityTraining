@@ -58,15 +58,22 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from '../api'
 import { auth } from '../auth'
 
+const route = useRoute()
 const router = useRouter()
 const username = ref('')
 const password = ref('')
 const error = ref('')
 const submitting = ref(false)
+
+function safeRedirect(target) {
+  if (typeof target !== 'string') return '/'
+  if (!target.startsWith('/') || target.startsWith('//')) return '/'
+  return target
+}
 
 async function submit() {
   error.value = ''
@@ -77,7 +84,7 @@ async function submit() {
       body: JSON.stringify({ username: username.value, password: password.value })
     })
     auth.set(res.user, res.csrf_token)
-    router.push('/')
+    router.push(safeRedirect(route.query?.redirect))
   } catch (e) {
     error.value = e.message
   } finally {

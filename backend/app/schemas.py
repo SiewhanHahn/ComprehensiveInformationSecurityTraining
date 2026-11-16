@@ -10,8 +10,8 @@ from .hazards import ALL_HAZARDS, HAZARDS
 
 # ---- auth ----
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=128)
 
 
 class AuthUser(BaseModel):
@@ -227,9 +227,9 @@ class WarningUpdate(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    decision: str = Field(pattern="^(APPROVE|REJECT)$")
+    decision: Literal["APPROVE", "REJECT"]
     # 批准可不填意见；驳回必须填写（在端点内校验）
-    comment: str = Field(max_length=1000)
+    comment: str = Field(default="", max_length=1000)
 
     @field_validator("comment")
     @classmethod
@@ -238,7 +238,7 @@ class ReviewRequest(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    response_status: str = Field(pattern="^(RECEIVED|PROCESSING|COMPLETED)$")
+    response_status: Literal["RECEIVED", "PROCESSING", "COMPLETED"]
     content: str = Field(max_length=2000)
 
     @field_validator("content")

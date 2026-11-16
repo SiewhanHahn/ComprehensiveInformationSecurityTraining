@@ -73,7 +73,7 @@
               <td><StatusBadge :value="w.status" size="sm" dot /></td>
               <td>
                 <div class="row" style="gap: 6px; flex-wrap: nowrap; align-items: center">
-                  <template v-if="activeTab === 'PENDING_REVIEW'">
+                  <template v-if="activeTab === 'PENDING_REVIEW' && w.created_by !== auth.user?.username">
                     <input
                       v-model="comments[w.public_id]"
                       class="review-comment"
@@ -99,6 +99,7 @@
                       驳回
                     </button>
                   </template>
+                  <span v-else-if="activeTab === 'PENDING_REVIEW'" class="muted">不可自审</span>
                   <button
                     v-if="activeTab === 'APPROVED'"
                     class="btn btn-primary btn-sm"
@@ -123,6 +124,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiFetch } from '../api'
+import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'

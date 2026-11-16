@@ -79,9 +79,9 @@ import { auth } from '../auth'
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import PaginationBar from '../components/PaginationBar.vue'
+import { roleLabel } from '../ui/labels'
 
 const roles = ['ADMIN', 'ANALYST', 'REVIEWER', 'VIEWER']
-const roleNames = { ADMIN: '管理员', ANALYST: '分析员', REVIEWER: '审核员', VIEWER: '查看员' }
 const pageSize = 20
 const users = ref([])
 const total = ref(0)
@@ -102,7 +102,7 @@ const cannotDisable = computed(() => selected.value && String(selected.value.id)
 const rolesValid = computed(() => editRoles.value.length > 0 && !(cannotRemoveOwnAdmin.value))
 const cannotRemoveOwnAdmin = computed(() => cannotDisable.value && selected.value.roles.includes('ADMIN') && !editRoles.value.includes('ADMIN'))
 
-function roleName(role) { return roleNames[role] || role }
+const roleName = roleLabel
 function roleDisabled(role) { return cannotDisable.value && role === 'ADMIN' && selected.value.roles.includes('ADMIN') }
 function validatePassword(value) { return typeof value === 'string' && value.length >= 8 && value.length <= 128 && value.trim().length > 0 }
 function validateCreate() {

@@ -6,7 +6,7 @@ MySQL 唯一索引不把 NULL 视为相等，用 NULL 会让同一人重复插�
 """
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from ..cities import ALL_CITIES
 from ..hazards import ALL_HAZARDS
 from ..models import User, WarningSubscription
 from ..schemas import SubscriptionCreate
+from .audit import AuditContext
 
 
 def matches(sub: WarningSubscription, hazard_type: str, city_code: str) -> bool:
@@ -23,7 +24,7 @@ def matches(sub: WarningSubscription, hazard_type: str, city_code: str) -> bool:
     return hazard_ok and city_ok
 
 
-def _all_subscriptions(db: Session) -> list[WarningSubscription]:
+def active_subscriptions(db: Session) -> list[WarningSubscription]:
     # 已停用账号读不到任何接口，不必再给他堆通知
     stmt = (
         select(WarningSubscription)
@@ -33,9 +34,17 @@ def _all_subscriptions(db: Session) -> list[WarningSubscription]:
     return list(db.scalars(stmt).all())
 
 
+_all_subscriptions = active_subscriptions
+
+
+def match_subscriptions(subs: list[WarningSubscription], hazard_type: str, city_code: str) -> list[int]:
+    """在内存里用预加载订阅列表匹配收件人，避免补投扫描出现 N+1 查询。"""
+    return sorted({sub.user_id for sub in subs if matches(sub, hazard_type, city_code)})
+
+
 def subscriber_ids(db: Session, hazard_type: str, city_code: str) -> list[int]:
     """匹配该预警的订阅者。订阅与用户数量都很小，在内存里比对即可，保持匹配逻辑只有一处实现。"""
-    return sorted({sub.user_id for sub in _all_subscriptions(db) if matches(sub, hazard_type, city_code)})
+    return match_subscriptions(active_subscriptions(db), hazard_type, city_code)
 
 
 def list_subscriptions(db: Session, user_id: int) -> list[WarningSubscription]:
@@ -47,7 +56,13 @@ def list_subscriptions(db: Session, user_id: int) -> list[WarningSubscription]:
     return list(db.scalars(stmt).all())
 
 
-def create_subscription(db: Session, user_id: int, body: SubscriptionCreate) -> WarningSubscription:
+def create_subscription(
+    db: Session,
+    user_id: int,
+    body: SubscriptionCreate,
+    *,
+    audit: AuditContext | None = None,
+) -> WarningSubscription:
     existing = db.scalar(
         select(WarningSubscription).where(
             WarningSubscription.user_id == user_id,
@@ -58,26 +73,38 @@ def create_subscription(db: Session, user_id: int, body: SubscriptionCreate) -> 
     if existing is not None:
         raise HTTPException(status_code=409, detail="SUBSCRIPTION_EXISTS")
     sub = WarningSubscription(user_id=user_id, hazard_type=body.hazard_type, city_code=body.city_code)
-    db.add(sub)
     try:
-        db.flush()
+        # db.add 也必须放在 SAVEPOINT 作用域内：如果在外层事务先 add 再进 begin_nested()，
+        # SQLAlchemy 在 1062 回滚时会连带把外层 SessionTransaction 置为 DEACTIVE。
+        with db.begin_nested():
+            db.add(sub)
+            db.flush()
     except IntegrityError as exc:
         # 预检查与唯一索引之间的并发窗口：与 routers/users.py 的 1062 处理一致，翻译成 409
-        db.rollback()
         if getattr(exc.orig, "args", (None,))[0] == 1062:
             raise HTTPException(status_code=409, detail="SUBSCRIPTION_EXISTS") from exc
         raise
+    if audit is not None:
+        audit.record("SUBSCRIPTION_CREATE", resource_type="subscription", resource_id=str(sub.id))
     return sub
 
 
-def delete_subscription(db: Session, user_id: int, subscription_id: int) -> None:
-    """只能删自己的订阅；别人的订阅一律表现为不存在。"""
-    sub = db.scalar(
-        select(WarningSubscription).where(
-            WarningSubscription.id == subscription_id, WarningSubscription.user_id == user_id
+def delete_subscription(
+    db: Session,
+    user_id: int,
+    subscription_id: int,
+    *,
+    audit: AuditContext | None = None,
+) -> None:
+    """只能删自己的订阅；别人的订阅或并发已删除一律表现为不存在。"""
+    result = db.execute(
+        delete(WarningSubscription).where(
+            WarningSubscription.id == subscription_id,
+            WarningSubscription.user_id == user_id,
         )
     )
-    if sub is None:
-        raise HTTPException(status_code=404, detail="NOT_FOUND")
-    db.delete(sub)
     db.flush()
+    if (result.rowcount or 0) == 0:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    if audit is not None:
+        audit.record("SUBSCRIPTION_DELETE", resource_type="subscription", resource_id=str(subscription_id))

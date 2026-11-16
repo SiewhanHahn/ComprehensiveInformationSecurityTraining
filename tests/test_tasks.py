@@ -405,3 +405,83 @@ def test_demoted_creator_task_goes_to_publisher(login, make_warning):
     task = _tasks(admin, public_id)[0]
     assert task["assignee"] == "reviewer_demo"
     assert notifications_for(reviewer, task["id"])[0]["kind"] == "TASK_ASSIGNED"
+
+
+def test_escalate_overdue_and_publish_acquire_expected_locks(login, make_warning, monkeypatch):
+    """I-12/I-13：超时升级先加锁确认预警未撤回，派单资格查询使用 FOR UPDATE。"""
+    from datetime import timedelta
+    from sqlalchemy import event, select
+
+    from backend.app.clock import utcnow
+    from backend.app.db import SessionLocal, engine
+    from backend.app.models import ResponseTask, Warning
+    from backend.app.services import notifications as notif_svc
+    from backend.app.services import tasks as task_svc
+    from backend.app.services import warnings as warn_svc
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    admin, _ = login("admin_demo")
+
+    public_id = make_warning(analyst, analyst_csrf, "lock-check")
+    assert analyst.post(f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf)).status_code == 200
+    assert reviewer.post(
+        f"/api/v1/warnings/{public_id}/review",
+        headers=csrf_headers(reviewer_csrf),
+        json={"decision": "APPROVE", "comment": "同意"},
+    ).status_code == 200
+
+    executed_sqls: list[str] = []
+
+    def capture_sql(conn, cursor, statement, parameters, context, executemany):
+        executed_sqls.append(statement.upper())
+
+    engine_ref = engine
+    event.listen(engine_ref, "before_cursor_execute", capture_sql)
+    try:
+        assert reviewer.post(
+            f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf)
+        ).status_code == 200
+    finally:
+        event.remove(engine_ref, "before_cursor_execute", capture_sql)
+
+    assert any("FOR UPDATE" in s and "USERS" in s and "USER_ROLES" in s for s in executed_sqls), executed_sqls
+
+    # 验证 withdraw_warning 先关闭任务再发撤回通知
+    call_order: list[str] = []
+    orig_close = warn_svc.close_for_withdrawn
+    orig_notify = warn_svc.notify_warning
+    monkeypatch.setattr(warn_svc, "close_for_withdrawn", lambda *a, **kw: (call_order.append("close"), orig_close(*a, **kw))[1])
+    monkeypatch.setattr(warn_svc, "notify_warning", lambda *a, **kw: (call_order.append("notify"), orig_notify(*a, **kw))[1])
+
+    task_id = _tasks(admin, public_id)[0]["id"]
+    with SessionLocal() as db:
+        t = db.get(ResponseTask, task_id)
+        t.due_at = utcnow() - timedelta(minutes=10)
+        db.commit()
+
+        # escalate_overdue 对 Warning 加 FOR UPDATE 锁检查状态，避免并发撤回窗口里误升级
+        esc_sqls: list[str] = []
+
+        def capture_esc(conn, cursor, statement, parameters, context, executemany):
+            esc_sqls.append(statement.upper())
+
+        event.listen(engine_ref, "before_cursor_execute", capture_esc)
+        try:
+            assert task_svc.escalate_overdue(db, now=utcnow()) == 1
+        finally:
+            event.remove(engine_ref, "before_cursor_execute", capture_esc)
+            db.rollback()
+
+    warning_lock_idx = next(
+        (i for i, s in enumerate(esc_sqls) if "FOR UPDATE" in s and "WARNINGS" in s),
+        None,
+    )
+    task_update_idx = next(
+        (i for i, s in enumerate(esc_sqls) if s.startswith("UPDATE RESPONSE_TASKS")),
+        None,
+    )
+    assert warning_lock_idx is not None and task_update_idx is not None and warning_lock_idx < task_update_idx, esc_sqls
+
+    reviewer.post(f"/api/v1/warnings/{public_id}/withdraw", headers=csrf_headers(reviewer_csrf))
+    assert call_order[:2] == ["close", "notify"], call_order

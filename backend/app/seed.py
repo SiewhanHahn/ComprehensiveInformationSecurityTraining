@@ -123,6 +123,8 @@ def seed_users(session: Session, *, sync_passwords: bool = False) -> None:
             if sync_passwords:
                 user.password_hash = hash_password(password)
                 user.is_active = True
+                user.failed_login_count = 0
+                user.locked_until = None
             session.execute(
                 UserRole.__table__.insert().prefix_with("IGNORE").values(
                     user_id=user.id, role_id=role.id, granted_at=_now()
@@ -166,8 +168,8 @@ def main() -> None:
 
     with SessionLocal() as session:
         seed_reference_data(session)
-        import_sample(session, Path(args.sample))
         seed_users(session, sync_passwords=args.sync_demo_passwords)
+        import_sample(session, Path(args.sample))
     print("[seed] 完成")
 
 

@@ -13,9 +13,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..cities import LEAD_HOURS, MODEL_DISPLAY
+from ..cities import DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY
 from ..clock import utcnow
-from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER, CurrentUser
+from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
 from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
 from ..security import new_public_id
@@ -56,7 +56,7 @@ WITHDRAW = Transition(frozenset({PUBLISHED}), WITHDRAWN, "WARNING_WITHDRAW", "wi
 
 def is_viewer_only(current: CurrentUser) -> bool:
     privileged = {ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER}
-    return ROLE_VIEWER in current.roles and not (privileged & set(current.roles))
+    return not (privileged & set(current.roles))
 
 
 def _apply(w: Warning, transition: Transition, actor: CurrentUser, audit: AuditContext, reason: str | None = None) -> None:
@@ -76,7 +76,7 @@ def _apply(w: Warning, transition: Transition, actor: CurrentUser, audit: AuditC
 def get_warning(db: Session, public_id: str, *, lock: bool = False) -> Warning | None:
     stmt = select(Warning).where(Warning.public_id == public_id)
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     return db.scalar(stmt)
 
 
@@ -150,9 +150,11 @@ def to_detail_out(db: Session, w: Warning, names: dict[int, str]) -> WarningDeta
         inputs = db.scalars(
             select(FusionInput).where(FusionInput.fusion_run_id == result.fusion_run_id)
         ).all()
+        order = {code: idx for idx, code in enumerate(DEFAULT_MODELS)}
+        ordered_inputs = sorted(inputs, key=lambda item: order.get(item.model_code, len(DEFAULT_MODELS)))
         models = [
             ModelValue(model=MODEL_DISPLAY.get(i.model_code, i.model_code), precipitation_mm=float(i.value_mm))
-            for i in inputs
+            for i in ordered_inputs
         ]
         if inputs:
             dataset_version = db.scalar(
@@ -209,7 +211,7 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
                 fusion_run_id=fusion_run.id,
                 forecast_record_id=item["forecast_record_id"],
                 model_code=item["model_code"],
-                value_mm=Decimal(str(item["value_mm"])),
+                value_mm=item.get("value_dec", Decimal(str(item["value_mm"]))),
             )
         )
 
@@ -218,9 +220,9 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
         threshold_id=threshold.id,
         city_code=body.city_code,
         valid_date=body.valid_date,
-        fused_mm=compute["fused_mm"],
-        baseline_mm=compute["baseline_mm"],
-        proxy_label_mm=compute["proxy_label_mm"],
+        fused_mm=compute["fused_dec"] if compute.get("fused_dec") is not None else compute["fused_mm"],
+        baseline_mm=compute["baseline_dec"] if "baseline_dec" in compute else compute["baseline_mm"],
+        proxy_label_mm=compute["proxy_dec"] if "proxy_dec" in compute else compute["proxy_label_mm"],
         risk_level=compute["risk_level"],
         data_status="COMPLETE",
     )
@@ -253,10 +255,12 @@ def _require_own_editable(w: Warning | None, actor: CurrentUser) -> Warning:
 
 def update_warning(db: Session, public_id: str, body: WarningUpdate, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _require_own_editable(get_warning(db, public_id, lock=True), actor)
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(w, field, value)
-    audit.record("WARNING_UPDATE", resource_type="warning", resource_id=w.public_id)
-    db.flush()
+    changes = body.model_dump(exclude_unset=True)
+    if changes:
+        for field, value in changes.items():
+            setattr(w, field, value)
+        audit.record("WARNING_UPDATE", resource_type="warning", resource_id=w.public_id)
+        db.flush()
     return w
 
 
@@ -275,10 +279,16 @@ def review_warning(db: Session, public_id: str, decision: str, comment: str, act
         raise HTTPException(status_code=403, detail="SELF_REVIEW_FORBIDDEN")
     if w.status != PENDING_REVIEW:
         raise HTTPException(status_code=409, detail="INVALID_STATE")
-    if decision == "REJECT" and not comment:
-        raise HTTPException(status_code=422, detail="REJECT_REQUIRES_COMMENT")
+    if decision == "APPROVE":
+        transition = APPROVE
+    elif decision == "REJECT":
+        if not comment:
+            raise HTTPException(status_code=422, detail="REJECT_REQUIRES_COMMENT")
+        transition = REJECT
+    else:
+        raise HTTPException(status_code=422, detail="INVALID_DECISION")
 
-    _apply(w, APPROVE if decision == "APPROVE" else REJECT, actor, audit, reason=decision)
+    _apply(w, transition, actor, audit, reason=decision)
     review = WarningReview(warning_id=w.id, reviewer_id=actor.id, decision=decision, comment=comment)
     db.add(review)
     db.flush()
@@ -305,9 +315,9 @@ def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: Audi
 
 def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _transition_existing(db, public_id, WITHDRAW, actor, audit)
-    notify_warning(db, w, NOTIFY_WITHDRAWN)
-    # 已撤回的预警不应再产生响应任务升级/通知；在同一个事务里关闭未完成任务
+    # 先关闭关联响应任务再发送撤回通知，避免并行扫描窗口误判
     close_for_withdrawn(db, w, audit)
+    notify_warning(db, w, NOTIFY_WITHDRAWN)
     return w
 
 

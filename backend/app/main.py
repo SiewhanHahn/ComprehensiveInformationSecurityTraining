@@ -1,6 +1,7 @@
 import logging
 import re
 import secrets
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -13,16 +14,24 @@ from .config import get_settings
 from .db import check_database, get_redis
 from .errors import code_for, error_response
 from .routers import audit, auth, hazards, metrics, monitor, notifications, replay, tasks, users, warnings
-from .session import read_session
+from .session import delete_session, read_session, session_expired
 
 settings = get_settings()
 settings.validate_for_serving()
 logger = logging.getLogger("backend.api")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    auth._dummy_password_hash()
+    yield
+
+
 app = FastAPI(
     title="气象灾害预测与预警系统",
     version="0.1.0",
     description="教学演示用气象预警系统 API",
+    lifespan=lifespan,
 )
 
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
@@ -35,15 +44,6 @@ app.include_router(monitor.router, prefix="/api/v1", tags=["monitor"])
 app.include_router(users.router, prefix="/api/v1", tags=["users"])
 app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
-
-if settings.cors_origin_list:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origin_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{8,36}$")
@@ -68,7 +68,7 @@ def csrf_matches(token: str | None, expected: str | None) -> bool:
 async def csrf_middleware(request: Request, call_next):
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return await call_next(request)
-    if request.url.path.endswith("/auth/login"):
+    if request.method == "POST" and request.url.path == "/api/v1/auth/login":
         return await call_next(request)
 
     token = request.headers.get("x-csrf-token")
@@ -81,12 +81,30 @@ async def csrf_middleware(request: Request, call_next):
         payload = read_session(session_id)
     except Exception:
         return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
-    # 有 Cookie 但 Redis 会话已过期/已登出：这是未认证，不是 CSRF 失败。
+    # 有 Cookie 但 Redis 会话已过期/绝对超时/已登出：这是未认证，不是 CSRF 失败。
     if payload is None:
+        return error_response(request, 401, "UNAUTHENTICATED")
+    if session_expired(payload):
+        try:
+            delete_session(session_id)
+        except Exception:
+            pass
         return error_response(request, 401, "UNAUTHENTICATED")
     if not csrf_matches(token, payload.get("csrf_token")):
         return error_response(request, 403, "CSRF")
     return await call_next(request)
+
+
+if settings.cors_origin_list:
+    # CORSMiddleware 在 csrf_middleware 之后、request_id_middleware 之前注册，
+    # 在洋葱栈中包裹 csrf_middleware，使 401/403 拒绝响应也能带出 CORS 与 X-Request-ID 头。
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+        allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID"],
+    )
 
 
 @app.middleware("http")

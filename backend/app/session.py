@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from .clock import utcnow
@@ -27,21 +27,26 @@ def read_session(session_id: str) -> dict[str, Any] | None:
     if raw is None:
         return None
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError:
         return None
+    return data if isinstance(data, dict) else None
 
 
 def session_expired(payload: dict[str, Any]) -> bool:
     """绝对有效期：即使持续活动，超过上限也强制重新登录。"""
+    if not isinstance(payload, dict):
+        return True
     created = payload.get("created_at")
-    if not created:
+    if not isinstance(created, str) or not created:
         # 旧版本写入的会话没有 created_at，无法保证绝对时长，按过期处理以强制重登
         return True
     try:
         start = datetime.fromisoformat(created)
     except ValueError:
         return True
+    if start.tzinfo is not None:
+        start = start.astimezone(timezone.utc).replace(tzinfo=None)
     return (utcnow() - start).total_seconds() > get_settings().session_absolute_ttl_seconds
 
 

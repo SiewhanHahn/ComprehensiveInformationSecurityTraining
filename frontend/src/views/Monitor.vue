@@ -172,7 +172,16 @@
                 <td class="cell-nowrap">{{ d.period_start }} ~ {{ d.period_end }}</td>
                 <td>{{ d.row_count }}</td>
                 <td>
-                  <span class="badge badge--sm" :class="d.quality_status === 'READY' ? 'badge--success' : 'badge--warning'">
+                  <span
+                    class="badge badge--sm"
+                    :class="
+                      d.quality_status === 'READY'
+                        ? 'badge--success'
+                        : d.quality_status === 'FAILED'
+                          ? 'badge--danger'
+                          : 'badge--warning'
+                    "
+                  >
                     {{ d.quality_status }}
                   </span>
                 </td>

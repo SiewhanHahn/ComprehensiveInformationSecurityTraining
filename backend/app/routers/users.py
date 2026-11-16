@@ -40,6 +40,8 @@ def _deny(
 
 def _lock_admin(db: Session, current: CurrentUser, request: Request) -> Role:
     admin = db.scalar(select(Role).where(Role.code == ROLE_ADMIN).with_for_update())
+    if admin is None:
+        raise HTTPException(status_code=503, detail="DEPENDENCY_UNAVAILABLE")
     # Locking reads bypass MySQL's earlier authentication snapshot after a concurrent revocation.
     actor = db.execute(select(User.is_active).where(User.id == current.id).with_for_update()).scalar_one_or_none()
     membership = db.scalar(select(UserRole.user_id).where(
@@ -79,7 +81,7 @@ def _out(db: Session, user: User) -> UserOut:
 
 def _audit(db: Session, current: CurrentUser, request: Request, user_id: int, action: str, reason: str | None = None):
     audit_context(request, db, current).record(
-        action, resource_type="USER", resource_id=str(user_id), reason=reason, actor_role=ROLE_ADMIN,
+        action, resource_type="USER", resource_id=str(user_id), reason=reason,
     )
 
 
@@ -96,7 +98,7 @@ def _require_other_admin(db: Session, admin: Role, user_id: int, current: Curren
 
 
 @router.get("", response_model=UserPage)
-def list_users(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+def list_users(page: int = Query(1, ge=1, le=10000), page_size: int = Query(20, ge=1, le=100),
                current: CurrentUser = Depends(admin_required), db: Session = Depends(get_db)):
     total = db.scalar(select(func.count()).select_from(User))
     users = db.scalars(select(User).options(selectinload(User.roles)).order_by(User.id)

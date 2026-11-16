@@ -100,7 +100,7 @@
                   查看预警
                 </router-link>
                 <router-link
-                  v-if="n.resource_type === 'response_task'"
+                  v-if="n.resource_type === 'response_task' && auth.hasAnyRole('ADMIN', 'ANALYST', 'REVIEWER')"
                   class="btn btn-ghost btn-sm"
                   to="/tasks"
                 >
@@ -239,9 +239,9 @@ const withdrawnIds = computed(
 
 function canOpenWarning(n) {
   if (n.resource_type !== 'warning') return false
+  if (auth.hasAnyRole('ADMIN', 'ANALYST', 'REVIEWER')) return true
   if (withdrawnIds.value.has(n.resource_id)) return false
-  if (n.kind === 'WARNING_PUBLISHED') return true
-  return auth.hasAnyRole('ADMIN', 'ANALYST', 'REVIEWER')
+  return n.kind === 'WARNING_PUBLISHED'
 }
 
 function cityLabel(code) {

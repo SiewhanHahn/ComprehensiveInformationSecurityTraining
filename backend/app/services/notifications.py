@@ -15,7 +15,7 @@ from ..cities import ALL_CITIES, CITIES
 from ..clock import utcnow
 from ..hazards import HAZARDS
 from ..models import Notification, Warning
-from .subscriptions import subscriber_ids
+from .subscriptions import active_subscriptions, match_subscriptions, subscriber_ids
 
 NOTIFY_PUBLISHED = "WARNING_PUBLISHED"
 NOTIFY_WITHDRAWN = "WARNING_WITHDRAWN"
@@ -85,11 +85,12 @@ def notify_users(
     return int(result.rowcount or 0)
 
 
-def notify_warning(db: Session, w: Warning, kind: str) -> int:
+def notify_warning(db: Session, w: Warning, kind: str, *, user_ids: list[int] | None = None) -> int:
     """给匹配订阅的用户投递一条预警通知。"""
-    result = w.warning_result
-    city_code = result.city_code if result is not None else ALL_CITIES
-    user_ids = subscriber_ids(db, w.hazard_type, city_code)
+    if user_ids is None:
+        result = w.warning_result
+        city_code = result.city_code if result is not None else ALL_CITIES
+        user_ids = subscriber_ids(db, w.hazard_type, city_code)
     # 标题列是 VARCHAR(200)，先把预警标题截到剩余长度再拼前缀，避免长标题被吃掉结尾
     prefix = f"{NOTIFICATION_TITLES[kind]}："
     return notify_users(
@@ -162,10 +163,16 @@ def backfill_published(db: Session, *, hours: int, now: datetime) -> int:
     """
     since = now - timedelta(hours=hours)
     warnings = db.scalars(select(Warning).where(Warning.published_at >= since)).all()
+    if not warnings:
+        return 0
+    subs = active_subscriptions(db)
     created = 0
     for w in warnings:
-        created += notify_warning(db, w, NOTIFY_PUBLISHED)
+        result = w.warning_result
+        city_code = result.city_code if result is not None else ALL_CITIES
+        user_ids = match_subscriptions(subs, w.hazard_type, city_code)
+        created += notify_warning(db, w, NOTIFY_PUBLISHED, user_ids=user_ids)
         # withdrawn_at 只有 WITHDRAW 转换会写，等价于「当前状态是已撤回」
         if w.withdrawn_at is not None:
-            created += notify_warning(db, w, NOTIFY_WITHDRAWN)
+            created += notify_warning(db, w, NOTIFY_WITHDRAWN, user_ids=user_ids)
     return created

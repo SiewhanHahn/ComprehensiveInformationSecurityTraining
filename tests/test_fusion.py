@@ -208,3 +208,70 @@ def test_monitor_counts_lead_hours_like_replay(login):
         with SessionLocal() as db:
             db.get(ForecastRecord, record_pk).lead_hours = original_lead
             db.commit()
+
+
+def test_replay_does_not_leak_failed_datasets_when_no_valid_dataset_exists(monkeypatch):
+    """全部预报批次都处于 FAILED（latest_dataset 返回 None）时，不能无过滤读取失败数据。"""
+    from datetime import date
+
+    from backend.app.db import SessionLocal
+    from backend.app.services import replay
+
+    monkeypatch.setattr(replay, "latest_dataset", lambda db, dtype, version=None: None)
+    with SessionLocal() as db:
+        result = replay.compute_replay(db, "CHANGSHA", date(2024, 3, 27), "HEAVY")
+    assert result is not None
+    assert result["data_status"] == "PARTIAL"
+    assert result["fused_mm"] is None
+    assert result["risk_level"] is None
+    assert all(m.precipitation_mm is None for m in result["models"])
+
+
+def test_replay_includes_cached_at_timestamp(login):
+    client, _csrf = login("viewer_demo")
+    resp = client.get(
+        "/api/v1/replay",
+        params={"city_code": "CHANGSHA", "date": "2024-03-27", "threshold_code": "HEAVY"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["source"]["cached_at"] is not None
+
+
+def test_replay_uses_decimal_half_up_precision():
+    from datetime import date, datetime
+    from decimal import Decimal
+
+    from sqlalchemy import select
+
+    from backend.app.cities import LEAD_HOURS
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset, ForecastRecord
+    from backend.app.services import replay
+
+    with SessionLocal() as db:
+        fc_ds = replay.latest_dataset(db, "FORECAST")
+        assert fc_ds is not None
+        recs = db.scalars(
+            select(ForecastRecord).where(
+                ForecastRecord.dataset_id == fc_ds.id,
+                ForecastRecord.city_code == "CHANGSHA",
+                ForecastRecord.valid_at == datetime(2024, 3, 27),
+                ForecastRecord.lead_hours == LEAD_HOURS,
+            )
+        ).all()
+        assert len(recs) == 4
+        originals = {r.id: r.precipitation_mm for r in recs}
+        test_vals = [Decimal("25.000"), Decimal("25.001"), Decimal("25.000"), Decimal("25.001")]
+        try:
+            for rec, val in zip(recs, test_vals):
+                rec.precipitation_mm = val
+            db.commit()
+
+            # 均值 25.0005：二进制浮点 round(..., 3) 会偶舍入成 25.0，Decimal HALF_UP 必须为 25.001
+            out = replay.compute_replay(db, "CHANGSHA", date(2024, 3, 27), "HEAVY")
+            assert out["fused_mm"] == 25.001
+        finally:
+            for rec in recs:
+                rec.precipitation_mm = originals[rec.id]
+            db.commit()

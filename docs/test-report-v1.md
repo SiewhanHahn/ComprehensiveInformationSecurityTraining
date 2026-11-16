@@ -450,6 +450,22 @@
 - **后端全量测试**：在演示 VM 的 `api` 容器内执行全量套件，**91 passed、2 warnings**（18.27 秒）。
 - **B 档端到端闭环验收**：静态资源（HTML/JS/CSS）、未认证 401 vs 缺头 403 CSRF 信封、监测与回放版本对齐（`2026-09-30.2`）、订阅 $\rightarrow$ 建单 $\rightarrow$ 提交 $\rightarrow$ 审核 $\rightarrow$ 发布 $\rightarrow$ 站内通知与未读计数、响应任务权限隔离（审核员详情页可读但 `ack` 返回 404、查看者 403、分析员 `ACKED -> COMPLETED`）与反馈、撤回自动关单与 `RESPONSE_TASK_CLOSE` 审计全部验证通过，验收后已清理临时测试数据。
 
+## 6.20 `v0.3.0-phase-b` 分层审查 P0~P4 分批修复与回归（2026-11-15）
+
+基于 `main`（`v0.3.0-phase-b`）切出 `fix/phase-b-review` 分支，按严格 TDD 节奏分五批完成全部 Verified Critical/Important/Minor 修复：
+
+- **P0（`06ad82a`）**：`WarningDetail.vue` 补齐 `taskError` 空任务兜底分支；`warnings.py` 多角色成员不再被误判 `is_viewer_only`；`schemas.py`/`auth.py` 限制登录入参长度并通过 Redis Lua `login:inflight:{ip}` 原子限并发；`replay.py` 缺失预测数据集返回空记录；`ingest.py` 预校验避免脏样本污染既有可用数据集，并校验 `FORECAST`+`ERA5_LABEL` 双摘要幂等。
+- **P1（`963b223`）**：`session.py`/`main.py` 校验会话字典与时区、区分过期会话返回 `401 UNAUTHENTICATED`、调整 CORS 洋葱圈外层顺序并收紧方法/请求头白名单；`auth.py` 严格 `_parse_ip`、整型 `user_id` 与先 `db.commit()` 后写 Redis 会话、锁定且密码正确同步计入 IP 失败；`audit.py` 分页上限 `page <= 10000` 并增 `AuditContext._clip`；`replay.py` `ReplaySource.cached_at` 与 `Decimal` `ROUND_HALF_UP` 精确阈值判定；`subscriptions.py` 原子删除与 `begin_nested()` 保存点；`tasks.py`/`warnings.py` 统一 `Warning -> ResponseTask` 加锁顺序、发布改派资格检查及撤回先关单后通知。
+- **P2（`857cb5d`）**：`Notifications.vue` 撤回链接对业务角色放行并对查看用户隐藏任务入口；`App.vue`/`router.js`/`Login.vue` 会话失效跳转与安全 `redirect` 校验；`Replay.vue`/`Warnings.vue` 无风险等级隐藏建单与失效预览防竞态；`ui/labels.js` 补齐 `SYSTEM` 角色与 `USER` 资源标签；`Tasks.vue` 共显逾期与升级徽章；`ingest.py`/`seed.py` 拆分独立日期集合、`OSError` 容错、`--sync-demo-passwords` 清零锁定及先建用户后导样本；`subscriptions.py` 补全审计参数。
+- **P3（`c95bef8`）**：`main.py` 启动 `lifespan` 预热 `_dummy_password_hash` 并收紧 CSRF 登录豁免至精确 `POST /api/v1/auth/login`；`deps.py` 拦截空会话 Cookie 并在 403 时落 `PERMISSION_DENIED` 审计；`auth.py` 原子 Lua `_RECORD_IP_FAILURE_LUA`、重登撤销旧会话、去重查询；`users.py` 缺失管理员角色返回 `503 DEPENDENCY_UNAVAILABLE` 并按实际操作者最高角色写审计；`audit.py` 修复空串动作筛选；`schemas.py`/`config.py` `Literal` 枚举校验与 `SameSite=None` 强制 HTTPS Gate；`warnings.py`/`subscriptions.py`/`notifications.py`/`tasks.py`/`scheduler.py` 加锁读刷新、模型排序对齐、无改动更新跳过审计、预加载活跃订阅及异常先记日志再回滚。
+- **P4（本轮收口）**：`App.vue` 导航下拉按角色过滤 `/review` 与 `/tasks`；`WarningDetail.vue` 提交审核限 `ANALYST/ADMIN`、详情与 `Review.vue` 隐藏自审按钮（展示「不可自审」）、闭环 Stepper 区分撤回关闭任务（「已随撤回关闭」）；`api.js` `ERROR_ZH` 补全 `LOGIN_RATE_LIMITED`、`METHOD_NOT_ALLOWED`、`HTTP_ERROR`；`Monitor.vue` 为 `FAILED` 数据集显示 `badge--danger`；`Users.vue` 复用 `roleLabel` 统一「查看用户」；`models.py` 与迁移 `0006_idx_users_active` 补建 `users(is_active)` 索引并对齐 `docs/database-design-v1.md` 与 `CLAUDE.md`。
+
+验证：
+
+- **前端单测与构建**：`node --test tests/test_frontend_review.mjs` **12 passed, 0 failed**；`cd frontend && npm run build` 生产构建通过。
+- **迁移往返验证**：演示 VM 容器内执行 `0005_subscriptions_notifications -> 0006_idx_users_active -> 0005_subscriptions_notifications -> 0006_idx_users_active (head)` 往返通过，五服务健康检查（`/health`、`/health/db`、`/health/redis`、首页 `HTTP 200`）正常。
+- **后端全量测试**：演示 VM `api` 容器内单元测试 `test_units.py` **23 passed**（2 warnings）；含集成全量测试（`RUN_INTEGRATION=1`）**122 passed**（3 warnings，0 failed，0 skipped）。
+
 ## 7. 未完成项与限制
 
 - 浏览器端逐页截图验收未执行；已通过 HTTP 验证前端 HTML/CSS/JS 和 API 代理可达。

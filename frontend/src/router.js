@@ -43,7 +43,11 @@ router.beforeEach(async (to) => {
     await refreshAuth()
   }
   if (to.meta.public) return true
-  if (!auth.user) return '/login'
+  if (!auth.user) {
+    return to.fullPath && to.fullPath !== '/'
+      ? { path: '/login', query: { redirect: to.fullPath } }
+      : '/login'
+  }
   if (to.meta.roles && !auth.hasAnyRole(...to.meta.roles)) return '/'
   if (to.meta.role && !auth.hasRole(to.meta.role)) return '/'
   return true

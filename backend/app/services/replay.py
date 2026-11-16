@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,14 +45,17 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
 
     start = _day_start(valid_date)
     fc_dataset = latest_dataset(db, "FORECAST")
-    stmt = select(ForecastRecord).where(
-        ForecastRecord.city_code == city_code,
-        ForecastRecord.valid_at == start,
-        ForecastRecord.lead_hours == LEAD_HOURS,
-    )
     if fc_dataset is not None:
-        stmt = stmt.where(ForecastRecord.dataset_id == fc_dataset.id)
-    records = db.scalars(stmt).all()
+        records = db.scalars(
+            select(ForecastRecord).where(
+                ForecastRecord.city_code == city_code,
+                ForecastRecord.valid_at == start,
+                ForecastRecord.lead_hours == LEAD_HOURS,
+                ForecastRecord.dataset_id == fc_dataset.id,
+            )
+        ).all()
+    else:
+        records = []
 
     by_model: dict[str, ForecastRecord] = {}
     for r in records:
@@ -70,23 +74,23 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
             present.append(rec)
 
     complete = len(present) == len(DEFAULT_MODELS)
-    fused = float(sum(r.precipitation_mm for r in present) / len(present)) if present else 0.0
-    # 判定与展示用同一精度：否则 24.99975 会被四舍五入显示成 25.0，
-    # 却因为未舍入的值小于阈值而没有风险等级，页面自相矛盾。
-    fused_mm = round(fused, 3)
-    # 基线同样要过 usable 判定：ECMWF 那条值为 NULL 时直接 float() 会抛 TypeError
+    quant = Decimal("0.001")
+    fused_dec = (
+        (sum((r.precipitation_mm for r in present), Decimal("0")) / Decimal(len(present))).quantize(
+            quant, rounding=ROUND_HALF_UP
+        )
+        if present
+        else Decimal("0.000")
+    )
+    # 判定与展示用同一精度：全程用 Decimal HALF_UP 避免二进制浮点偶舍入与阈值边界偏差
     ecmwf = by_model.get("ecmwf_ifs025")
     ecmwf_usable = ecmwf is not None and ecmwf.precipitation_mm is not None and ecmwf.is_complete
-    baseline = float(ecmwf.precipitation_mm) if ecmwf_usable else None
+    baseline_dec = ecmwf.precipitation_mm.quantize(quant, rounding=ROUND_HALF_UP) if ecmwf_usable else None
 
     proxy = None
-    # 代理标签必须来自与预报数据集同一版本：回退到别的 ERA5 版本会让
-    # proxy_label_mm 与响应里的 dataset_version 张冠李戴。
-    obs_dataset = (
-        latest_dataset(db, "ERA5_LABEL", version=fc_dataset.version)
-        if fc_dataset is not None
-        else latest_dataset(db, "ERA5_LABEL")
-    )
+    # 代理标签必须来自与预报数据集同一版本：没有可用预报数据集时不回退到孤立的 ERA5 版本，
+    # 避免已失败/损坏的观测数据单独泄漏，或与 dataset_version="sample" 张冠李戴。
+    obs_dataset = latest_dataset(db, "ERA5_LABEL", version=fc_dataset.version) if fc_dataset is not None else None
     if obs_dataset is not None:
         proxy = db.scalar(
             select(ObservationRecord.precipitation_mm).where(
@@ -96,9 +100,10 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
                 ObservationRecord.dataset_id == obs_dataset.id,
             )
         )
+    proxy_dec = proxy.quantize(quant, rounding=ROUND_HALF_UP) if proxy is not None else None
 
     risk_level: str | None = None
-    if complete and fused_mm >= float(threshold.threshold_mm):
+    if complete and fused_dec >= threshold.threshold_mm:
         risk_level = threshold.level
 
     return {
@@ -111,14 +116,25 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
             level=threshold.level,
         ),
         "models": model_values,
-        "fused_mm": fused_mm if complete else None,
-        "baseline_mm": round(baseline, 3) if baseline is not None else None,
-        "proxy_label_mm": float(proxy) if proxy is not None else None,
+        "fused_mm": float(fused_dec) if complete else None,
+        "baseline_mm": float(baseline_dec) if baseline_dec is not None else None,
+        "proxy_label_mm": float(proxy_dec) if proxy_dec is not None else None,
+        "fused_dec": fused_dec if complete else None,
+        "baseline_dec": baseline_dec,
+        "proxy_dec": proxy_dec,
         "risk_level": risk_level,
         "data_status": "COMPLETE" if complete else "PARTIAL",
-        "source": ReplaySource(dataset_version=fc_dataset.version if fc_dataset is not None else "sample"),
+        "source": ReplaySource(
+            dataset_version=fc_dataset.version if fc_dataset is not None else "sample",
+            cached_at=fc_dataset.imported_at if fc_dataset is not None else None,
+        ),
         "inputs": [
-            {"forecast_record_id": r.id, "model_code": r.model_code, "value_mm": float(r.precipitation_mm)}
+            {
+                "forecast_record_id": r.id,
+                "model_code": r.model_code,
+                "value_mm": float(r.precipitation_mm),
+                "value_dec": r.precipitation_mm,
+            }
             for r in present
         ],
         "threshold_row": threshold,

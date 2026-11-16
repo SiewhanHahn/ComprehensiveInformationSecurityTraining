@@ -7,6 +7,12 @@ from ..deps import CurrentUser, client_ip, request_id
 from ..models import AuditLog
 
 
+def _clip(value: str | None, width: int) -> str | None:
+    if value is None:
+        return None
+    return value[:width]
+
+
 def add_audit(
     db: Session,
     *,
@@ -24,14 +30,14 @@ def add_audit(
     db.add(
         AuditLog(
             actor_id=actor_id,
-            actor_role=actor_role,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            result=result,
-            reason=reason,
-            request_id=request_id,
-            ip_address=ip_address,
+            actor_role=_clip(actor_role, 32),
+            action=_clip(action, 64),
+            resource_type=_clip(resource_type, 64),
+            resource_id=_clip(resource_id, 64),
+            result=_clip(result, 16),
+            reason=_clip(reason, 500),
+            request_id=_clip(request_id, 36),
+            ip_address=_clip(ip_address, 45),
         )
     )
 
@@ -63,7 +69,7 @@ class AuditContext:
             result=result,
             reason=reason,
             actor_id=self.actor.id if self.actor else None,
-            actor_role=actor_role or (",".join(self.actor.roles) if self.actor else None),
+            actor_role=actor_role or (",".join(sorted(self.actor.roles)) if self.actor else None),
             request_id=self.request_id,
             ip_address=self.ip_address,
         )

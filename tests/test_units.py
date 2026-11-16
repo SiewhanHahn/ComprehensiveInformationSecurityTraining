@@ -60,10 +60,26 @@ def test_offline_sample_structure():
 
 def test_viewer_only():
     assert is_viewer_only(CurrentUser(1, "v", ["VIEWER"]))
+    assert is_viewer_only(CurrentUser(6, "norole", []))
+    assert is_viewer_only(CurrentUser(7, "guest", ["GUEST"]))
     assert not is_viewer_only(CurrentUser(2, "a", ["ANALYST"]))
     assert not is_viewer_only(CurrentUser(3, "va", ["VIEWER", "ANALYST"]))
     assert not is_viewer_only(CurrentUser(4, "admin", ["ADMIN"]))
     assert not is_viewer_only(CurrentUser(5, "r", ["REVIEWER"]))
+
+
+def test_login_request_rejects_oversized_credentials():
+    import pytest
+    from pydantic import ValidationError
+
+    from backend.app.schemas import LoginRequest
+
+    assert LoginRequest(username="", password="").username == ""
+    assert LoginRequest(username="a" * 64, password="p" * 128).password == "p" * 128
+    with pytest.raises(ValidationError):
+        LoginRequest(username="a" * 65, password="secret")
+    with pytest.raises(ValidationError):
+        LoginRequest(username="admin_demo", password="p" * 129)
 
 
 def test_subscription_matching():
@@ -123,3 +139,312 @@ def test_reasoning_text_checks_utf8_bytes_not_characters():
         WarningUpdate(reasoning_text="😀" * 20000)
     # 中文按 3 字节计，20,000 字符 = 60,000 字节，仍在 TEXT 容量内
     assert WarningCreate(**base, reasoning_text="雨" * 20000).reasoning_text
+
+
+def test_read_session_rejects_non_dict_and_session_expired_handles_tz(monkeypatch):
+    from datetime import datetime, timezone
+
+    from backend.app import session as sess
+
+    class FakeRedis:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def get(self, _key):
+            return self.payload
+
+    monkeypatch.setattr(sess, "get_redis", lambda: FakeRedis("123"))
+    assert sess.read_session("sid") is None
+    monkeypatch.setattr(sess, "get_redis", lambda: FakeRedis('["a"]'))
+    assert sess.read_session("sid") is None
+
+    assert sess.session_expired({"created_at": "2020-01-01T00:00:00+00:00"}) is True
+    recent_aware = datetime.now(timezone.utc).isoformat()
+    assert sess.session_expired({"created_at": recent_aware}) is False
+
+
+def test_client_ip_rejects_malformed_proxy_header(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.app import deps
+
+    monkeypatch.setattr(deps, "get_settings", lambda: SimpleNamespace(trust_proxy_headers=True))
+
+    def make_req(header_val, host="10.0.0.1"):
+        return SimpleNamespace(
+            headers={"x-real-ip": header_val} if header_val is not None else {},
+            client=SimpleNamespace(host=host),
+        )
+
+    assert deps.client_ip(make_req("203.0.113.5")) == "203.0.113.5"
+    assert deps.client_ip(make_req("1.2.3.4, 5.6.7.8")) == "10.0.0.1"
+    assert deps.client_ip(make_req("1" * 60)) == "10.0.0.1"
+
+
+def test_audit_truncates_oversized_fields_and_sorts_roles():
+    from backend.app.deps import CurrentUser
+    from backend.app.services.audit import AuditContext
+
+    added = []
+
+    class FakeDB:
+        def add(self, obj):
+            added.append(obj)
+
+    ctx = AuditContext(
+        db=FakeDB(),
+        actor=CurrentUser(1, "u", ["VIEWER", "ADMIN"]),
+        request_id="r" * 60,
+        ip_address="9" * 80,
+    )
+    ctx.record(
+        "ACT_" * 30,
+        resource_type="RES_" * 30,
+        resource_id="ID_" * 40,
+        result="RESULT_" * 10,
+        reason="why_" * 200,
+    )
+    row = added[0]
+    assert row.actor_role == "ADMIN,VIEWER"
+    assert len(row.actor_role) <= 32
+    assert len(row.action) <= 64
+    assert len(row.resource_type) <= 64
+    assert len(row.resource_id) <= 64
+    assert len(row.result) <= 16
+    assert len(row.reason) <= 500
+    assert len(row.request_id) <= 36
+    assert len(row.ip_address) <= 45
+
+
+def test_import_sample_handles_missing_file_gracefully(tmp_path):
+    from backend.app.services import ingest
+
+    missing = tmp_path / "does_not_exist.json"
+    result = ingest.import_sample(session=None, path=missing, forecast_source_id=1, era5_source_id=2)
+    assert result["imported"] is False
+    assert result.get("unusable") is True
+    assert result["forecast"] == 0
+
+
+def test_seed_sync_passwords_clears_lockout_and_main_orders_users_before_sample(monkeypatch):
+    import sys
+    from datetime import datetime, timedelta
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from backend.app import seed
+
+    existing_user = SimpleNamespace(
+        id=99,
+        username="admin",
+        password_hash="old",
+        is_active=False,
+        failed_login_count=5,
+        locked_until=datetime.utcnow() + timedelta(minutes=10),
+    )
+
+    class FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        def scalar(self, stmt):
+            sql = str(stmt)
+            if "roles" in sql and "users" not in sql:
+                return SimpleNamespace(id=1, code="ADMIN")
+            if existing_user.username in repr(stmt.compile().params):
+                return existing_user
+            return None
+
+        def add(self, _obj):
+            pass
+
+        def flush(self):
+            pass
+
+        def execute(self, _stmt):
+            pass
+
+        def commit(self):
+            self.committed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setenv("DEMO_ADMIN_PASSWORD", "NewAdminPass!123")
+    monkeypatch.delenv("DEMO_ANALYST_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_REVIEWER_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_VIEWER_PASSWORD", raising=False)
+    seed.seed_users(FakeSession(), sync_passwords=True)
+    assert existing_user.is_active is True
+    assert existing_user.failed_login_count == 0
+    assert existing_user.locked_until is None
+
+    order = []
+    monkeypatch.setattr(seed, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(seed, "seed_reference_data", lambda _s: order.append("ref"))
+    monkeypatch.setattr(seed, "seed_users", lambda _s, sync_passwords=False: order.append("users"))
+    monkeypatch.setattr(seed, "import_sample", lambda _s, _p: order.append("sample"))
+    monkeypatch.setattr(sys, "argv", ["seed.py", "--sample", str(Path("data/sample/replay_sample.json"))])
+    seed.main()
+    assert order == ["ref", "users", "sample"]
+
+
+def test_review_and_feedback_schemas_enforce_literal_and_optional_comment():
+    import pytest
+    from pydantic import ValidationError
+
+    from backend.app.schemas import FeedbackRequest, ReviewRequest
+
+    req = ReviewRequest(decision="APPROVE")
+    assert req.comment == ""
+
+    with pytest.raises(ValidationError):
+        ReviewRequest(decision="INVALID", comment="x")
+
+    with pytest.raises(ValidationError):
+        FeedbackRequest(response_status="BAD", content="x")
+
+
+def test_config_rejects_samesite_none_without_cookie_secure():
+    import pytest
+
+    from backend.app.config import Settings
+
+    s = Settings(app_env="development", cookie_samesite="none", cookie_secure=False)
+    with pytest.raises(ValueError):
+        s.validate_for_serving()
+
+
+def test_scheduler_logs_exception_before_rollback(monkeypatch):
+    from datetime import datetime
+
+    from backend.app import scheduler
+
+    events = []
+
+    class FakeDB:
+        def commit(self):
+            events.append("commit")
+
+        def rollback(self):
+            events.append("rollback")
+
+    monkeypatch.setattr(scheduler, "backfill_published", lambda *_a, **_kw: (_ for _ in ()).throw(ValueError("boom")))
+    monkeypatch.setattr(scheduler, "escalate_overdue", lambda *_a, **_kw: 0)
+    monkeypatch.setattr(scheduler.logger, "exception", lambda *_a, **_kw: events.append("log"))
+
+    res = scheduler.run_scan(FakeDB(), now=datetime(2024, 3, 27, 0, 0), hours=24)
+    assert res.failed == ("backfill",)
+    assert events[:2] == ["log", "rollback"]
+
+
+def test_to_detail_out_orders_models_and_warning_service_edge_guards():
+    from datetime import date, datetime
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    import pytest
+    from fastapi import HTTPException
+
+    from backend.app.deps import CurrentUser
+    from backend.app.schemas import WarningUpdate
+    from backend.app.services import warnings as svc
+
+    wr = SimpleNamespace(
+        city_code="CHANGSHA",
+        valid_date=date(2024, 3, 27),
+        risk_level="YELLOW",
+        fused_mm=Decimal("25.0"),
+        baseline_mm=Decimal("20.0"),
+        proxy_label_mm=Decimal("22.0"),
+        fusion_run_id=7,
+    )
+    w = SimpleNamespace(
+        public_id="p1",
+        hazard_type="RAINSTORM",
+        status="DRAFT",
+        title="t",
+        area_text="a",
+        impact_text=None,
+        reasoning_text="r",
+        version_no=1,
+        created_by=1,
+        submitted_at=None,
+        approved_at=None,
+        published_at=None,
+        withdrawn_at=None,
+        warning_result=wr,
+    )
+    reversed_inputs = [
+        SimpleNamespace(model_code="gem_global", value_mm=Decimal("4.0"), forecast_record_id=4),
+        SimpleNamespace(model_code="icon_global", value_mm=Decimal("3.0"), forecast_record_id=3),
+        SimpleNamespace(model_code="gfs_global", value_mm=Decimal("2.0"), forecast_record_id=2),
+        SimpleNamespace(model_code="ecmwf_ifs025", value_mm=Decimal("1.0"), forecast_record_id=1),
+    ]
+
+    class FakeDetailDB:
+        def scalars(self, _stmt):
+            return SimpleNamespace(all=lambda: reversed_inputs)
+
+        def scalar(self, _stmt):
+            return "v1"
+
+    detail = svc.to_detail_out(FakeDetailDB(), w, {1: "analyst"})
+    assert [m.model for m in detail.models] == ["ECMWF", "GFS", "ICON", "GEM"]
+
+    recorded = []
+
+    class FakeAudit:
+        def record(self, *args, **kwargs):
+            recorded.append((args, kwargs))
+
+    class FakeEmptyDB:
+        def scalar(self, _stmt):
+            return w
+
+        def flush(self):
+            pass
+
+    actor = CurrentUser(id=1, username="analyst", roles=["ANALYST"])
+    svc.update_warning(FakeEmptyDB(), "p1", WarningUpdate(), actor, FakeAudit())
+    assert recorded == []
+
+    w.status = svc.PENDING_REVIEW
+    reviewer = CurrentUser(id=2, username="reviewer", roles=["REVIEWER"])
+    with pytest.raises(HTTPException) as exc_info:
+        svc.review_warning(FakeEmptyDB(), "p1", "BAD_DECISION", "c", reviewer, FakeAudit())
+    assert exc_info.value.status_code == 422
+
+
+def test_lock_admin_raises_503_when_admin_role_missing():
+    from types import SimpleNamespace
+
+    import pytest
+    from fastapi import HTTPException
+
+    from backend.app.deps import CurrentUser
+    from backend.app.routers import users as users_router
+
+    class MissingAdminDB:
+        def scalar(self, _stmt):
+            return None
+
+    with pytest.raises(HTTPException) as exc_info:
+        users_router._lock_admin(MissingAdminDB(), CurrentUser(1, "admin", ["ADMIN"]), SimpleNamespace())
+    assert exc_info.value.status_code == 503
+
+
+def test_user_model_and_0006_migration_define_idx_users_active():
+    import importlib
+
+    from backend.app.models import User
+
+    indexes = {idx.name: [col.name for col in idx.columns] for idx in User.__table__.indexes}
+    assert indexes.get("idx_users_active") == ["is_active"]
+
+    mig = importlib.import_module("backend.migrations.versions.0006_idx_users_active")
+    assert mig.revision == "0006_idx_users_active"
+    assert mig.down_revision == "0005_subscriptions_notifications"

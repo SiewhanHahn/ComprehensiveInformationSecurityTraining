@@ -151,9 +151,20 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
+let loggingOut = false
+
 watch(
   () => auth.user,
-  () => syncUnread()
+  (user) => {
+    syncUnread()
+    if (!user && !loggingOut && auth.ready && !route.meta?.public && route.path !== '/login') {
+      router.replace(
+        route.fullPath && route.fullPath !== '/'
+          ? { path: '/login', query: { redirect: route.fullPath } }
+          : '/login'
+      )
+    }
+  }
 )
 
 const navGroups = computed(() => {
@@ -173,8 +184,8 @@ const navGroups = computed(() => {
       path: '/warnings',
       children: [
         { path: '/warnings', label: '预警管理' },
-        { path: '/review', label: '审核' },
-        { path: '/tasks', label: '任务看板' },
+        ...(auth.hasAnyRole('REVIEWER', 'ADMIN') ? [{ path: '/review', label: '审核' }] : []),
+        ...(auth.hasAnyRole('ANALYST', 'REVIEWER', 'ADMIN') ? [{ path: '/tasks', label: '任务看板' }] : []),
         { path: '/hazards', label: '灾种' },
         { path: '/notifications', label: '通知中心' }
       ]
@@ -228,10 +239,15 @@ watch(
 
 async function logout() {
   menuOpen.value = false
+  loggingOut = true
   try {
-    await apiFetch('/auth/logout', { method: 'POST' })
-  } catch (e) {}
-  auth.clear()
-  router.push('/login')
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' })
+    } catch (e) {}
+    auth.clear()
+    await router.push('/login')
+  } finally {
+    loggingOut = false
+  }
 }
 </script>
