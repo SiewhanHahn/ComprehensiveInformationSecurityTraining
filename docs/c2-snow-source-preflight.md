@@ -5,7 +5,7 @@
 ## 可制单案例：2025-01-21 新奥尔良
 
 - 预报用 NOAA NCEP [HRRR CONUS 原业务 GRIB2 公共档案](https://registry.opendata.aws/noaa-hrrr-pds/)，起报 **2025-01-20 18:00 UTC**，取 3 km 网格距机场站最近的格点 `29.997934, −90.285677`（约 0.77 km）。核对 `f12`–`f36` 文件内 GRIB 初始化与预报步长；[f36 索引](https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20250120/conus/hrrr.t18z.wrfsfcf36.grib2.idx)与同路径各步长原文件可重查。原文件 HTTP `Last-Modified` 介于 1 月 20 日 **19:06:20–19:34:56 UTC**，均早于 1 月 21 日 **06:00 UTC** 的研判起点。有档案时间证据，不将起报时间冒称签发或投递时间。
-- [NCEP GRIB2 参数表](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2-0-1.shtml)中 `0/1/29 ASNOW` 为米制累计降雪。把从起报累计的米值换算为厘米，保留 0.01 cm 后用相邻步长差得到逐时新增量；同点 2 米气温由 K 转为 °C。`f13` 至 `f36` 的 24 小时和为 **20.19 cm**（`f36 0.20194 m − f12 0 m`），最低温 **−2.4 °C**，达到 **10.00 cm** 教学阈值。[提取记录](evidence/c2-snow-hrrr-extract.csv)保留原数值、UTC 档案时间、索引字节范围，可用 `Range` 对照 GRIB，不随项目分发 GRIB 原文件。
+- [NCEP GRIB2 参数表](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2-0-1.shtml)中 `0/1/29 ASNOW` 为米制累计降雪。把从起报累计的米值换算为厘米，按十进制半偶舍入至 0.01 cm 后用相邻步长差得到逐时新增量；同点 2 米气温由 K 转为 °C。`f13` 至 `f36` 的 24 小时和为 **20.19 cm**（`f36 0.20194 m − f12 0 m`），最低温 **−2.4 °C**，达到 **10.00 cm** 教学阈值。页面“首末有雪小时”指归一后非零的时间段（本例 09:00–23:00 UTC），更早的微量预报可能舍入为 0，不代表实况起止。[提取记录](evidence/c2-snow-hrrr-extract.csv)保留原数值、UTC 档案时间、索引字节范围，可用 `Range` 对照 GRIB，不随项目分发 GRIB 原文件。
 - 事后独立使用 [NOAA NCEI ISD 新奥尔良机场站 72231012916](https://noaa-global-hourly-pds.s3.amazonaws.com/2025/72231012916.csv)，站坐标 `29.99755, −90.27772`。同窗 `(1 月 21 日 06:00, 1 月 22 日 06:00] UTC` 中，取起点之后、终点以内 `FM-12/MW1` 的 5 条有效记录；18:00、21:00 UTC 的 `75,1` 表示观测时连续强降雪。只确认降雪现象，不拿站码、总降水或地面积雪深度验证 20.19 cm；缺码不补零、不进入正式预警快照。
 
 ## 只回放对照：2025-03-02 与 2025-03-04 济南
