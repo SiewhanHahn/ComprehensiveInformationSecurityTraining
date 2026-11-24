@@ -18,17 +18,10 @@ DROUGHT_DRY_DAY_BELOW_MM = 1.0
 DROUGHT_STREAK_THRESHOLD_DAYS = 14
 HEAT_THRESHOLD_C = 35.0  # Teaching thresholds; not official warning rules.
 COLD_THRESHOLD_C = 0.0
+WIND_GUST_THRESHOLD_MPS = 17.0
 
 # 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_HAZARDS = "*"
-
-def _planned(code: str, name: str, indicator: str, unit: str, data_sources: list[str]) -> dict:
-    return {
-        "code": code, "name": name, "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": indicator, "unit": unit, "data_sources": data_sources, "thresholds": [],
-        "judgement": "待按验收表实现，不输出风险结论",
-        "note": "当前仅登记，不能创建此灾种预警；终期仍需实现。",
-    }
 
 
 HAZARDS: list[dict] = [
@@ -116,7 +109,17 @@ HAZARDS: list[dict] = [
         "judgement": "24 个 UTC 整点气温的最小值及低于或等于教学线的时次；有缺测则无法判断",
         "note": "不是寒潮预报，也不会生成或发布预警。",
     },
-    _planned("WIND_HAIL", "风雹", "未来 6 小时阵风及冰雹风险", "m/s / 风险提示", ["阵风预报", "明确的预报冰雹信号"]),
+    {
+        "code": "WIND_HAIL",
+        "name": "风雹",
+        "status": HAZARD_STATUS_BASIC,
+        "indicator": "未来 6 小时阵风最大值和独立冰雹信号",
+        "unit": "m/s 与信号",
+        "thresholds": [{"code": "GUST_MAX", "label": "阵风教学线 ≥", "value": WIND_GUST_THRESHOLD_MPS}],
+        "data_sources": ["用户自填逐时阵风预报", "用户自填明确雹信号（有 / 无 / 缺测）"],
+        "judgement": "分别判断阵风达线与冰雹信号，不从阵风推断冰雹；分量缺测单独标未知",
+        "note": "分量阈值试算，不生成预警草稿，不是官方风雹预警。",
+    },
 ]
 
 

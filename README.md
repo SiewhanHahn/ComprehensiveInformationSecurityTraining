@@ -6,7 +6,7 @@
 - 前端：Vue 3 + Vite，Nginx 反代 `/api` 到后端
 - 编排：Docker Compose，一条命令启动 frontend / api / mysql / redis
 
-**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。当前有四类重点灾种的研判和预警流程；干旱、高温、低温可运行基础试算，风雹待实现。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
+**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。当前有四类重点灾种的研判和预警流程；干旱、高温、低温、风雹均可运行基础试算；这不等同于最终交付验收。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
 
 **C1 暴雨集成**：从本地验收标签 `checkpoint/c1-rain` 取源码，不从旧演示目录或 `main` 取。先核对页面实际提供的提交号，再展示指标、长沙手算和南京试算。见[当前版本与验收入口](docs/c1-rain-handoff.md)和[演示启动指南](docs/user-guide-v1.md#defense)。
 
@@ -21,6 +21,8 @@
 **高温基础预测**：在「基础预测 → 高温」填 24 个 UTC 整点的气温预报（°C），计算最高值与达到 **35.0 °C** 教学线的时次；缺任一时次为无法判断。初始值仅供教学，不是实时数据，不创建预警。[使用步骤](docs/user-guide-v1.md#basic-forecast)和[实测验收](docs/evidence/c3-heat-2026-11-24.md)。
 
 **低温基础预测**：复用 24 个 UTC 整点的气温表，计算最低值与达到 **≤ 0.0 °C** 教学线的时次；缺测不算。这不是寒潮预报，也不创建预警。[使用步骤](docs/user-guide-v1.md#basic-forecast)和[实测验收](docs/evidence/c3-cold-2026-11-24.md)。
+
+**风雹基础预测**：输入未来 6 个 UTC 整点的阵风和明确雹信号。阵风 **≥ 17.0 m/s** 达教学线；冰雹只依据明确输入。有、无和缺测分别展示，一项缺测不覆盖另一项的结论。[使用步骤](docs/user-guide-v1.md#basic-forecast)
 
 ## 普通开发启动（非多版本并行演示）
 

@@ -46,12 +46,12 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { onUnmounted, ref } from 'vue'
 import { apiFetch } from '../api'
+import { formatHour, optionalForecastNumber, useHourlyTrial } from '../lib/hourlyForecast.js'
 
 const props = defineProps({ mode: { type: String, default: 'heat' } })
 const hourCount = 24
-const hourMs = 3_600_000
 const modes = {
   heat: {
     name: '高温', extreme: '最高', comparison: '≥', disclaimer: '此结果不是官方高温预警。',
@@ -71,69 +71,19 @@ const sample = { location: '课程示例点', startAt: mode.startAt, temperature
 const location = ref(sample.location)
 const startAt = ref(sample.startAt)
 const temperatures = ref([...sample.temperatures])
-const assessment = ref(null)
-const error = ref('')
-const busy = ref(false)
-let sequence = 0
 const outcomeLabels = { REACHED: `达到${mode.name}教学阈值`, NOT_REACHED: `未达${mode.name}教学阈值`, INSUFFICIENT: '无法判断' }
-
-function formatHour(iso) {
-  return iso.slice(0, 16).replace('T', ' ')
-}
-
-const utcStart = computed(() => {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:00$/.test(startAt.value) || startAt.value.startsWith('0000')) return null
-  const iso = `${startAt.value}:00.000Z`
-  const time = Date.parse(iso)
-  if (!Number.isFinite(time) || new Date(time).toISOString() !== iso) return null
-  if (time + (hourCount - 1) * hourMs > Date.UTC(9999, 11, 31, 23)) return null
-  return time
+const { assessment, error, busy, hourLabels, invalidate, calculate } = useHourlyTrial({
+  startAt, length: hourCount, fields: [location, temperatures],
+  readBody: () => ({ location: location.value.trim(), hourly_temperature_c: temperatures.value.map(optionalForecastNumber) }),
+  post: (payload) => apiFetch(`/basic-forecast/${kind}/assessment`, { method: 'POST', body: JSON.stringify(payload) })
 })
-const hourLabels = computed(() => utcStart.value === null ? [] :
-  Array.from({ length: hourCount }, (_, i) => formatHour(new Date(utcStart.value + i * hourMs).toISOString())))
-
-function invalidate() {
-  sequence++
-  assessment.value = null
-  error.value = ''
-  busy.value = false
-}
-// A raw input event also clears results when an invalid native edit doesn't change the model.
-watch([location, startAt, temperatures], invalidate, { deep: true, flush: 'sync' })
+// The form also invalidates on raw input events that don't change a parsed value.
 onUnmounted(invalidate)
 
 function resetSample() {
   location.value = sample.location
   startAt.value = sample.startAt
   temperatures.value = [...sample.temperatures]
-}
-
-function optionalNumber(input) {
-  if (input === '' || input == null) return null
-  const value = Number(input)
-  if (!Number.isFinite(value)) throw new Error('请填写有效的气温，或在缺测时留空。')
-  return value
-}
-
-async function calculate() {
-  if (busy.value) return
-  const request = ++sequence
-  assessment.value = null
-  error.value = ''
-  busy.value = true
-  try {
-    if (utcStart.value === null) throw new Error('请输入有效的 UTC 整点，且后续 23 小时必须在日期范围内。')
-    const payload = {
-      location: location.value.trim(), start_at: `${startAt.value}:00Z`,
-      hourly_temperature_c: temperatures.value.map(optionalNumber)
-    }
-    const response = await apiFetch(`/basic-forecast/${kind}/assessment`, { method: 'POST', body: JSON.stringify(payload) })
-    if (request === sequence) assessment.value = response
-  } catch (e) {
-    if (request === sequence) error.value = e.message
-  } finally {
-    if (request === sequence) busy.value = false
-  }
 }
 </script>
 

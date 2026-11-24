@@ -22,12 +22,14 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import DroughtTrial from '../components/DroughtTrial.vue'
 import HourlyTemperatureTrial from '../components/HourlyTemperatureTrial.vue'
+import WindHailTrial from '../components/WindHailTrial.vue'
 
 const route = useRoute()
 const trials = [
   { key: 'drought', label: '干旱', to: '/basic-forecast', component: DroughtTrial },
   { key: 'heat', label: '高温', to: '/basic-forecast?hazard=heat', component: HourlyTemperatureTrial },
-  { key: 'cold', label: '低温', to: '/basic-forecast?hazard=cold', component: HourlyTemperatureTrial, props: { mode: 'cold' } }
+  { key: 'cold', label: '低温', to: '/basic-forecast?hazard=cold', component: HourlyTemperatureTrial, props: { mode: 'cold' } },
+  { key: 'wind-hail', label: '风雹', to: '/basic-forecast?hazard=wind-hail', component: WindHailTrial }
 ]
 const selectedTrial = computed(() => trials.find(trial => trial.key === route.query.hazard) ?? trials[0])
 </script>

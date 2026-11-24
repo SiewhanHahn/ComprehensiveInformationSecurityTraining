@@ -307,3 +307,10 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 
 - `POST /api/v1/basic-forecast/cold/assessment` 与高温共用 `location`、`start_at`、`hourly_temperature_c` 的 UTC 整点和 24 小时校验，以及登录、CSRF 与 `no-store` 行为。
 - 返回 `LOW_TEMPERATURE` 及窗口**最低**气温 `extreme_c`；达线条件为 `≤ 0.0 °C`，列出全部符合的 UTC 时次。缺测处理与高温一致。不判断寒潮，不持久化、不创建预警；灾种状态为 `BASIC`。
+
+
+### 风雹基础预测
+
+- `POST /api/v1/basic-forecast/wind-hail/assessment`，登录及 CSRF。提交 `location`、`start_at`（UTC 整点）和正好六个 `hourly_gust_mps`（非负有限数值或 `null`）、六个 `hourly_hail_signal`（`true`、`false` 或 `null`，不接受数字或字符串代替布尔值）。
+- 返回 `WIND_HAIL`、包含首末整点的 UTC 窗口和独立的 `gust`、`hail` 子结果。两者都有 `usable_hours`、`outcome`、`qualifying_hours`；阵风另有 `max_gust_mps`、`threshold_mps`。完整阵风窗口以 **≥ 17.0 m/s** 达线；完整雹信号窗口在至少一个 `true` 时有信号，`false` 是明确无信号。
+- 各分量任一缺测使该分量 `INSUFFICIENT`，不影响另一分量。响应 `no-store`，不会保存输入或创建预警；覆盖状态为 `BASIC`。

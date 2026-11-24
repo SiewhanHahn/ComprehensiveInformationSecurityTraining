@@ -86,6 +86,7 @@
         <router-link v-if="h.code === 'DROUGHT' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast">试算干旱风险</router-link>
         <router-link v-if="h.code === 'HEATWAVE' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast?hazard=heat">试算高温风险</router-link>
         <router-link v-if="h.code === 'LOW_TEMPERATURE' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast?hazard=cold">试算低温风险</router-link>
+        <router-link v-if="h.code === 'WIND_HAIL' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast?hazard=wind-hail">试算风雹风险</router-link>
       </div>
     </div>
 

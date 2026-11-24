@@ -43,7 +43,7 @@ def main():
         page.wait_for_url(base + '/')
 
         page.goto(base + '/hazards')
-        expect(page.get_by_text('4 类端到端实现 · 3 类基础预测', exact=False)).to_be_visible()
+        expect(page.get_by_text('4 类端到端实现 · 4 类基础预测', exact=False)).to_be_visible()
         page.get_by_role('link', name='试算干旱风险').click()
         page.wait_for_url(base + '/basic-forecast')
         forecast = page.get_by_role('region', name='干旱预测结果')
@@ -176,10 +176,66 @@ def main():
         expect(page.get_by_role('region', name='干旱试算输入')).to_be_visible()
         page.get_by_role('link', name='查看灾种覆盖').click()
         expect(page.get_by_text('标记「基础预测」的灾种可输入数据做教学试算', exact=False)).to_be_visible()
+        page.get_by_role('link', name='试算风雹风险').click()
+        page.wait_for_url(base + '/basic-forecast?hazard=wind-hail')
+        wind = page.get_by_role('region', name='风雹试算输入')
+        expect(wind.get_by_role('spinbutton')).to_have_count(6)
+        expect(wind.get_by_role('combobox')).to_have_count(6)
+        forecast = page.get_by_role('region', name='风雹预测结果')
+        gust_outcome = forecast.get_by_test_id('gust-outcome')
+        gust_peak = forecast.get_by_test_id('gust-peak')
+        hail_outcome = forecast.get_by_test_id('hail-outcome')
+        hail_qualifying = forecast.get_by_test_id('hail-qualifying')
+        calculate = wind.get_by_role('button', name='计算风雹风险')
+        trial = '/api/v1/basic-forecast/wind-hail/assessment'
+        gust = wind.get_by_label('第 6 小时阵风（m/s）')
+        hail_signal = wind.get_by_label('第 6 小时冰雹信号')
+
+        gust.fill('16.9')
+        result = compute()
+        assert result['gust']['max_gust_mps'] == 16.9 and result['hail']['usable_hours'] == 6
+        expect(gust_outcome).to_have_text('阵风未达教学阈值')
+        expect(hail_outcome).to_have_text('明确无雹信号')
+        gust.fill('17.0')
+        expect(forecast).to_have_count(0)
+        result = compute()
+        assert result['gust']['qualifying_hours'] == ['2025-07-02T02:00:00Z']
+        expect(gust_outcome).to_have_text('阵风达到教学阈值')
+        expect(gust_peak).to_have_text('17 m/s')
+        expect(hail_outcome).to_have_text('明确无雹信号')
+
+        hail_signal.select_option(label='有明确雹信号')
+        result = compute()
+        assert result['hail']['qualifying_hours'] == ['2025-07-02T02:00:00Z']
+        expect(gust_outcome).to_have_text('阵风达到教学阈值')
+        expect(hail_outcome).to_have_text('有明确雹信号')
+        expect(hail_qualifying).to_contain_text('2025-07-02 02:00')
+        if args.evidence:
+            forecast.screenshot(path=args.evidence / 'wind-hail-joint.png')
+
+        hail_signal.select_option(label='缺测')
+        result = compute()
+        assert result['hail']['usable_hours'] == 5 and result['hail']['qualifying_hours'] == []
+        expect(gust_outcome).to_have_text('阵风达到教学阈值')
+        expect(hail_outcome).to_have_text('雹信号缺测，无法判断')
+        expect(hail_qualifying).to_have_count(0)
+        if args.evidence:
+            forecast.screenshot(path=args.evidence / 'wind-hail-missing.png')
+
+        hail_signal.select_option(label='有明确雹信号')
+        gust.fill('')
+        result = compute()
+        assert result['gust']['usable_hours'] == 5 and result['gust']['max_gust_mps'] is None
+        expect(gust_outcome).to_have_text('阵风缺测，无法判断')
+        expect(gust_peak).to_have_count(0)
+        expect(hail_outcome).to_have_text('有明确雹信号')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        for region in (wind, forecast):
+            assert region.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Wind-hail trial overflows on mobile'
         assert context.request.get(base + '/api/v1/warnings').json() == warnings
         assert not outside, f'Basic forecasts attempted external requests: {outside!r}'
         browser.close()
-    print('PASS: offline drought (16 / 2 / 14 days), heat (34.9 / 35.0 °C), cold (0.1 / 0.0 °C), missing input, mobile, no warning changes')
+    print('PASS: offline drought (16 / 2 / 14 days), heat (34.9 / 35.0 °C), cold (0.1 / 0.0 °C), wind-hail (17.0 m/s; false/true/unknown independent), missing input, mobile, no warning changes')
 
 
 if __name__ == '__main__':

@@ -13,6 +13,7 @@ const requireFromFrontend = createRequire(path.join(FRONTEND, 'package.json'))
 const sfc = requireFromFrontend('@vue/compiler-sfc')
 const vueRuntime = requireFromFrontend('vue')
 const { renderToString } = requireFromFrontend('vue/server-renderer')
+const hourlyForecast = await import('../frontend/src/lib/hourlyForecast.js')
 
 function compileVueTemplate(relPath) {
   const fullPath = path.join(FRONTEND, relPath)
@@ -124,6 +125,7 @@ function instantiateSetupScript(relPath, moduleMocks = {}, props = {}) {
   const resolveMock = (spec) => {
     if (spec === 'vue') return vueMock
     if (spec in moduleMocks) return moduleMocks[spec]
+    if (spec === '../lib/hourlyForecast.js') return hourlyForecast
     if (spec.endsWith('.vue')) return stubComp
     return new Proxy({}, { get: (_, prop) => (typeof prop === 'string' ? () => {} : undefined) })
   }
@@ -1620,5 +1622,35 @@ test('low-temperature mode uses the shared form with its own API and preserves z
     trial.resetSample()
     assert.equal(trial.assessment.value, null)
     assert.equal(trial.temperatures.value[4], 0.1)
+  } finally { scope.stop() }
+})
+
+
+test('wind-hail trial sends explicit false, missing hail, and zero gust without coalescing', async () => {
+  const requests = []
+  const { exposed: trial, scope } = instantiateSetupScript('src/components/WindHailTrial.vue', {
+    '../api': { apiFetch: (url, options) => new Promise(resolve => requests.push({ url, ...options, resolve })) }
+  })
+  try {
+    trial.location.value = ' 双分量样例 '
+    trial.startAt.value = '2025-07-01T21:00'
+    trial.gusts.value[0] = 0
+    trial.gusts.value[1] = ''
+    trial.hailSignals.value[1] = null
+    trial.hailSignals.value[2] = true
+    const first = trial.calculate()
+    assert.equal(requests[0].url, '/basic-forecast/wind-hail/assessment')
+    assert.equal(requests[0].method, 'POST')
+    const payload = JSON.parse(requests[0].body)
+    assert.equal(payload.location, '双分量样例')
+    assert.equal(payload.start_at, '2025-07-01T21:00:00Z')
+    assert.equal(payload.hourly_gust_mps.length, 6)
+    assert.deepEqual(payload.hourly_gust_mps.slice(0, 2), [0, null])
+    assert.deepEqual(payload.hourly_hail_signal, [false, null, true, false, false, false])
+    assert.equal(trial.hourLabels.value[5], '2025-07-02 02:00')
+    trial.resetSample()
+    requests[0].resolve({ gust: { outcome: 'INSUFFICIENT' }, hail: { outcome: 'INSUFFICIENT' } }); await first
+    assert.equal(trial.assessment.value, null)
+    assert.deepEqual(Array.from(trial.hailSignals.value), Array(6).fill(false))
   } finally { scope.stop() }
 })

@@ -9,6 +9,7 @@ from conftest import csrf_headers
 DROUGHT_URL = '/api/v1/basic-forecast/drought/assessment'
 HEAT_URL = '/api/v1/basic-forecast/heat/assessment'
 COLD_URL = '/api/v1/basic-forecast/cold/assessment'
+WIND_HAIL_URL = '/api/v1/basic-forecast/wind-hail/assessment'
 
 
 @pytest.fixture
@@ -93,7 +94,8 @@ def test_heat_endpoint_and_basic_hazard_registration():
     from backend.app.main import app
 
     heat = next(item for item in HAZARDS if item['code'] == 'HEATWAVE')
-    assert HEAT_URL in app.openapi()['paths']
+    response = app.openapi()['paths'][HEAT_URL]['post']['responses']['200']
+    assert response['content']['application/json']['schema']['$ref'] == '#/components/schemas/HourlyTemperatureAssessment'
     assert heat['status'] == 'BASIC' and heat['thresholds'][0]['value'] == 35.0
 
 
@@ -154,13 +156,12 @@ def test_heat_trial_auth_csrf_validation_and_read_only_response(new_client, logi
 
 
 def test_cold_endpoint_and_basic_hazard_registration():
-    from backend.app.hazards import HAZARDS, hazard_summary
+    from backend.app.hazards import HAZARDS
     from backend.app.main import app
 
     cold = next(item for item in HAZARDS if item['code'] == 'LOW_TEMPERATURE')
     assert COLD_URL in app.openapi()['paths']
     assert cold['status'] == 'BASIC' and cold['thresholds'][0]['value'] == 0.0
-    assert hazard_summary() == {'total': 8, 'implemented': 4, 'basic': 3, 'framework': 1}
 
 
 @pytest.mark.parametrize(('values', 'outcome', 'minimum', 'qualified_offsets'), [
@@ -194,3 +195,69 @@ def test_cold_trial_auth_requested_mode_and_shared_validation(new_client, login)
     assert assessment['qualifying_hours'] == ['2024-02-29T17:00:00Z']
     assert client.post(COLD_URL, headers=headers, json=body | {'start_at': '2024-02-28T18:15:00Z'}).status_code == 422
     assert client.post(COLD_URL, headers=headers, json=body | {'hazard_type': 'HEATWAVE'}).status_code == 422
+
+
+def wind_hail_sample(**overrides):
+    return dict(location='课程示例点', start_at='2025-07-01T21:00:00Z',
+                hourly_gust_mps=[8, 10, 13, 15, 16.9, 17.0], hourly_hail_signal=[False] * 6) | overrides
+
+
+def test_wind_hail_endpoint_and_final_basic_hazard_registration():
+    from backend.app.hazards import HAZARDS, hazard_summary
+    from backend.app.main import app
+
+    entry = next(item for item in HAZARDS if item['code'] == 'WIND_HAIL')
+    assert WIND_HAIL_URL in app.openapi()['paths']
+    assert entry['status'] == 'BASIC' and entry['thresholds'][0]['value'] == 17.0
+    assert hazard_summary() == {'total': 8, 'implemented': 4, 'basic': 4, 'framework': 0}
+
+
+@pytest.mark.parametrize(('gusts', 'signals', 'gust_outcome', 'hail_outcome', 'gust_i', 'hail_i'), [
+    ([16.9] * 6, [False] * 6, 'NOT_REACHED', 'NOT_REACHED', [], []),
+    ([0.0] * 5 + [17.0], [False] * 6, 'REACHED', 'NOT_REACHED', [5], []),
+    ([20.0, 17.0] + [0.0] * 4, [True, False, False, True, False, False], 'REACHED', 'REACHED', [0, 1], [0, 3]),
+    ([0.0] * 5 + [16.9], [False] * 5 + [True], 'NOT_REACHED', 'REACHED', [], [5]),
+    ([None, 17.0] + [13.0] * 4, [False] * 5 + [True], 'INSUFFICIENT', 'REACHED', [], [5]),
+    ([0.0] * 5 + [17.0], [True, None] + [False] * 4, 'REACHED', 'INSUFFICIENT', [5], []),
+    ([None] * 6, [None] * 6, 'INSUFFICIENT', 'INSUFFICIENT', [], []),
+])
+def test_wind_hail_components_assess_known_and_missing_independently(basic, gusts, signals, gust_outcome, hail_outcome, gust_i, hail_i):
+    data = wind_hail_sample(hourly_gust_mps=gusts, hourly_hail_signal=signals)
+    result = basic.assess_wind_hail(basic.WindHailInput.model_validate(data))
+    start = datetime(2025, 7, 1, 21, tzinfo=UTC)
+    assert (result.hazard_type, result.start_at, result.end_at) == ('WIND_HAIL', start, datetime(2025, 7, 2, 2, tzinfo=UTC))
+    assert (result.gust.outcome, result.hail.outcome, result.gust.threshold_mps) == (gust_outcome, hail_outcome, 17.0)
+    assert result.gust.qualifying_hours == [start + timedelta(hours=i) for i in gust_i]
+    assert result.hail.qualifying_hours == [start + timedelta(hours=i) for i in hail_i]
+    assert result.gust.max_gust_mps == (None if None in gusts else max(gusts))
+    assert result.gust.usable_hours == sum(value is not None for value in gusts)
+    assert result.hail.usable_hours == sum(value is not None for value in signals)
+
+
+@pytest.mark.parametrize(('field', 'invalid'), [
+    ('start_at', '2025-07-01T21:00:00-05:00'), ('start_at', '9999-12-31T19:00:00Z'),
+    ('hourly_gust_mps', [0] * 5), ('hourly_gust_mps', [0] * 5 + [-1]),
+    ('hourly_gust_mps', [0] * 5 + [True]), ('hourly_gust_mps', [0] * 5 + [float('inf')]),
+    ('hourly_hail_signal', [False] * 7), ('hourly_hail_signal', [False] * 5 + [0]),
+    ('hourly_hail_signal', [False] * 5 + ['false']),
+])
+def test_wind_hail_rejects_bad_windows_gusts_and_non_boolean_signals(basic, field, invalid):
+    with pytest.raises(ValidationError, match=field):
+        basic.WindHailInput.model_validate(wind_hail_sample(**{field: invalid}))
+
+
+@pytest.mark.integration
+def test_wind_hail_trial_requires_auth_and_csrf_and_does_not_create_warning(new_client, login):
+    body = wind_hail_sample(hourly_hail_signal=[False] * 5 + [None])
+    assert new_client().post(WIND_HAIL_URL, json=body).status_code == 401
+    client, token = login('viewer_demo')
+    analyst, _ = login('analyst_demo')
+    before = analyst.get('/api/v1/warnings').json()
+    assert client.post(WIND_HAIL_URL, json=body).status_code == 403
+    headers = csrf_headers(token)
+    result = client.post(WIND_HAIL_URL, headers=headers, json=body)
+    assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
+    assert result.json()['gust']['outcome'] == 'REACHED'
+    assert result.json()['hail']['outcome'] == 'INSUFFICIENT'
+    assert client.post(WIND_HAIL_URL, headers=headers, json=body | {'hourly_hail_signal': [0] * 6}).status_code == 422
+    assert analyst.get('/api/v1/warnings').json() == before

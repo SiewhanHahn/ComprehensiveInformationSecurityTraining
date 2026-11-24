@@ -4,9 +4,13 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal, TypeVar
 
-from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, StringConstraints, field_validator,
+)
 
-from ..hazards import COLD_THRESHOLD_C, DROUGHT_DRY_DAY_BELOW_MM, DROUGHT_STREAK_THRESHOLD_DAYS, HEAT_THRESHOLD_C
+from ..hazards import (
+    COLD_THRESHOLD_C, DROUGHT_DRY_DAY_BELOW_MM, DROUGHT_STREAK_THRESHOLD_DAYS, HEAT_THRESHOLD_C, WIND_GUST_THRESHOLD_MPS,
+)
 
 DROUGHT_FORECAST_DAYS = 7
 RainMm = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -66,6 +70,8 @@ def assess_drought(body: DroughtInput) -> DroughtAssessment:
 
 
 TEMPERATURE_FORECAST_HOURS = 24
+WIND_HAIL_FORECAST_HOURS = 6
+ForecastOutcome = Literal["INSUFFICIENT", "REACHED", "NOT_REACHED"]
 TemperatureC = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 
 
@@ -78,39 +84,47 @@ def require_utc_hour(value):
 UTCHour = Annotated[AwareDatetime, BeforeValidator(require_utc_hour)]
 
 
+def latest_utc_start(hours: int) -> datetime:
+    return datetime.max.replace(tzinfo=UTC) - timedelta(hours=hours - 1)
+
+
+def window_outcome(complete: bool, qualifying: list[datetime]) -> ForecastOutcome:
+    return "INSUFFICIENT" if not complete else "REACHED" if qualifying else "NOT_REACHED"
+
+
 class HourlyTemperatureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     location: Location
-    start_at: UTCHour = Field(le=datetime.max.replace(tzinfo=UTC) - timedelta(hours=TEMPERATURE_FORECAST_HOURS - 1))
+    start_at: UTCHour = Field(le=latest_utc_start(TEMPERATURE_FORECAST_HOURS))
     hourly_temperature_c: tuple[TemperatureC | None, ...] = Field(
         min_length=TEMPERATURE_FORECAST_HOURS, max_length=TEMPERATURE_FORECAST_HOURS,
     )
 
 
-class HourlyTemperatureAssessment(BaseModel):
+class TemperatureAssessmentFields(BaseModel):
     location: str
     start_at: datetime
     end_at: datetime  # Inclusive UTC time of the last forecast hour.
     usable_hours: int
     threshold_c: float
     extreme_c: float | None
-    outcome: Literal["INSUFFICIENT", "REACHED", "NOT_REACHED"]
+    outcome: ForecastOutcome
     qualifying_hours: list[datetime]
 
 
-class HeatAssessment(HourlyTemperatureAssessment):
+class HourlyTemperatureAssessment(TemperatureAssessmentFields):
     hazard_type: Literal["HEATWAVE"] = "HEATWAVE"
     method: Literal["hourly-heat-threshold-v1"] = "hourly-heat-threshold-v1"
     threshold_c: float = HEAT_THRESHOLD_C
 
 
-class ColdAssessment(HourlyTemperatureAssessment):
+class ColdAssessment(TemperatureAssessmentFields):
     hazard_type: Literal["LOW_TEMPERATURE"] = "LOW_TEMPERATURE"
     method: Literal["hourly-cold-threshold-v1"] = "hourly-cold-threshold-v1"
     threshold_c: float = COLD_THRESHOLD_C
 
 
-TemperatureAssessment = TypeVar("TemperatureAssessment", bound=HourlyTemperatureAssessment)
+TemperatureAssessment = TypeVar("TemperatureAssessment", bound=TemperatureAssessmentFields)
 
 
 def _assess_temperature(
@@ -128,16 +142,71 @@ def _assess_temperature(
         end_at=body.start_at + timedelta(hours=TEMPERATURE_FORECAST_HOURS - 1),
         usable_hours=len(readings),
         extreme_c=extreme(value for _, value in readings) if complete else None,
-        outcome="INSUFFICIENT" if not complete else "REACHED" if qualifying else "NOT_REACHED",
+        outcome=window_outcome(complete, qualifying),
         qualifying_hours=qualifying,
     )
 
 
-def assess_heat(body: HourlyTemperatureInput) -> HeatAssessment:
+def assess_heat(body: HourlyTemperatureInput) -> HourlyTemperatureAssessment:
     """Compute the maximum and all hours at or above the heat teaching line."""
-    return _assess_temperature(body, HeatAssessment, max, lambda value: value >= HEAT_THRESHOLD_C)
+    return _assess_temperature(body, HourlyTemperatureAssessment, max, lambda value: value >= HEAT_THRESHOLD_C)
 
 
 def assess_cold(body: HourlyTemperatureInput) -> ColdAssessment:
     """Compute the minimum and all hours at or below the cold teaching line (not a cold-wave forecast)."""
     return _assess_temperature(body, ColdAssessment, min, lambda value: value <= COLD_THRESHOLD_C)
+
+
+GustMps = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+
+
+class WindHailInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    location: Location
+    start_at: UTCHour = Field(le=latest_utc_start(WIND_HAIL_FORECAST_HOURS))
+    hourly_gust_mps: tuple[GustMps | None, ...] = Field(
+        min_length=WIND_HAIL_FORECAST_HOURS, max_length=WIND_HAIL_FORECAST_HOURS,
+    )
+    hourly_hail_signal: tuple[StrictBool | None, ...] = Field(
+        min_length=WIND_HAIL_FORECAST_HOURS, max_length=WIND_HAIL_FORECAST_HOURS,
+    )
+
+
+class WindHailComponentAssessment(BaseModel):
+    usable_hours: int
+    outcome: ForecastOutcome
+    qualifying_hours: list[datetime]
+
+
+class GustAssessment(WindHailComponentAssessment):
+    threshold_mps: float = WIND_GUST_THRESHOLD_MPS
+    max_gust_mps: float | None
+
+
+class WindHailAssessment(BaseModel):
+    hazard_type: Literal["WIND_HAIL"] = "WIND_HAIL"
+    method: Literal["hourly-gust-and-hail-v1"] = "hourly-gust-and-hail-v1"
+    location: str
+    start_at: datetime
+    end_at: datetime
+    gust: GustAssessment
+    hail: WindHailComponentAssessment
+
+
+def assess_wind_hail(body: WindHailInput) -> WindHailAssessment:
+    """Each six-hour series must be complete to judge that component independently."""
+    gusts = [(i, value) for i, value in enumerate(body.hourly_gust_mps) if value is not None]
+    gust_complete = len(gusts) == WIND_HAIL_FORECAST_HOURS
+    gust_hours = [body.start_at + timedelta(hours=i) for i, value in gusts if value >= WIND_GUST_THRESHOLD_MPS] if gust_complete else []
+    hail_available = sum(signal is not None for signal in body.hourly_hail_signal)
+    hail_complete = hail_available == WIND_HAIL_FORECAST_HOURS
+    hail_hours = [body.start_at + timedelta(hours=i) for i, signal in enumerate(body.hourly_hail_signal) if signal is True] if hail_complete else []
+    return WindHailAssessment(
+        location=body.location,
+        start_at=body.start_at,
+        end_at=body.start_at + timedelta(hours=WIND_HAIL_FORECAST_HOURS - 1),
+        gust=GustAssessment(usable_hours=len(gusts), outcome=window_outcome(gust_complete, gust_hours),
+                            qualifying_hours=gust_hours, max_gust_mps=max(value for _, value in gusts) if gust_complete else None),
+        hail=WindHailComponentAssessment(usable_hours=hail_available, outcome=window_outcome(hail_complete, hail_hours),
+                                         qualifying_hours=hail_hours),
+    )
