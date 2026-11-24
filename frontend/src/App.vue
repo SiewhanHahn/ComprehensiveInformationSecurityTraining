@@ -211,6 +211,7 @@ const navGroups = computed(() => {
         { path: '/typhoon', label: '台风路径' },
         { path: '/snow', label: '雪灾回放' },
         { path: '/lightning', label: '雷电回放' },
+        { path: '/basic-forecast', label: '基础预测' },
         { path: '/metrics', label: '指标对比' }
       ]
     },

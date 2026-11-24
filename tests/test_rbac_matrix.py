@@ -142,7 +142,8 @@ def test_hazards_registry_contains_eight_entries(login):
 
     assert data["summary"]["total"] == 8
     assert data["summary"]["implemented"] == 4
-    assert data["summary"]["framework"] == 4
+    assert data["summary"]["basic"] == 1
+    assert data["summary"]["framework"] == 3
 
     codes = {item["code"] for item in data["hazards"]}
     assert codes == {

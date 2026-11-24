@@ -288,3 +288,9 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 - 登录后 `GET /api/v1/lightning/cases` 列出内置档案；`GET /api/v1/lightning/cases/{case_id}/assessment` 返回 `forecast` 与可空的 `verification`。六个有效时次和 LTNG 最大值仅来自原业务预报；站点摘录缺失、损坏或不匹配时仍能读取预报。未知案例返回 404。
 - `POST /api/v1/warnings/lightning` 仅分析员或管理员可调用，须带 CSRF。只接受 `case_id`、`title`、`area_text`、`impact_text`、`reasoning_text`，其他字段 422。服务器重算，缺测、未达和原发不可证分别返回 409 `PARTIAL_DATA`、`THRESHOLD_NOT_REACHED`、`SOURCE_NOT_VERIFIED`。
 - 成功时为 `THUNDERSTORM` 草稿，`fused_mm` 为 `null`。详情 `lightning_assessment` 是预报快照，不含事后核验；沿用 `0008_hazard_assessment` 和 B 的审核、发布、响应、反馈、审计。`ST_LOUIS` 在 `/warning-cities`，不扩展雨量实验 `/cities`。
+
+## C3：干旱基础预测
+
+- `POST /api/v1/basic-forecast/drought/assessment`，登录及 CSRF。提交 `location`、`start_date`（UTC 首日 `YYYY-MM-DD`）、`antecedent_dry_days`（0–3650 的整数或 `null`）、`daily_rain_mm`（正好七个非负有限数值或 `null`）。未知字段、坏日期、错误类型返回 422。
+- 返回七个 UTC 日期（含首末日）、每日日雨量与连少雨天数、第七日末 `end_dry_days`、`outcome`。日量 `< 1.00 mm` 延续；`≥ 1.00 mm` 清零。末日 `≥ 14` 天为 `REACHED`；缺测为 `INSUFFICIENT` 且不填造天数。
+- 响应 `Cache-Control: no-store`；不留存请求或结果，不生成预警、预报资料及审计事件。灾种总览标 `BASIC`，和端到端 `IMPLEMENTED` 分开计数。

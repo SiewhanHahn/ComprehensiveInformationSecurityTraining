@@ -13,7 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import get_settings
 from .db import check_database, get_redis
 from .errors import code_for, error_response
-from .routers import audit, auth, hazards, lightning, metrics, monitor, notifications, replay, snow, tasks, typhoon, users, warnings
+from .routers import audit, auth, basic_forecast, hazards, lightning, metrics, monitor, notifications, replay, snow, tasks, typhoon, users, warnings
 from .session import delete_session, read_session, session_expired
 
 settings = get_settings()
@@ -39,6 +39,7 @@ app.include_router(replay.router, prefix="/api/v1", tags=["replay"])
 app.include_router(typhoon.router, prefix="/api/v1", tags=["typhoon"])
 app.include_router(snow.router, prefix="/api/v1", tags=["snow"])
 app.include_router(lightning.router, prefix="/api/v1", tags=["lightning"])
+app.include_router(basic_forecast.router, prefix="/api/v1", tags=["basic-forecast"])
 app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
 app.include_router(warnings.router, prefix="/api/v1", tags=["warnings"])
 app.include_router(audit.router, prefix="/api/v1", tags=["audit"])

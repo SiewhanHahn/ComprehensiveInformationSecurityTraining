@@ -1,7 +1,7 @@
 """灾种注册表。
 
 统一描述选题要求的八类气象灾害。`IMPLEMENTED` 表示已完成数据接入、
-风险研判与发布闭环；`FRAMEWORK` 表示复用同一预警框架的扩展设计，
+风险研判与发布闭环；`BASIC` 为可运行的教学试算，不生成预警；`FRAMEWORK` 为扩展设计，
 阈值与数据源为规划示意，尚未接入数据。
 """
 
@@ -9,9 +9,13 @@ from __future__ import annotations
 
 HAZARD_STATUS_IMPLEMENTED = "IMPLEMENTED"
 HAZARD_STATUS_FRAMEWORK = "FRAMEWORK"
+HAZARD_STATUS_BASIC = "BASIC"
 TYPHOON_PROXIMITY_KM = 200.0  # 项目教学距离，不是业务预警标准。
 SNOW_24H_THRESHOLD_CM = 10.0  # 项目教学阈值，不是官方雪灾预警标准。
 LIGHTNING_LTNG_THRESHOLD = 0.05  # 固定教学界线，不是官方信号或概率。
+
+DROUGHT_DRY_DAY_BELOW_MM = 1.0
+DROUGHT_STREAK_THRESHOLD_DAYS = 14
 
 # 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_HAZARDS = "*"
@@ -77,7 +81,17 @@ HAZARDS: list[dict] = [
         "judgement": "比较 6 个小时的瞬时 LTNG 最大值，并列出达标时次；缺测无法判断。",
         "note": "圣路易斯归档两窗对照。LTNG 不是概率或闪电计数，站点报告不验证落点。",
     },
-    _planned("DROUGHT", "干旱", "未来 7 天少雨持续风险", "天", ["签发前历史降水", "未来 7 天降水预报"]),
+    {
+        "code": "DROUGHT",
+        "name": "干旱",
+        "status": HAZARD_STATUS_BASIC,
+        "indicator": "第 7 天末连续少雨日数",
+        "unit": "天",
+        "thresholds": [{"code": "DRY_STREAK", "label": "教学持续 ≥", "value": DROUGHT_STREAK_THRESHOLD_DAYS}],
+        "data_sources": ["人工输入：签发前连续少雨日数与未来 7 天逐日预报降水"],
+        "judgement": "日总降水 < 1.00 mm 延续少雨日数；达到 1.00 mm 则清零。",
+        "note": "示例可编辑；缺测无法判断。不创建预警，不用来推断土壤墒情或灾损。",
+    },
     _planned("HEATWAVE", "高温", "未来 24 小时最高气温", "°C", ["逐时气温预报"]),
     _planned("LOW_TEMPERATURE", "低温", "未来 24 小时最低气温", "°C", ["逐时气温预报"]),
     _planned("WIND_HAIL", "风雹", "未来 6 小时阵风及冰雹风险", "m/s / 风险提示", ["阵风预报", "明确的预报冰雹信号"]),
@@ -85,9 +99,9 @@ HAZARDS: list[dict] = [
 
 
 def hazard_summary() -> dict:
-    implemented = [h for h in HAZARDS if h["status"] == HAZARD_STATUS_IMPLEMENTED]
     return {
         "total": len(HAZARDS),
-        "implemented": len(implemented),
-        "framework": len(HAZARDS) - len(implemented),
+        "implemented": sum(h["status"] == HAZARD_STATUS_IMPLEMENTED for h in HAZARDS),
+        "basic": sum(h["status"] == HAZARD_STATUS_BASIC for h in HAZARDS),
+        "framework": sum(h["status"] == HAZARD_STATUS_FRAMEWORK for h in HAZARDS),
     }

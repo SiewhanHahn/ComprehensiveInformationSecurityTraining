@@ -4,7 +4,7 @@
       <div class="page-heading">
         <h2 class="page-title">灾种覆盖</h2>
         <span class="page-subtitle">
-          共 {{ summary.total }} 类场景 · {{ summary.implemented }} 类端到端实现 · {{ summary.framework }} 类待实现
+          共 {{ summary.total }} 类场景 · {{ summary.implemented }} 类端到端实现 · {{ summary.basic }} 类基础预测 · {{ summary.framework }} 类待实现
         </span>
       </div>
     </div>
@@ -40,10 +40,10 @@
           <h3 class="card-title">{{ h.name }}</h3>
           <span
             class="badge"
-            :class="h.status === 'IMPLEMENTED' ? 'badge--success' : 'badge--neutral'"
+            :class="statusLabels[h.status]?.color || 'badge--neutral'"
             style="margin-left: auto"
           >
-            {{ h.status === 'IMPLEMENTED' ? '端到端实现' : '待实现' }}
+            {{ statusLabels[h.status]?.text || '待实现' }}
           </span>
         </div>
         <div class="mono muted" style="margin-bottom: 10px">{{ h.code }}</div>
@@ -83,6 +83,7 @@
         <router-link v-if="h.code === 'TYPHOON' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/typhoon">查看台风历史案例</router-link>
         <router-link v-if="h.code === 'SNOW_DISASTER' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/snow">查看雪灾历史案例</router-link>
         <router-link v-if="h.code === 'THUNDERSTORM' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/lightning">查看雷电历史案例</router-link>
+        <router-link v-if="h.code === 'DROUGHT' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast">试算干旱风险</router-link>
       </div>
     </div>
 
@@ -93,7 +94,7 @@
         当前有暴雨、台风、雪灾和雷电的研判与预警流程。暴雨展示九城统计对照，另三类只做历史案例核对。
       </p>
       <p class="muted" style="margin: 0">
-        未实现项不生成预测结果；这里显示的是开发进度，不是八灾种终验。
+        干旱可输入数据做基础试算，不生成预警；待实现项不生成预测结果。这不是八灾种终验。
       </p>
     </div>
   </div>
@@ -105,7 +106,11 @@ import { apiFetch } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 
 const hazards = ref([])
-const summary = ref({ total: 8, implemented: 0, framework: 0 })
+const summary = ref({ total: 8, implemented: 0, basic: 0, framework: 0 })
+const statusLabels = {
+  IMPLEMENTED: { text: '端到端实现', color: 'badge--success' },
+  BASIC: { text: '基础预测', color: 'badge--info' }
+}
 const loading = ref(true)
 const error = ref('')
 

@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` has an end-to-end workflow and a frozen quantitative experiment. `TYPHOON`, `SNOW_DISASTER`, and `THUNDERSTORM` replay source-backed historical cases and reuse that warning workflow; four entries are not yet implemented.
+This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` has an end-to-end workflow and a frozen quantitative experiment. `TYPHOON`, `SNOW_DISASTER`, and `THUNDERSTORM` replay source-backed historical cases and reuse that warning workflow; `DROUGHT` has a non-persistent teaching calculator; three entries are not yet implemented.
 
 ## Project Structure & Module Organization
 

@@ -10,6 +10,7 @@ const routes = [
   { path: '/typhoon', component: () => import('./views/Typhoon.vue') },
   { path: '/snow', component: () => import('./views/Snow.vue') },
   { path: '/lightning', component: () => import('./views/Lightning.vue') },
+  { path: '/basic-forecast', component: () => import('./views/BasicForecast.vue') },
   { path: '/metrics', component: () => import('./views/Metrics.vue') },
   { path: '/warnings', component: () => import('./views/Warnings.vue') },
   { path: '/warnings/:publicId', component: () => import('./views/WarningDetail.vue') },

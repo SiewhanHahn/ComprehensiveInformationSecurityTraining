@@ -1514,3 +1514,37 @@ test('formal lightning detail uses only the stored lightning evidence and labels
     assert.doesNotMatch(html, /融合累计|ERA5|独立事后核验/)
   } finally { scope.stop() }
 })
+
+
+test('drought sends the edited rainfall, preserves blank as null, and invalidates older results', async () => {
+  const requests = []
+  const { exposed: d, scope } = instantiateSetupScript('src/components/DroughtTrial.vue', {
+    '../api': { apiFetch: (endpoint, opts) => new Promise((resolve, reject) =>
+      requests.push({ endpoint, payload: JSON.parse(opts.body), resolve, reject })) },
+  })
+  try {
+    const first = d.calculate()
+    assert.equal(requests[0].endpoint, '/basic-forecast/drought/assessment')
+    assert.equal(requests[0].payload.antecedent_dry_days, 9)
+    assert.equal(requests[0].payload.daily_rain_mm.length, 7)
+    requests[0].resolve({ outcome: 'REACHED', end_dry_days: 16 }); await first
+    assert.equal(d.assessment.value.end_dry_days, 16)
+
+    d.dailyRain.value[4] = 1
+    assert.equal(d.assessment.value, null)
+    const slow = d.calculate()
+    assert.equal(requests[1].payload.daily_rain_mm[4], 1)
+    d.dailyRain.value[4] = ''
+    const latest = d.calculate()
+    assert.equal(requests[2].payload.daily_rain_mm[4], null)
+    assert.equal(requests[2].payload.daily_rain_mm[0], 0)
+    requests[1].resolve({ outcome: 'NOT_REACHED', end_dry_days: 2 }); await slow
+    assert.equal(d.assessment.value, null)
+    assert.equal(d.busy.value, true)
+    requests[2].resolve({ outcome: 'INSUFFICIENT', end_dry_days: null }); await latest
+    assert.equal(d.assessment.value.outcome, 'INSUFFICIENT')
+    d.resetSample()
+    assert.equal(d.assessment.value, null)
+    assert.equal(d.dailyRain.value[4], 0)
+  } finally { scope.stop() }
+})
