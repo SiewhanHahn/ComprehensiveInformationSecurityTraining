@@ -30,7 +30,7 @@
 
 ## 交付包离线启动
 
-使用与源码 SHA 一致的镜像包，按[终验与离线启动说明](docs/offline-delivery.md)在独立 Compose 项目启动。首次构建与现场 `--no-build --pull never` 启动是两件事。
+使用与源码 SHA 一致的镜像包，按[终验与离线启动说明](docs/offline-delivery.md)在独立 Compose 项目启动。首次构建与现场 `--no-build --pull never` 启动是两件事。见[八灾种技术终验记录](docs/evidence/c-final-2026-11-24.md)；最终许可证及推送另行确认。
 
 ## 普通开发启动（非多版本并行演示）
 

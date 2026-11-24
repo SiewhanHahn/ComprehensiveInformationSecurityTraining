@@ -28,13 +28,14 @@ docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f
 QA=weather-course-qa-run1
 PORT=18589
 REV='替换成完整验收SHA'
-python tests/verify_offline_qa_target.py preflight --project "$QA" --port "$PORT" --revision "$REV" > qa-fresh.json
-docker compose -p "$QA" -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml up -d --no-build --pull never
-python tests/verify_offline_qa_target.py verify --project "$QA" --port "$PORT" --revision "$REV" \
-  --fresh-proof qa-fresh.json --image-manifest /path/to/image-identities.json > qa-target.json
+python tests/verify_offline_qa_target.py preflight --project "$QA" --port "$PORT" --revision "$REV" > "$QA-fresh.json" &&
+  docker compose -p "$QA" -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml up -d --no-build --pull never &&
+  curl -fsS --retry 5 --retry-all-errors "http://127.0.0.1:$PORT/health" > /dev/null &&
+  python tests/verify_offline_qa_target.py verify --project "$QA" --port "$PORT" --revision "$REV" \
+    --fresh-proof "$QA-fresh.json" --image-manifest /path/to/image-identities.json > "$QA-target.json"
 ```
 
-前置检查失败即停止；不要继续执行后面的命令。容器启动后等待健康检查通过再运行 `verify`。它核对回环映射、运行镜像 ID、当前 QA 专属 MySQL 卷和页面 SHA。给 `tests/browser_b_acceptance.py` 传 `--qa-proof qa-target.json --expect-revision "$REV"`，并仅为该 QA 注入账号密码与 `BCHECK_ALLOW_WRITE=1`。若使用 SSH 回环转发，由验收启动器核对实际映射后在证明中补充测试用的 `test_url`。
+这一命令链只有前置检查通过才允许启动，并在健康检查通过后运行 `verify`。失败时不要分开重跑 Compose。它核对回环映射、运行镜像 ID、当前 QA 专属 MySQL 卷和页面 SHA。给 `tests/browser_b_acceptance.py` 传 `--qa-proof "$QA-target.json" --expect-revision "$REV"`，并仅为该 QA 注入账号密码与 `BCHECK_ALLOW_WRITE=1`。若使用 SSH 回环转发，由验收启动器核对实际映射后在证明中补充测试用的 `test_url`。
 
 ## 4. 演示与验收
 
