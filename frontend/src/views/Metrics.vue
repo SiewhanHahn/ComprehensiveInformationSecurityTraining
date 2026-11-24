@@ -7,6 +7,16 @@
       </div>
     </div>
 
+    <section class="card" aria-labelledby="m-source">
+      <div class="card-head"><h3 id="m-source" class="card-title">数据来源与时间</h3><span class="card-subtitle">九城冻结实验 · 历史归档，非实时预报</span></div>
+      <dl class="source-facts">
+        <div><dt>研究区间（UTC）</dt><dd>2024-02-01 至 2026-09-30</dd></div>
+        <div><dt>按年划分</dt><dd>2024 训练 / 2025 验证 / 2026 测试</dd></div>
+        <div><dt>原始获取日期</dt><dd>未记录；实验截止日不是下载日，也不是数据源的最新日期。</dd></div>
+        <div><dt>四路预报</dt><dd>Open-Meteo Previous Runs · 提前 24 小时的预报，按 UTC 日累计（mm）。</dd></div>
+        <div><dt>事后核验</dt><dd>Open-Meteo 历史归档 / ERA5 再分析。仅作代理标签，不是站点实测，不参与融合。</dd></div>
+      </dl>
+    </section>
     <div class="card">
       <div class="field" style="max-width: 420px">
         <label class="field-label" for="m-version">实验版本</label>
@@ -70,6 +80,8 @@
             <tr><th scope="col">指标</th><th scope="col">基线 ECMWF</th><th scope="col">四模式融合</th></tr>
           </thead>
           <tbody>
+            <tr><td>误报次数</td><td>{{ detail.baseline.fp }}</td><td class="cell-accent">{{ detail.fusion.fp }}</td></tr>
+            <tr><td>漏报次数</td><td>{{ detail.baseline.fn }}</td><td class="cell-accent">{{ detail.fusion.fn }}</td></tr>
             <tr><td>精确率</td><td>{{ detail.baseline.precision }}</td><td class="cell-accent">{{ detail.fusion.precision }}</td></tr>
             <tr><td>召回率</td><td>{{ detail.baseline.recall }}</td><td class="cell-accent">{{ detail.fusion.recall }}</td></tr>
             <tr><td>误报率</td><td>{{ detail.baseline.fpr }}</td><td class="cell-accent">{{ detail.fusion.fpr }}</td></tr>
@@ -79,6 +91,7 @@
         </table>
       </div>
 
+      <p v-if="detail.threshold_mm === 10" class="muted">10 mm/24h 为中雨阈值。这里比较的是同一批城市日样本的 F1，不是暴雨预测准确率。</p>
       <p v-if="detail.threshold_mm === 25" class="muted" style="margin-top: 12px">
         25mm 为探索性结果：融合召回率下降、精确率上升，不声称所有等级均提升。
       </p>
@@ -130,3 +143,9 @@ async function loadDetail() {
   }
 }
 </script>
+
+<style scoped>
+.source-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 14px 24px; margin: 12px 0 0; }
+.source-facts dt { font-size: .85em; color: var(--color-text-muted); }
+.source-facts dd { margin: 4px 0 0; }
+</style>

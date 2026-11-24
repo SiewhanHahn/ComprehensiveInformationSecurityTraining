@@ -113,7 +113,9 @@
         </div>
 
         <p class="muted" style="margin-top: 12px">
-          缺任一模式时显示 PARTIAL，不生成正式预警；教学风险等级不代表国家气象台官方预警信号。
+          同一城市、同一 UTC 日、提前 24 小时：
+          <template v-if="result.fused_mm != null">({{ result.models.map(m => m.precipitation_mm).join(' + ') }}) ÷ 4 = {{ result.fused_mm }} mm。</template>
+          ERA5 只用于事后核验，不是第五路输入。缺任一模式时显示 PARTIAL，不生成正式预警；教学风险等级不代表国家气象台官方预警信号。
         </p>
 
         <div
@@ -132,6 +134,7 @@
         </div>
       </div>
     </Transition>
+    <ReplayTrial v-if="auth.hasAnyRole('ANALYST', 'ADMIN')" />
   </div>
 </template>
 
@@ -142,6 +145,7 @@ import { auth } from '../auth'
 import StatusBadge from '../components/StatusBadge.vue'
 import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
 import ChartPanel from '../components/ChartPanel.vue'
+import ReplayTrial from '../components/ReplayTrial.vue'
 import { modelBar, modelRadar } from '../charts/options'
 
 const cities = ref([])

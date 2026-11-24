@@ -36,6 +36,10 @@ def get_threshold(db: Session, threshold_code: str) -> WarningThreshold | None:
     )
 
 
+def mean_mm(values: list[Decimal]) -> Decimal:
+    return (sum(values, Decimal(0)) / len(values)).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+
+
 def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code: str) -> dict | None:
     if city_code not in CITIES:
         return None
@@ -75,13 +79,7 @@ def compute_replay(db: Session, city_code: str, valid_date: date, threshold_code
 
     complete = len(present) == len(DEFAULT_MODELS)
     quant = Decimal("0.001")
-    fused_dec = (
-        (sum((r.precipitation_mm for r in present), Decimal("0")) / Decimal(len(present))).quantize(
-            quant, rounding=ROUND_HALF_UP
-        )
-        if present
-        else Decimal("0.000")
-    )
+    fused_dec = mean_mm([r.precipitation_mm for r in present]) if present else Decimal('0.000')
     # 判定与展示用同一精度：全程用 Decimal HALF_UP 避免二进制浮点偶舍入与阈值边界偏差
     ecmwf = by_model.get("ecmwf_ifs025")
     ecmwf_usable = ecmwf is not None and ecmwf.precipitation_mm is not None and ecmwf.is_complete

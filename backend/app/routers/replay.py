@@ -1,13 +1,18 @@
+import json
 from datetime import date
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from ..cities import CITIES
 from ..db import get_db
-from ..deps import get_current_user
+from ..deps import CurrentUser, get_current_user, require_roles
 from ..schemas import CityOut, ReplayOut
-from ..services.replay import compute_replay
+from ..services.audit import audit_context
+from ..services.replay import compute_replay, get_threshold
+from ..services.trial import TrialError, calculate_trial
+from ..errors import error_response
 
 router = APIRouter()
 
@@ -41,3 +46,38 @@ def replay(
         data_status=result["data_status"],
         source=result["source"],
     )
+
+
+async def read_trial_file(request: Request):
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > 256 * 1024:
+            raise HTTPException(413, 'TRIAL_TOO_LARGE')
+        data.extend(chunk)
+    try:
+        return json.loads(data.decode('utf-8-sig'), parse_float=Decimal)
+    except (ValueError, RecursionError, ArithmeticError):
+        raise HTTPException(422, 'TRIAL_INVALID_JSON') from None
+
+
+@router.post('/replay/trial')
+def trial(
+    request: Request,
+    response: Response,
+    threshold_code: str,
+    current: CurrentUser = Depends(require_roles('ANALYST', 'ADMIN')),
+    dataset=Depends(read_trial_file),
+    db: Session = Depends(get_db),
+):
+    threshold = get_threshold(db, threshold_code)
+    if threshold is None:
+        raise HTTPException(404, 'NOT_FOUND')
+    try:
+        rows = calculate_trial(dataset, threshold.threshold_mm)
+    except TrialError as exc:
+        return error_response(request, 422, 'VALIDATION_ERROR', message=str(exc))
+    audit_context(request, db, current).record('REPLAY_TRIAL', resource_type='replay',
+                                              reason=f'threshold={threshold.code}; rows={len(rows)}')
+    db.commit()
+    response.headers['Cache-Control'] = 'no-store'
+    return {'threshold_mm': float(threshold.threshold_mm), 'rows': rows}

@@ -6,6 +6,10 @@
 - 前端：Vue 3 + Vite，Nginx 反代 `/api` 到后端
 - 编排：Docker Compose，一条命令启动 frontend / api / mysql / redis
 
+**终期范围已更新：** 当前代码中的“1 类端到端 + 7 类框架”是旧演示的能力边界，不是最终目标。按教师反馈，C 需要四类重点实现、四类具备基本预测功能。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
+
+**已有暴雨演示（当前工作区，未打 C 标签）：** 先看「指标对比」的数据来源和实验截止日，再到「历史回放」手算长沙、切换南京文件试算。九城冻结指标与外部文件相互独立。见 [演示步骤及离线启动](docs/user-guide-v1.md#defense) 和 [验收记录](docs/phase-c-acceptance.md)。
+
 ## 一键启动
 
 ```bash

@@ -262,3 +262,17 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 - `publish` / `withdraw` / `cancel` 接受可选 JSON `{"reason":"…"}`，原因最多 500 字；旧无请求体调用兼容。`GET /audit-logs` 返回可空 `resource_version`（旧行可为空），变更草稿后递增内容版本。请求编号由服务端生成。
 
 - 待审核预警的列表和详情返回不透明的 `review_token`。`POST /warnings/{public_id}/review` 必须回传审核员在屏幕上核对的 token，连同 `decision` 与 `comment` 提交；不应在点击时另取最新 token 代替所见版本。锁内核对内容版本及提交轮次，旧轮次、无 token 的有效审核请求返回 `409 REVIEW_CHANGED`，须重新加载核对，不自动重试。未改稿重新提交也生成新轮次；已驳回的详情只向创建者附带 `rejection_comment`。
+
+<a id="trial"></a>
+
+## 外部城市试算（C，无迁移）
+
+`POST /api/v1/replay/trial?threshold_code=HEAVY`。需要 ANALYST 或 ADMIN 的会话及 `X-CSRF-Token`；`threshold_code` 在查询串（MODERATE / HEAVY / STORM），请求体**直接为文件内容**，不包 `dataset`、不用 multipart。`Content-Type: application/json`。
+
+```json
+{"schema_version":1,"lead_hours":24,"rows":[{"city":"南京","valid_date":"2026-10-03","models":{"ecmwf_ifs025":2.1,"gfs_global":5.2,"icon_global":3.3,"gem_global":13.0},"reference_mm":5.4,"reference_type":"ERA5_PROXY"}]}
+```
+
+- UTF-8，≤256 KiB，1–200 条；城市名不受内置九城限制，UTC 日期必须为 `YYYY-MM-DD`；同城市同日期不重复，未知列整批拒绝。四路必须齐全，数值 0–2000 mm、最多三位小数，不接受数字字符串。可省略两列参考值，或同时给出数值和 `ERA5_PROXY` / `STATION_OBS`。
+- 200 返回 `threshold_mm` 和原顺序的 `rows`：城市/日期、四路 `models`、ECMWF `baseline_mm`、`fused_mm` 及两者的 `*_hit`、可空的 `reference_mm/reference_type/reference_hit`。等权均值用 Decimal 半入到三位小数后按 `>=` 判定；参考值不参与计算。响应禁止缓存。
+- 未登录 401；角色或 CSRF 不合规 403；阈值不存在 404；字节数超限 413；格式或行不合法 422（`error.message` 给出行和字段）。试算不写预报、观测、数据集、预警或实验结果；成功只记录 `REPLAY_TRIAL` 元数据审计。

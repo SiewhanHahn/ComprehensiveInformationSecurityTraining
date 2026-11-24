@@ -1,90 +1,33 @@
-# AGENTS.md
+# Repository Guidelines
 
-This file provides guidance to agents (Codex / Claude Code) working in this repository.
+This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` is the only end-to-end hazard; the other seven are framework entries, not validated implementations.
 
-## Current scope
+## Project Structure & Module Organization
 
-A runnable B/S course project: **multi-source precipitation fusion + warning approval/publish/feedback/audit**, deployed with Docker Compose (FastAPI + Vue 3 + MySQL 8.4 + Redis 8.10.2) on an Ubuntu 26.04 VM.
+- `backend/app/` contains the FastAPI app, with endpoints in `routers/`, business logic in `services/`, and the worker in `scheduler.py`. Alembic revisions live in `backend/migrations/versions/`; research scripts live directly under `backend/`.
+- `frontend/src/` contains the Vue 3 app: routed pages in `views/`, reusable UI in `components/`, and map assets in `assets/`.
+- `tests/` holds Python, frontend, and manual checks. `data/sample/` contains offline replay input, `data/results/` holds frozen metrics, and `docs/` documents architecture, API contracts, and deployment.
 
-Implemented:
+## Build, Test, and Development Commands
 
-- Backend: login/RBAC/server-side session (Redis), CSRF, warning state machine, feedback, audit log, replay, frozen metrics, hazard registry, monitor snapshot, subscriptions + in-app notifications, standalone scheduled scan, response tasks with deadlines and overdue escalation.
-- Frontend: login, dashboard, monitor, replay, metrics, warnings, warning detail (closed-loop stepper), review workbench, hazard matrix, notification centre, task board, audit.
-- Data: nine cities, four forecast models (ECMWF/GFS/ICON/GEM), ERA5 proxy labels, offline sample for replay.
-- Tests: unit + integration (opt-in) + manual shell scripts.
+- Copy `.env.example` to `.env` and replace the placeholders. From the root, run `docker compose up --build -d` to build and start the stack, then `docker compose ps` to check it. Open `http://127.0.0.1:8080`.
+- Run `docker compose run --rm migrate` to apply pending migrations. For a standalone API, configure MySQL and Redis as described in `CLAUDE.md`, then run `python -m uvicorn backend.app.main:app --reload`.
+- In `frontend/`, run `npm ci` to install locked dependencies, `npm run dev` for Vite (proxies API calls to `localhost:8000`), and `npm run build` for production assets.
 
-Scope boundary: **1 hazard end-to-end (RAINSTORM) + 7 hazard framework entries**. See `docs/requirements-v1.md` §1.4 and `docs/roadmap-v1.md`. Do not describe the seven framework hazards as implemented or quantitatively validated.
+## Coding Style & Naming Conventions
 
-## Commands (from the project root on the Ubuntu VM)
+Use four spaces and `snake_case` in Python. Use two spaces in Vue/JavaScript, `PascalCase.vue` for components, and `camelCase` for JavaScript identifiers. Match surrounding code; no lint or formatter command is configured.
 
-```bash
-cp .env.example .env        # fill placeholders first
-docker compose up --build -d
-docker compose ps
-# frontend: http://127.0.0.1:8080  (published on loopback only)
-```
+## Testing Guidelines
 
-Rebuild after source changes:
+- Run backend units with `docker compose exec -T api python -m pytest -q -p no:cacheprovider /app/tests/test_units.py`. Name Python tests `test_*.py` and functions `test_*`.
+- Mark service-dependent pytest tests `integration`. Enable them with `RUN_INTEGRATION=1` against development MySQL/Redis with seeded demo accounts; see `CLAUDE.md` for the full command. No coverage threshold is configured.
+- After installing frontend dependencies, run `node --test tests/test_frontend_review.mjs` from the root for Vue regression checks.
 
-```bash
-docker compose build api frontend scheduler
-docker compose up -d api frontend scheduler
-```
+## Commit & Pull Request Guidelines
 
-Migrations (A 收尾含 `0004`；B 档第一刀含 `0005`):
+Use imperative subjects such as `fix(backend): ...`, `docs: ...`, or `test: ...`. In PRs, explain the change, link relevant issues, list checks run, and flag migrations or API changes. Include screenshots for visible UI changes.
 
-```bash
-docker compose run --rm migrate
-```
+## Security & Data Hygiene
 
-Tests inside the API container:
-
-```bash
-docker compose exec -T api python -m pytest -q -p no:cacheprovider /app/tests/test_units.py
-set -a; . ./.env; set +a
-docker compose exec -T \
-  -e RUN_INTEGRATION=1 \
-  -e DEMO_ADMIN_PASSWORD -e DEMO_ANALYST_PASSWORD \
-  -e DEMO_REVIEWER_PASSWORD -e DEMO_VIEWER_PASSWORD \
-  api python -m pytest -q -p no:cacheprovider /app/tests
-```
-
-Research scripts (may access external data on cache misses and write under `data/`):
-
-```bash
-python backend/fusion.py --site 武汉 --lat 30.5928 --lon 114.3055 --start 2024-02-01 --end 2026-09-30 --threshold 25
-python backend/pooled.py --out data/results/pooled.json
-python backend/summarize.py
-```
-
-`docs/data-and-method.md` lists coverage, skill-probe, single-source, and GHCN commands.
-
-Do **not** use `docker compose down -v` (it deletes the MySQL volume).
-
-## Architecture
-
-- `backend/app/main.py` — FastAPI app, routers, request-id middleware, CSRF middleware, health endpoints.
-- `backend/app/routers/` — `auth`, `replay`, `metrics`, `warnings`, `notifications` (notifications + subscriptions), `tasks` (response tasks), `audit`, `hazards`, `monitor`, `users` (ADMIN-only user/role management).
-- Errors: routers raise `HTTPException(detail="UPPER_SNAKE_CODE")`; global handlers in `main.py` emit `{"error": {"code", "message", "request_id"}}` for all endpoints (422 → `VALIDATION_ERROR`).
-- `backend/app/services/` — `replay.compute_replay`, `metrics` (mtime-cached `pooled.json`), `audit`, `subscriptions`, `notifications`, `tasks` (response tasks + overdue escalation).
-- `backend/app/scheduler.py` — `run_scan` (pure, testable) + the loop behind the `scheduler` compose service.
-- `backend/app/models.py` — 19 tables（`0005` 新增订阅、通知、响应任务）；`backend/migrations/versions/` — Alembic `0001`~`0005`。
-- `backend/app/hazards.py` — eight-hazard registry (`IMPLEMENTED` / `FRAMEWORK`).
-- `frontend/src/` — Vue 3 SPA. Shared: `ui/labels.js`, `ui/useCountUp.js`, `components/{StatusBadge,EmptyState,PaginationBar,TableSkeleton,ClosedLoopStepper}.vue`.
-- `frontend/src/views/` — Dashboard, Monitor, Replay, Metrics, Warnings, WarningDetail, Review, Tasks, Hazards, Notifications, Audit, Users, Login, NotFound.
-- `frontend/src/api.js` — fetch wrapper with CSRF, Chinese error mapping, 60s GET cache for `/cities` and `/metrics/experiments*`, in-flight dedupe.
-
-## Experimental constraints (must preserve)
-
-- Fixed 24-hour lead; forecasts use `previous_day1`.
-- ERA5 is a **proxy label**, not a station measurement.
-- Years 2024/2025/2026 = train/validation/test; test evaluated once.
-- Main comparison: ECMWF IFS baseline vs equal-weight ECMWF/GFS/ICON/GEM ensemble on identical samples.
-- GHCN station observations are an independent, coverage-limited cross-check, not a replacement label.
-
-## Security and repository hygiene
-
-- Never commit `.env`, real passwords, SSH keys, `node_modules/`, `frontend/dist/`, or `data/cache/`.
-- Demo passwords come from `.env` (`DEMO_*_PASSWORD`), never hard-coded.
-- Audit logs are append-only through business APIs.
-- Versioning: `main` holds verified versions; development happens on `phase-a` / `phase-b` / `phase-c`; see `docs/roadmap-v1.md` for tags and how to choose a version.
+Keep `.env`, credentials, `node_modules/`, `frontend/dist/`, and `data/cache/` out of Git. Avoid `docker compose down -v`; it deletes the MySQL volume. Preserve the fixed 24-hour forecast lead and treat ERA5 as a proxy label, not station truth. Keep the 2024/2025/2026 train/validation/test split; see `docs/data-and-method.md`.

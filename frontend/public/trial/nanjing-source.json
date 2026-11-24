@@ -1,0 +1,21 @@
+{
+  "attribution": "Weather data by Open-Meteo; ECMWF, NOAA GFS, DWD ICON, ECCC GEM; ERA5 (Copernicus/ECMWF).",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "city": "南京",
+  "latitude": 32.06,
+  "longitude": 118.79,
+  "retrieved_at_utc": "2026-11-24T02:01:41+00:00",
+  "hours_per_day": 24,
+  "unit": "mm",
+  "aggregation": "UTC day sum of 24 hourly values per source; no imputation.",
+  "queries": [
+    {
+      "url": "https://previous-runs-api.open-meteo.com/v1/forecast?latitude=32.06&longitude=118.79&timezone=GMT&start_date=2026-10-01&end_date=2026-10-07&hourly=precipitation_previous_day1&models=ecmwf_ifs025%2Cgfs_global%2Cicon_global%2Cgem_global",
+      "sha256_response": "611b30563e7261f964122016ed02b7199b04b1f52c67dbc68f67b42013b60450"
+    },
+    {
+      "url": "https://archive-api.open-meteo.com/v1/archive?latitude=32.06&longitude=118.79&timezone=GMT&start_date=2026-10-01&end_date=2026-10-07&hourly=precipitation&models=era5",
+      "sha256_response": "3043ee70d7916ef475dbc873e762b2e6351a8ae458d75a950f5d82afdc9ad81c"
+    }
+  ]
+}

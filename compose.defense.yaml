@@ -1,0 +1,14 @@
+# Separate demo project and DB volume. Only static Nginx needs a publishable bridge;
+# the API, scheduler, MySQL and Redis have no route to the Internet.
+services:
+  frontend:
+    networks:
+      default: {}
+      entrance:
+        gw_priority: 1
+    ports: !override
+      - "127.0.0.1:${DEFENSE_PORT:-18080}:80"
+networks:
+  default:
+    internal: true
+  entrance: {}

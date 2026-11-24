@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "lead_hours": 24,
+  "rows": [
+    {
+      "city": "南京",
+      "valid_date": "2026-10-01",
+      "models": {
+        "ecmwf_ifs025": 0.0,
+        "gfs_global": 0.0,
+        "icon_global": 0.4,
+        "gem_global": 0.0
+      },
+      "reference_mm": 2.8,
+      "reference_type": "ERA5_PROXY"
+    },
+    {
+      "city": "南京",
+      "valid_date": "2026-10-02",
+      "models": {
+        "ecmwf_ifs025": 0.6,
+        "gfs_global": 0.0,
+        "icon_global": 0.0,
+        "gem_global": 0.8
+      },
+      "reference_mm": 5.9,
+      "reference_type": "ERA5_PROXY"
+    },
+    {
+      "city": "南京",
+      "valid_date": "2026-10-03",
+      "models": {
+        "ecmwf_ifs025": 2.1,
+        "gfs_global": 5.2,
+        "icon_global": 3.3,
+        "gem_global": 13.0
+      },
+      "reference_mm": 5.4,
+      "reference_type": "ERA5_PROXY"
+    },
+    {
+      "city": "南京",
+      "valid_date": "2026-10-04",
+      "models": {
+        "ecmwf_ifs025": 0.0,
+        "gfs_global": 0.0,
+        "icon_global": 0.0,
+        "gem_global": 0.2
+      },
+      "reference_mm": 0.0,
+      "reference_type": "ERA5_PROXY"
+    },
+    {
+      "city": "南京",
+      "valid_date": "2026-10-05",
+      "models": {
+        "ecmwf_ifs025": 0.0,
+        "gfs_global": 0.0,
+        "icon_global": 0.0,
+        "gem_global": 0.0
+      },
+      "reference_mm": 0.0,
+      "reference_type": "ERA5_PROXY"
+    },
+    {
+      "city": "南京",
+      "valid_date": "2026-10-06",
+      "models": {
+        "ecmwf_ifs025": 0.0,
+        "gfs_global": 0.0,
+        "icon_global": 0.0,
+        "gem_global": 0.0
+      },
+      "reference_mm": 0.0,
+      "reference_type": "ERA5_PROXY"
+    },
+    {
+      "city": "南京",
+      "valid_date": "2026-10-07",
+      "models": {
+        "ecmwf_ifs025": 0.0,
+        "gfs_global": 0.0,
+        "icon_global": 0.0,
+        "gem_global": 0.0
+      },
+      "reference_mm": 0.0,
+      "reference_type": "ERA5_PROXY"
+    }
+  ]
+}

@@ -8,6 +8,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 MESSAGES: dict[str, str] = {
+    'TRIAL_TOO_LARGE': '文件超过 256 KiB，请拆分批次',
+    'TRIAL_INVALID_JSON': '文件不是有效的 UTF-8 JSON，请使用模板',
     # 通用
     "INVALID_PARAMETER": "请求参数不合法",
     "VALIDATION_ERROR": "请求参数不合法（请检查输入）",
@@ -59,13 +61,13 @@ def code_for(status_code: int, detail: object) -> str:
     return _STATUS_CODES.get(status_code, "HTTP_ERROR")
 
 
-def error_response(request: Request, status_code: int, code: str, headers: dict | None = None) -> JSONResponse:
+def error_response(request: Request, status_code: int, code: str, headers: dict | None = None, *, message: str | None = None) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content={
             "error": {
                 "code": code,
-                "message": MESSAGES.get(code, MESSAGES["HTTP_ERROR"]),
+                "message": message or MESSAGES.get(code, MESSAGES["HTTP_ERROR"]),
                 "request_id": getattr(request.state, "request_id", None),
             }
         },

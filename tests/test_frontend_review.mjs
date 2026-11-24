@@ -364,6 +364,7 @@ test('Replay.vue hides draft link without risk_level & uses result threshold; Wa
     })
     app.component('router-link', { props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>' })
     app.component('StatusBadge', stub)
+    app.component('ReplayTrial', stub)
     app.component('ClosedLoopStepper', stub)
     app.component('ChartPanel', stub)
     return app
@@ -1233,4 +1234,48 @@ test('metrics ignores late detail responses, errors and loading changes', async 
       calls[1].resolve({version:'25mm'}); await current; assert.equal(m.detail.value.version,'25mm')
     } finally {scope.stop()}
   }
+})
+
+test('metrics presents dated archive provenance and actual false-alarm/miss counts', async () => {
+  const render = compileVueTemplate('src/views/Metrics.vue')
+  const pooled = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/results/pooled.json'), 'utf8'))
+  for (const exp of pooled) {
+    const bundle = key => ({ ...exp.pooled[key], ...exp.pooled[key].confusion })
+    const detail = { ...exp, version: 'test', n: exp.pooled.n, threshold_mm: exp.threshold_mm_24h,
+      bootstrap_interval: [0, 1], baseline: bundle('baseline'), fusion: bundle('fusion') }
+    const app = vueRuntime.createSSRApp({ render, data: () => ({ detail, experiments: [], error: '', loading: false, loadDetail() {}, radarOption: null, version: 'test' }) })
+    app.component('ChartPanel', { template: '<div />' })
+    const html = await renderToString(app)
+    for (const label of ['2024-02-01', '2026-09-30', '未记录', 'Open-Meteo', '误报次数', '漏报次数']) assert.ok(html.includes(label), label)
+    for (const k of ['fp', 'fn']) for (const b of ['baseline', 'fusion']) assert.ok(html.includes(`>${detail[b][k]}</td>`))
+    if (detail.threshold_mm === 25) assert.ok(html.includes('召回率下降'))
+  }
+})
+
+
+test('trial fixtures and file controls keep external samples separate and drop stale responses', async () => {
+  const dir = path.join(FRONTEND, 'public/trial')
+  const fixture = name => JSON.parse(fs.readFileSync(path.join(dir, name + '.json'), 'utf8'))
+  const data = fixture('nanjing'), source = fixture('nanjing-source')
+  assert.equal(data.rows.length, 7)
+  for (const [i, row] of data.rows.entries()) {
+    assert.equal(row.city, '南京'); assert.equal(row.valid_date, `2026-10-0${i + 1}`)
+    assert.equal(row.reference_type, 'ERA5_PROXY'); assert.equal(Object.keys(row.models).length, 4)
+  }
+  assert.equal(source.hours_per_day, 24); assert.equal(source.queries.length, 2); assert.ok(source.retrieved_at_utc)
+  assert.equal(fixture('missing-model').rows[0].models.gem_global, undefined)
+  assert.equal(fixture('template').rows.length, 1)
+  const payload = new TextEncoder().encode(JSON.stringify(data)).buffer
+  let complete
+  const { exposed: s, scope } = instantiateSetupScript('src/components/ReplayTrial.vue', { '../api': { apiFetch(url, options) {
+    assert.equal(url, '/replay/trial?threshold_code=HEAVY'); assert.equal(options.method, 'POST'); assert.equal(options.body, payload)
+    return new Promise(r => { complete = r })
+  } } })
+  try {
+    s.selectFile({ size: 300000 }); assert.ok(s.error.value); assert.equal(s.file.value, null)
+    s.selectFile({ size: payload.byteLength, arrayBuffer: async () => payload })
+    const pending = s.run(); await Promise.resolve(); assert.ok(s.busy.value)
+    s.selectFile(null); complete({ rows: data.rows }); await pending
+    assert.equal(s.result.value, null); assert.equal(s.busy.value, false)
+  } finally { scope.stop() }
 })

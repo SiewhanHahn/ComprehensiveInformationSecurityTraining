@@ -29,6 +29,7 @@ export const TASK_STATUS = {
 }
 
 export const AUDIT_ACTION = {
+  REPLAY_TRIAL: meta('外部降水试算', 'info'),
   LOGIN_SUCCESS: meta('登录成功', 'success'),
   LOGIN_FAILED: meta('登录失败', 'danger'),
   LOGOUT: meta('退出登录', 'neutral'),

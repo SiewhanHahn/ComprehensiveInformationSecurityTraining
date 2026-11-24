@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "lead_hours": 24,
+  "rows": [{"city": "模板示意（非实测）", "valid_date": "2026-10-01", "models": {"ecmwf_ifs025": 10, "gfs_global": 12, "icon_global": 8, "gem_global": 10}}]
+}
