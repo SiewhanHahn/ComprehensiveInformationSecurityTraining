@@ -6,7 +6,8 @@
 2. **B 基线（using-git-worktrees / executing-plans / test-driven-development）**：在独立 `worktree-phase-b-important-fixes` 分支恢复两条测试边界，复核 9 Important、13 Minor；核对真实 MySQL 迁移及回退范围、UI 与 API 契约。不把 C 开发或未跟踪的中期材料带入 B。
 3. **B 验收（requesting-code-review / verification-before-completion）**：在同一个本地候选提交的干净源码上进行复审、全量 pytest、前端测试和生产构建，按流程验证并记录候选 SHA、迁移和已知限制。在 B 候选代码的 `docs/b-closeout.md` 保存处置表。
 4. **C 开发**：从已验收 B 基线接回已有暴雨工作并回归，依次完成三类重点真实案例和四类基本预测。共用输入、时段、风险解释及正式预警流程。旧 C 的 139/14 检查不作为新版本成绩。
-5. **最终验收（webapp-testing / verification-before-completion / finishing-a-development-branch）**：从干净交付包启动，验八类正常、边界和缺测；在备好镜像及数据后离线演示。报告/说明使用课程 Word 模板，演示使用 PPT；结果以同一版本的新证据为准。
-6. **最终推送门槛**：负责人先选 LICENSE，区分代码、数据与素材授权；排除凭据、缓存、卷；核对远端提交与交付包，未经决定不做最终推送。
+5. **子项推送**：每个子项在同一候选提交通过验收后，固定 SHA，记录证据，向 `origin/integration/phase-c` 做一次阶段性推送；有该子项的验收标签时一并推送。确认远端引用指向预期提交，不强推、不自动合并 `main`。阶段性推送不等于最终发布，也不等待开源许可证。
+6. **最终验收（webapp-testing / verification-before-completion / finishing-a-development-branch）**：从干净交付包启动，验八类正常、边界和缺测；在备好镜像及数据后离线演示。报告/说明使用课程 Word 模板，演示使用 PPT；结果以同一版本的新证据为准。
+7. **最终推送门槛**：终验通过、准备最终交付推送时，通知负责人选开源许可证；在收到选择前停在最终推送之前。选定后添加根目录 `LICENSE`，在 README 区分代码、数据与素材授权；排除凭据、缓存、卷，推送后核对远端提交、许可证与交付包。
 
 B 阶段已按同一提交通过验收：[最终基线与实测证据](../../b-final-acceptance.md)。该标记不代表 C 已交付。

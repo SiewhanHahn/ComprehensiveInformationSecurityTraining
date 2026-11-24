@@ -41,7 +41,7 @@ docker compose ps
 
 | 目的 | 取用版本 |
 |---|---|
-| C2 雪灾集成演示（含暴雨、台风） | `checkpoint/c2-snow`（本地验收标签，不是八灾种终版） |
+| C2 雪灾集成演示（含暴雨、台风） | `checkpoint/c2-snow`（验收标签，不是八灾种终版） |
 | C1 暴雨集成演示 | `checkpoint/c1-rain`（本地验收标签，不是八灾种终版） |
 | B 最终基线 | `baseline/b-final-2026-11-24`，提交 `be079a3` |
 | 历史版本 | `v0.3.0-phase-b` 和 `v0.2.x-phase-a`，不含 C1 |

@@ -28,6 +28,10 @@ Use four spaces and `snake_case` in Python. Use two spaces in Vue/JavaScript, `P
 
 Use imperative subjects such as `fix(backend): ...`, `docs: ...`, or `test: ...`. In PRs, explain the change, link relevant issues, list checks run, and flag migrations or API changes. Include screenshots for visible UI changes.
 
+## Checkpoint Delivery
+
+Push each accepted sub-item once to `origin/integration/phase-c` with its checkpoint tag if present. Verify the remote refs; do not force-push or merge `main` automatically. Before the final delivery push, notify the project owner to choose the code license.
+
 ## Security & Data Hygiene
 
 Keep `.env`, credentials, `node_modules/`, `frontend/dist/`, and `data/cache/` out of Git. Avoid `docker compose down -v`; it deletes the MySQL volume. Preserve the fixed 24-hour forecast lead and treat ERA5 as a proxy label, not station truth. Keep the 2024/2025/2026 train/validation/test split; see `docs/data-and-method.md`.
