@@ -14,7 +14,7 @@
 
 **雪灾历史演练**：在「数据 → 雪灾回放」选择新奥尔良原业务预报，20.19 cm 达到 10.00 cm 教学阈值，可以创建演练草稿。济南两个归档对照为 12.74 cm、0.00 cm，仅回放。独立站点天气编码只核对降雪过程，不验证累计量。见[来源与口径](docs/c2-snow-source-preflight.md)和[雪灾检查点验收](docs/evidence/c2-snow-2026-11-24.md)。
 
-**雷电历史演练**：在「数据 → 雷电回放」切换圣路易斯 KSTL 的两个 6 小时窗口。前窗最大 LTNG 0.09、后窗 0.00；教学界线 0.05，只有六时次完整且原档案时间可证的达标案例可创建草稿。LTNG 无量纲；独立站点报告只核对天气现象。见[演练步骤](docs/user-guide-v1.md#lightning)和[来源与口径](docs/c2-lightning-source-preflight.md)。
+**雷电历史演练**：在「数据 → 雷电回放」切换圣路易斯 KSTL 的两个 6 小时窗口。前窗最大 LTNG 0.09、后窗 0.00；教学界线 0.05，只有六时次完整且原档案时间可证的达标案例可创建草稿。LTNG 无量纲；独立站点报告只核对天气现象。见[演练步骤](docs/user-guide-v1.md#lightning)、[来源与口径](docs/c2-lightning-source-preflight.md)和[雷电检查点验收](docs/evidence/c2-lightning-2026-11-24.md)。
 
 ## 普通开发启动（非多版本并行演示）
 
@@ -43,6 +43,7 @@ docker compose ps
 
 | 目的 | 取用版本 |
 |---|---|
+| C2 雷电集成演示（四类重点） | `checkpoint/c2-lightning`（验收标签，不是八灾种终版） |
 | C2 雪灾集成演示（含暴雨、台风） | `checkpoint/c2-snow`（验收标签，不是八灾种终版） |
 | C1 暴雨集成演示 | `checkpoint/c1-rain`（本地验收标签，不是八灾种终版） |
 | B 最终基线 | `baseline/b-final-2026-11-24`，提交 `be079a3` |
