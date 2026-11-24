@@ -90,6 +90,11 @@ def main():
         expect(forecast.get_by_text('缺测', exact=True)).to_be_visible()
         page.set_viewport_size({'width': 390, 'height': 844})
         assert forecast.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Drought result overflows on mobile'
+        # Native badInput can leave the Vue model already empty; the visible result must still clear.
+        fifth_day.press('-')
+        assert fifth_day.evaluate('(el) => el.validity.badInput')
+        expect(forecast).to_have_count(0)
+        fifth_day.press('Backspace')
         page.set_viewport_size({'width': 1360, 'height': 920})
         page.get_by_role('link', name='查看灾种覆盖').click()
         page.get_by_role('link', name='试算高温风险').click()
@@ -133,6 +138,16 @@ def main():
         page.set_viewport_size({'width': 390, 'height': 844})
         for region in (heat, forecast):
             assert region.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Heat trial overflows on mobile'
+        # Hold a real heat result while switching the keyed form to cold.
+        pending = []
+
+        def hold_response(route):
+            pending.append((route, route.fetch()))
+
+        page.route('**/api/v1/basic-forecast/heat/assessment', hold_response)
+        calculate.click()
+        expect(heat.get_by_role('button', name='正在试算…')).to_be_disabled()
+        assert len(pending) == 1
         page.get_by_role('link', name='低温', exact=True).click()
         expect(forecast).to_have_count(0)
         page.wait_for_url(base + '/basic-forecast?hazard=cold')
@@ -147,6 +162,14 @@ def main():
         location = cold.get_by_label('地点', exact=True)
         location.fill('A' * 80)
         assert compute()['extreme_c'] == 0.1
+        old_route, response = pending[0]
+        with page.expect_response(lambda r: urlsplit(r.url).path == '/api/v1/basic-forecast/heat/assessment') as old_reply:
+            old_route.fulfill(response=response)
+        assert old_reply.value.ok
+        old_reply.value.finished()
+        page.unroute('**/api/v1/basic-forecast/heat/assessment', hold_response)
+        expect(page.get_by_role('region', name='高温预测结果')).to_have_count(0)
+        expect(calculate).to_be_enabled()
         expect(outcome).to_have_text('未达低温教学阈值')
         expect(minimum).to_have_text('0.1 °C')
         assert forecast.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Long location overflows on mobile'

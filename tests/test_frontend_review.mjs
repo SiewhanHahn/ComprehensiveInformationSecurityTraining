@@ -1654,3 +1654,19 @@ test('wind-hail trial sends explicit false, missing hail, and zero gust without 
     assert.deepEqual(Array.from(trial.hailSignals.value), Array(6).fill(false))
   } finally { scope.stop() }
 })
+
+
+test('drought keeps its agricultural-warning boundary beside the result', async () => {
+  const render = compileVueTemplate('src/components/DroughtTrial.vue')
+  const app = vueRuntime.createSSRApp({
+    data: () => ({
+      assessment: { location: '课程示例点', start_date: '2025-07-01', end_date: '2025-07-07', usable_days: 6,
+        end_dry_days: null, dry_day_below_mm: 1, continuation_at_least_days: 14, outcome: 'INSUFFICIENT', days: [] },
+      dailyRain: [], outcomeLabels: { INSUFFICIENT: '无法判断' }, location: '', startDate: '', antecedent: '',
+      busy: false, error: '', invalidate: () => {}, calculate: () => {}, resetSample: () => {}
+    }),
+    render
+  })
+  const html = await renderToString(app)
+  assert.match(html, /aria-label="干旱预测结果"[\s\S]*不是农业干旱预警/)
+})

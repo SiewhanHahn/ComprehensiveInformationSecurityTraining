@@ -3,6 +3,7 @@ Install playwright plus Chromium, or specify an installed browser in CHROMIUM_PA
 """
 import argparse
 import os
+import re
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -12,15 +13,33 @@ from playwright.sync_api import expect, sync_playwright
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--qa-url', required=True)
+    parser.add_argument('--expect-revision', required=True)
     args = parser.parse_args()
     base = args.qa_url.rstrip('/')
     if urlsplit(base).hostname != '127.0.0.1' or os.getenv('BCHECK_ALLOW_WRITE') != '1':
         raise SystemExit('Require a loopback QA endpoint and BCHECK_ALLOW_WRITE=1')
+    if not re.fullmatch(r'[0-9a-f]{40}', args.expect_revision):
+        raise SystemExit('Require the full candidate SHA')
+    parsed = urlsplit(base)
+    origin = (parsed.scheme, parsed.netloc)
+    outside = []
+
+    def offline(route):
+        target = urlsplit(route.request.url)
+        if (target.scheme, target.netloc) == origin:
+            route.continue_()
+        else:
+            outside.append(route.request.url)
+            route.abort()
+
     key = 'QA-' + uuid4().hex[:10]
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.getenv('CHROMIUM_PATH') or None)
         def login(role):
             ctx = browser.new_context(service_workers='block', reduced_motion='reduce')
+            revision = ctx.request.get(base + '/build-revision.txt')
+            assert revision.ok and revision.text().strip() == args.expect_revision, 'Wrong QA revision'
+            ctx.route('**/*', offline)
             page = ctx.new_page()
             page.set_default_timeout(12000)
             page.goto(base + '/login')
@@ -62,6 +81,7 @@ def main():
         for reason in (key + '-发布', key + '-撤回'):
             row = admin.get_by_role('row').filter(has_text=reason)
             expect(row).to_have_count(1); expect(row).to_contain_text('v2')
+        assert not outside, f'Warning lifecycle attempted external requests: {outside!r}'
         browser.close()
         print('PASS browser: create, submit, reject, edit v2, resubmit, independent approve/publish, ack/complete, feedback, withdraw, audit v2')
 

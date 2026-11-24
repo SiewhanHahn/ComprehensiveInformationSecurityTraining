@@ -1,8 +1,8 @@
 <template>
   <section class="card" aria-label="干旱试算输入">
     <header class="card-head"><h3 class="card-title">干旱 · 未来七天少雨是否持续</h3></header>
-    <p class="muted">初始值是教学示例，不是实况。请按同一地点和 UTC 日替换降水预报；未知的输入留空，不填 0。</p>
-    <form @submit.prevent="calculate">
+    <p class="muted">初始值是教学示例，不是实况。请按同一地点和 UTC 日替换降水预报；未知的输入留空，不填 0。演示建议用两位小数；1.00 mm 恰好使连续少雨清零。</p>
+    <form @input="invalidate" @submit.prevent="calculate">
       <div class="drought-meta">
         <div class="field">
           <label class="field-label" for="drought-location">地点</label>
@@ -38,7 +38,7 @@
     <p class="drought-result" data-testid="drought-outcome">{{ outcomeLabels[assessment.outcome] }}</p>
     <p v-if="assessment.end_dry_days !== null">第七天末连续少雨 <strong data-testid="drought-streak">{{ assessment.end_dry_days }} 天</strong></p>
     <p v-else>已有少雨日数或未来降水缺测，无法计算第七天末的天数。</p>
-    <p class="muted">日总降水 &lt; {{ assessment.dry_day_below_mm.toFixed(2) }} mm 时延续，达到该值则清零；第七天末 ≥ {{ assessment.continuation_at_least_days }} 天才达教学线。</p>
+    <p class="muted">日总降水 &lt; {{ assessment.dry_day_below_mm.toFixed(2) }} mm 时延续，达到该值则清零；第七天末 ≥ {{ assessment.continuation_at_least_days }} 天才达教学线。此结果不是农业干旱预警。</p>
     <div class="table-wrap">
       <table class="table">
         <caption class="sr-only">逐日输入与当日结束时的连续少雨天数</caption>
@@ -118,6 +118,7 @@ async function calculate() {
 .drought-meta, .drought-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 14px; }
 .drought-rain { margin: 2px 0 14px; padding: 10px 12px 0; border: 1px solid var(--border); }
 .drought-rain legend { padding: 0 6px; }
+.card-title { min-width: 0; overflow-wrap: anywhere; }
 .drought-alert { margin: 12px 0 0; }
 .drought-result { font-weight: 650; }
 </style>

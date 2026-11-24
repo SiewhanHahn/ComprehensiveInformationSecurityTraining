@@ -29,5 +29,5 @@
 - 查出并恢复两条被粘入相邻函数的集成测试：`test_full_lifecycle_and_guards`、`test_unauthenticated_is_rejected`。先单独收集，再在 MySQL/Redis 上运行，不能以跳过计通过。
 - 使用**单独的 Compose 项目、端口与数据卷**。从候选 `git archive` 构建，运行 `/app/tests` 全套（`RUN_INTEGRATION=1` 和四个 QA 账号），`node --test tests/test_frontend_review.mjs tests/test_session_refresh_frontend.mjs`，以及前端生产构建。
 - MySQL 用专用空数据库 `bcheck_migration_<12位十六进制>` 执行 `tests/manual_b_migration.py`：验证旧行、列和外键的 `0006→0007→0006→0007`；已有取消/审计版本数据时，应在第一条 ALTER 之前拒绝回退。实际更新先停写并备份；绝不在历史 B/C 实例做回退演习。
-- 可选安装 Playwright/Chromium 或指定 `CHROMIUM_PATH`。只对隔离 QA 实例注入其演示密码和 `BCHECK_ALLOW_WRITE=1`，执行 `python tests/browser_b_acceptance.py --qa-url http://127.0.0.1:<QA端口>`。真实页面走三个独立会话，完成驳回、修改重提、发布、响应、反馈、撤回和审计。
+- 可选安装 Playwright/Chromium 或指定 `CHROMIUM_PATH`。只对隔离 QA 实例注入其演示密码和 `BCHECK_ALLOW_WRITE=1`，执行 `python tests/browser_b_acceptance.py --qa-url http://127.0.0.1:<QA端口> --expect-revision <完整SHA>`。真实页面走三个独立会话，完成驳回、修改重提、发布、响应、反馈、撤回和审计。
 - 这些回归不是生产容量测试或安全认证。迁移只在隔离库演习；不承诺无备份的生产数据降级。开源许可证未选，不做最终 push。

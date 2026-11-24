@@ -1,0 +1,19 @@
+# Use only together with compose.yaml and compose.defense.yaml for the same revision.
+x-course-api: &course-api
+  build: !reset null
+  image: weather-course-api:${DELIVERY_REVISION:?set DELIVERY_REVISION}
+  pull_policy: never
+
+services:
+  migrate: *course-api
+  seed: *course-api
+  api: *course-api
+  scheduler: *course-api
+  frontend:
+    build: !reset null
+    image: weather-course-frontend:${DELIVERY_REVISION:?set DELIVERY_REVISION}
+    pull_policy: never
+  mysql:
+    pull_policy: never
+  redis:
+    pull_policy: never

@@ -24,6 +24,10 @@
 
 **风雹基础预测**：输入未来 6 个 UTC 整点的阵风和明确雹信号。阵风 **≥ 17.0 m/s** 达教学线；冰雹只依据明确输入。有、无和缺测分别展示，一项缺测不覆盖另一项的结论。[使用步骤](docs/user-guide-v1.md#basic-forecast)和[实测验收](docs/evidence/c3-wind-hail-2026-11-24.md)。
 
+## 交付包离线启动
+
+使用与源码 SHA 一致的镜像包，按[终验与离线启动说明](docs/offline-delivery.md)在独立 Compose 项目启动。首次构建与现场 `--no-build --pull never` 启动是两件事。
+
 ## 普通开发启动（非多版本并行演示）
 
 ```bash
