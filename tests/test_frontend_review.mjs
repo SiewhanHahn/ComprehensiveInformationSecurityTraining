@@ -1330,7 +1330,7 @@ test('formal typhoon detail never labels the saved distance as rainfall', async 
 })
 
 
-test('draft typhoon teaching results are not rainfall signals or rainfall map points', () => {
+test('non-rainfall teaching results are not rainfall signals or rainfall map points', () => {
   const { exposed: d, scope } = instantiateSetupScript('src/views/Dashboard.vue', {
     '../data/cityCoords': { CITY_COORDS: { GUANGZHOU: [113.2644, 23.1291], CHANGSHA: [112.9388, 28.2282] } },
     '../charts/options': { chinaMap: points => points },
@@ -1341,12 +1341,76 @@ test('draft typhoon teaching results are not rainfall signals or rainfall map po
     d.allWarnings.value = [
       {hazard_type: 'RAINSTORM', city_code: 'CHANGSHA', risk_level: 'BLUE', status: 'PUBLISHED'},
       {hazard_type: 'TYPHOON', city_code: 'GUANGZHOU', risk_level: 'YELLOW', status: 'DRAFT'},
+      {hazard_type: 'SNOW_DISASTER', city_code: 'JINAN', risk_level: 'YELLOW', status: 'DRAFT'},
     ]
     assert.equal(d.signalCounts.value.YELLOW, 0)
     assert.equal(d.signalCounts.value.BLUE, 1)
-    assert.equal(d.statusCounts.value.DRAFT, 1)
+    assert.equal(d.statusCounts.value.DRAFT, 2)
     const city = name => d.mapOption.value.find(item => item.name === name)
     assert.equal(city('广州').count, 0); assert.equal(city('广州').risk, null)
     assert.equal(city('长沙').count, 1); assert.equal(city('长沙').risk, 'BLUE')
+  } finally { scope.stop() }
+})
+
+function snowResponse(caseId, outcome) {
+  const metric = outcome === 'INSUFFICIENT' ? null : { value: outcome === 'REACHED' ? 12.74 : 0, threshold: 10, unit: 'cm' }
+  return { forecast: { case: { case_id: caseId, name: '济南降雪案例', city: { code: 'JINAN', name: '济南' } }, outcome, metric },
+    verification: { outcome: 'SNOW_REPORTED' } }
+}
+
+test('snow switches windows without keeping old risk and does not submit verification fields', async () => {
+  const requests = [], submitted = [], destinations = []
+  const { exposed: s, scope } = instantiateSetupScript('src/views/Snow.vue', {
+    '../auth': { auth: lifecycleAuth() },
+    '../api': { apiFetch: (url, opts) => {
+      if (opts?.method === 'POST') {
+        submitted.push([url, JSON.parse(opts.body)])
+        return Promise.resolve({ public_id: 'snow-draft-1' })
+      }
+      const request = deferredRequest(); requests.push({url, ...request}); return request.promise
+    } },
+    'vue-router': { useRouter: () => ({ push: path => destinations.push(path) }) },
+  })
+  try {
+    s.caseId.value = 'jinan-20250302'; const old = s.loadAssessment()
+    s.caseId.value = 'jinan-20250304'; const now = s.loadAssessment()
+    requests[1].resolve(snowResponse(s.caseId.value, 'NOT_REACHED')); await now
+    requests[0].resolve(snowResponse('jinan-20250302', 'REACHED')); await old
+    assert.equal(s.result.value.forecast.case.case_id, 'jinan-20250304')
+    assert.equal(s.canDraft.value, false)
+    s.openDraft(); await s.createDraft(); assert.equal(submitted.length, 0)
+
+    s.caseId.value = 'jinan-20250302'; const incomplete = s.loadAssessment()
+    requests[2].resolve(snowResponse(s.caseId.value, 'INSUFFICIENT')); await incomplete
+    assert.equal(s.canDraft.value, false)
+    const recovered = s.loadAssessment()
+    requests[3].resolve(snowResponse(s.caseId.value, 'REACHED')); await recovered
+    assert.equal(s.canDraft.value, true)
+    s.openDraft(); await s.createDraft()
+    assert.equal(submitted[0][0], '/warnings/snow')
+    assert.deepEqual(Object.keys(submitted[0][1]).sort(), ['area_text', 'case_id', 'impact_text', 'reasoning_text', 'title'])
+    assert.match(submitted[0][1].reasoning_text, /12\.74 cm/)
+    assert.deepEqual(destinations, ['/warnings/snow-draft-1'])
+  } finally { scope.stop() }
+})
+
+test('formal snow detail renders the snowfall-only evidence with the registered city name', async () => {
+  const { exposed: detail, scope } = instantiateSetupScript('src/views/WarningDetail.vue', {
+    '../auth': { auth: lifecycleAuth() },
+    '../ui/labels': await import('../frontend/src/ui/labels.js'),
+    'vue-router': { useRoute: () => ({ params: { publicId: 'snow-draft-1' } }) },
+  })
+  try {
+    detail.loading.value = false
+    detail.w.value = {...warningFixture('DRAFT'), hazard_type: 'SNOW_DISASTER', fused_mm: null, city_code: 'JINAN', city_name: '济南',
+      metric: {label: '24 小时累计预报降雪', value: 12.74, unit: 'cm'}, snow_assessment: {outcome: 'REACHED'} }
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...detail }), render: compileVueTemplate('src/views/WarningDetail.vue') })
+    for (const name of ['StatusBadge', 'EmptyState', 'ClosedLoopStepper', 'ChartPanel']) app.component(name, { template: '<div><slot /></div>' })
+    app.component('TyphoonEvidence', { template: '<div />' })
+    app.component('SnowEvidence', { template: '<div>雪灾预报证据</div>' })
+    const html = await renderToString(app)
+    for (const word of ['济南', '12.74 cm', '雪灾预报证据']) assert.ok(html.includes(word), word)
+    assert.equal(detail.stages.value.find(stage => stage.key === 'forecast').note, '历史单批次降雪预报')
+    assert.doesNotMatch(html, /融合累计|无融合输入明细|ERA5|事后核验/)
   } finally { scope.stop() }
 })

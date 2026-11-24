@@ -292,7 +292,7 @@ async function loadSubscriptions() {
 
 async function loadCities() {
   try {
-    cities.value = await apiFetch('/cities')
+    cities.value = await apiFetch('/warning-cities')
   } catch (e) {
     error.value = e.message
     cities.value = []

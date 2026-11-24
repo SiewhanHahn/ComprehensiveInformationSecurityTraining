@@ -13,6 +13,9 @@ CITIES: dict[str, str] = {
     "ZHENGZHOU": "郑州",
 }
 
+# The rainfall experiment and /cities stay fixed to the original nine cities.
+WARNING_CITIES = {**CITIES, "JINAN": "济南"}
+
 # 订阅里表示「不限城市」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_CITIES: str = ""
 

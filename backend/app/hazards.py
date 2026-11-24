@@ -1,7 +1,7 @@
 """灾种注册表。
 
-统一描述选题要求的八类气象灾害。`IMPLEMENTED` 表示已完成端到端数据接入、
-融合研判与发布闭环；`FRAMEWORK` 表示复用同一预警框架的扩展设计，
+统一描述选题要求的八类气象灾害。`IMPLEMENTED` 表示已完成数据接入、
+风险研判与发布闭环；`FRAMEWORK` 表示复用同一预警框架的扩展设计，
 阈值与数据源为规划示意，尚未接入数据。
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 HAZARD_STATUS_IMPLEMENTED = "IMPLEMENTED"
 HAZARD_STATUS_FRAMEWORK = "FRAMEWORK"
 TYPHOON_PROXIMITY_KM = 200.0  # 项目教学距离，不是业务预警标准。
+SNOW_24H_THRESHOLD_CM = 10.0  # 项目教学阈值，不是官方雪灾预警标准。
 
 # 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_HAZARDS = "*"
@@ -53,7 +54,17 @@ HAZARDS: list[dict] = [
         "judgement": "预报点到城市代表点的球面最小距离；不推断风圈与灾损",
         "note": "已接入一份可追溯历史案例和共用预警闭环，未做统计精度验证。",
     },
-    _planned("SNOW_DISASTER", "雪灾", "24 小时累计预报降雪", "cm", ["历史签发降雪预报", "同地点降雪记录"]),
+    {
+        "code": "SNOW_DISASTER",
+        "name": "雪灾",
+        "status": HAZARD_STATUS_IMPLEMENTED,
+        "indicator": "24 小时累计预报降雪",
+        "unit": "cm",
+        "thresholds": [{"code": "SNOW_24H", "label": "教学触发 ≥", "value": SNOW_24H_THRESHOLD_CM}],
+        "data_sources": ["ECMWF IFS HRES（Open-Meteo 归档）", "NOAA NCEI 济南站天气编码（仅事后核验）"],
+        "judgement": "24 个逐时降雪量相加，气温仅作解释；缺测不判风险。",
+        "note": "已接入济南强降雪与无预报雪对照，站码只核对降雪过程，不验证累计量或灾损。",
+    },
     _planned("THUNDERSTORM", "雷电", "6 小时雷暴伴随雷电风险", "风险提示", ["已签发雷暴预报信号", "雷暴或闪电记录"]),
     _planned("DROUGHT", "干旱", "未来 7 天少雨持续风险", "天", ["签发前历史降水", "未来 7 天降水预报"]),
     _planned("HEATWAVE", "高温", "未来 24 小时最高气温", "°C", ["逐时气温预报"]),

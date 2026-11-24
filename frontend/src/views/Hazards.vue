@@ -81,6 +81,7 @@
 
         <p class="muted hazard-note">{{ h.note }}</p>
         <router-link v-if="h.code === 'TYPHOON' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/typhoon">查看台风历史案例</router-link>
+        <router-link v-if="h.code === 'SNOW_DISASTER' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/snow">查看雪灾历史案例</router-link>
       </div>
     </div>
 
@@ -88,7 +89,7 @@
       <h3 class="card-title" style="margin-bottom: 8px">交付边界说明</h3>
       <p class="muted" style="margin-bottom: 6px">
         终期要求四类重点运行（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。
-        当前跑通暴雨和台风：只有暴雨展示九城统计对照，台风只做历史案例核对。
+        当前跑通暴雨、台风和雪灾：只有暴雨展示九城统计对照，台风和雪灾只做历史案例核对。
       </p>
       <p class="muted" style="margin: 0">
         未实现项不生成预测结果；这里显示的是开发进度，不是八灾种终验。

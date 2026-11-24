@@ -40,7 +40,7 @@
         <div class="detail-grid">
           <div class="detail-item">
             <div class="detail-label">城市</div>
-            <div class="detail-value">{{ cityName(w.city_code) }}</div>
+            <div class="detail-value">{{ w.city_name || cityName(w.city_code) }}</div>
           </div>
           <div class="detail-item">
             <div class="detail-label">有效日期</div>
@@ -262,6 +262,7 @@
       </div>
 
       <TyphoonEvidence v-if="w.typhoon_assessment" :assessment="w.typhoon_assessment" />
+      <SnowEvidence v-else-if="w.snow_assessment" :assessment="w.snow_assessment" />
       <div v-else-if="w.hazard_type === 'RAINSTORM'" class="card">
         <div class="card-head">
           <h3 class="card-title">融合追溯</h3>
@@ -353,6 +354,7 @@ import EmptyState from '../components/EmptyState.vue'
 import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
 import ChartPanel from '../components/ChartPanel.vue'
 import TyphoonEvidence from '../components/TyphoonEvidence.vue'
+import SnowEvidence from '../components/SnowEvidence.vue'
 import { modelBar } from '../charts/options'
 import { HAZARD_TYPE, formatDate, formatDateTime, shortId } from '../ui/labels'
 
@@ -458,7 +460,7 @@ const stages = computed(() => {
 
   return [
     { key: 'monitor', label: '监测', state: 'done', note: '离线数据快照' },
-    { key: 'forecast', label: '预测', state: 'done', note: item.typhoon_assessment ? '历史航运公报' : '四模式 24h' },
+    { key: 'forecast', label: '预测', state: 'done', note: item.typhoon_assessment ? '历史航运公报' : item.snow_assessment ? '历史单批次降雪预报' : '四模式 24h' },
     { key: 'analysis', label: '研判', state: 'done', note: item.metric ? `${item.metric.value} ${item.metric.unit}` : `${item.fused_mm} mm` },
     {
       key: 'warning',

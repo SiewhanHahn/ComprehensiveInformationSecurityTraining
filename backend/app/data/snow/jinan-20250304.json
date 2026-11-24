@@ -1,0 +1,201 @@
+{
+  "info": {
+    "case_id": "jinan-20250304",
+    "name": "济南 3 月 4 日：无预报降雪对照",
+    "city": {
+      "code": "JINAN",
+      "name": "济南",
+      "latitude": 36.6833333,
+      "longitude": 116.9833333
+    },
+    "forecast_grid": {
+      "latitude": 36.66081,
+      "longitude": 117.011795
+    },
+    "initialized_at": "2025-03-03T12:00:00Z",
+    "window_start": "2025-03-04T00:00:00Z",
+    "forecast_source": {
+      "agency": "ECMWF / Open-Meteo",
+      "product": "IFS HRES · Single Runs API (ecmwf_ifs)",
+      "url": "https://single-runs-api.open-meteo.com/v1/forecast?latitude=36.6833333&longitude=116.9833333&models=ecmwf_ifs&run=2025-03-03T12%3A00&hourly=snowfall,temperature_2m&timezone=UTC&forecast_days=3",
+      "checked_on_utc": "2026-11-24"
+    }
+  },
+  "forecast": {
+    "snowfall_unit": "cm",
+    "temperature_unit": "°C",
+    "hours": [
+      {
+        "valid_at": "2025-03-04T01:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -1.5
+      },
+      {
+        "valid_at": "2025-03-04T02:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -0.2
+      },
+      {
+        "valid_at": "2025-03-04T03:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 0.8
+      },
+      {
+        "valid_at": "2025-03-04T04:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 1.6
+      },
+      {
+        "valid_at": "2025-03-04T05:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 2.4
+      },
+      {
+        "valid_at": "2025-03-04T06:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 3.0
+      },
+      {
+        "valid_at": "2025-03-04T07:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 3.3
+      },
+      {
+        "valid_at": "2025-03-04T08:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 3.4
+      },
+      {
+        "valid_at": "2025-03-04T09:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 2.7
+      },
+      {
+        "valid_at": "2025-03-04T10:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": 1.4
+      },
+      {
+        "valid_at": "2025-03-04T11:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -0.3
+      },
+      {
+        "valid_at": "2025-03-04T12:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -1.0
+      },
+      {
+        "valid_at": "2025-03-04T13:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -1.0
+      },
+      {
+        "valid_at": "2025-03-04T14:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -1.7
+      },
+      {
+        "valid_at": "2025-03-04T15:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -2.8
+      },
+      {
+        "valid_at": "2025-03-04T16:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -3.1
+      },
+      {
+        "valid_at": "2025-03-04T17:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -3.1
+      },
+      {
+        "valid_at": "2025-03-04T18:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -3.8
+      },
+      {
+        "valid_at": "2025-03-04T19:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -4.4
+      },
+      {
+        "valid_at": "2025-03-04T20:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -4.2
+      },
+      {
+        "valid_at": "2025-03-04T21:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -4.3
+      },
+      {
+        "valid_at": "2025-03-04T22:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -4.1
+      },
+      {
+        "valid_at": "2025-03-04T23:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -4.1
+      },
+      {
+        "valid_at": "2025-03-05T00:00:00Z",
+        "snowfall_cm": 0.0,
+        "temperature_c": -1.9
+      }
+    ]
+  },
+  "verification": {
+    "source": {
+      "agency": "NOAA NCEI",
+      "product": "ISD 济南站 · FM-12 / MW1",
+      "url": "https://noaa-global-hourly-pds.s3.amazonaws.com/2025/54823099999.csv",
+      "checked_on_utc": "2026-11-24"
+    },
+    "station_id": "54823099999",
+    "observations": [
+      {
+        "observed_at": "2025-03-04T03:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-04T06:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-04T09:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-04T12:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-04T15:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-04T18:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-04T21:00:00Z",
+        "code": "00",
+        "quality": "1"
+      },
+      {
+        "observed_at": "2025-03-05T00:00:00Z",
+        "code": "00",
+        "quality": "1"
+      }
+    ]
+  }
+}

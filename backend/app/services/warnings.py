@@ -13,17 +13,17 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..cities import DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY
+from ..cities import DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY, WARNING_CITIES
 from ..clock import utcnow
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
-from ..assessment_schemas import TyphoonAssessment
+from ..assessment_schemas import SnowAssessment, TyphoonAssessment
 from ..schemas import (
-    FeedbackRequest, ModelValue, TyphoonWarningCreate, WarningCreate, WarningDetailOut,
+    FeedbackRequest, ModelValue, SnowWarningCreate, TyphoonWarningCreate, WarningCreate, WarningDetailOut,
     WarningDraftText, WarningOut, WarningUpdate,
 )
 from ..security import new_public_id
-from . import typhoon
+from . import snow, typhoon
 from .audit import AuditContext
 from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
@@ -132,15 +132,22 @@ def review_token(w: Warning) -> str | None:
     return f"{w.version_no}:{w.submitted_at.isoformat(timespec='microseconds')}"
 
 
-def _typhoon_snapshot(w: Warning) -> TyphoonAssessment | None:
-    if w.hazard_type == "TYPHOON" and w.warning_result is not None:
-        return TyphoonAssessment.model_validate(w.warning_result.assessment_json)
+_ASSESSMENT_MODELS = {"TYPHOON": TyphoonAssessment, "SNOW_DISASTER": SnowAssessment}
+
+
+def _assessment_snapshot(w: Warning) -> TyphoonAssessment | SnowAssessment | None:
+    model = _ASSESSMENT_MODELS.get(w.hazard_type)
+    if model is not None and w.warning_result is not None:
+        return model.model_validate(w.warning_result.assessment_json)
     return None
 
 
 def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
+    return _to_out(w, names, _assessment_snapshot(w))
+
+
+def _to_out(w: Warning, names: dict[int, str], assessment: TyphoonAssessment | SnowAssessment | None) -> WarningOut:
     result = w.warning_result
-    assessment = _typhoon_snapshot(w)
     return WarningOut(
         public_id=w.public_id,
         hazard_type=w.hazard_type,
@@ -150,6 +157,7 @@ def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
         impact_text=w.impact_text,
         reasoning_text=w.reasoning_text,
         city_code=result.city_code if result else "",
+        city_name=WARNING_CITIES.get(result.city_code) if result else None,
         valid_date=result.valid_date if result else date.min,
         risk_level=result.risk_level if result else None,
         fused_mm=(float(result.fused_mm) if result.fused_mm is not None else None) if result else 0.0,
@@ -171,7 +179,8 @@ def to_out_list(db: Session, warnings: list[Warning]) -> list[WarningOut]:
 
 def to_detail_out(db: Session, w: Warning, names: dict[int, str], *, reader_id: int | None = None) -> WarningDetailOut:
     """预警详情：在列表字段基础上附带融合追溯（四模式输入、基线、代理标签、数据集版本）。"""
-    base = to_out(w, names)
+    assessment = _assessment_snapshot(w)
+    base = _to_out(w, names, assessment)
     result = w.warning_result
     baseline_mm = None
     proxy_label_mm = None
@@ -207,7 +216,8 @@ def to_detail_out(db: Session, w: Warning, names: dict[int, str], *, reader_id: 
         proxy_label_mm=proxy_label_mm,
         dataset_version=dataset_version,
         models=models,
-        typhoon_assessment=_typhoon_snapshot(w),
+        typhoon_assessment=assessment if isinstance(assessment, TyphoonAssessment) else None,
+        snow_assessment=assessment if isinstance(assessment, SnowAssessment) else None,
     )
 
 
@@ -284,6 +294,23 @@ def create_typhoon_warning(db: Session, body: TyphoonWarningCreate, actor: Curre
         assessment_json=forecast.model_dump(mode="json"),
     )
     return _create_draft(db, result, "TYPHOON", body, actor, audit)
+
+
+def create_snow_warning(db: Session, body: SnowWarningCreate, actor: CurrentUser, audit: AuditContext) -> Warning:
+    # Recompute from the registered forecast only. Replay's independent station report is never stored here.
+    _, forecast = snow.assess_case(body.case_id)
+    if forecast.outcome == "INSUFFICIENT":
+        raise HTTPException(409, "PARTIAL_DATA")
+    if forecast.outcome != "REACHED":
+        raise HTTPException(409, "THRESHOLD_NOT_REACHED")
+    result = WarningResult(
+        city_code=forecast.case.city.code,
+        valid_date=forecast.case.window_start.astimezone(timezone.utc).date(),
+        risk_level=snow.REACHED_RISK_LEVEL,
+        data_status="COMPLETE",
+        assessment_json=forecast.model_dump(mode="json"),
+    )
+    return _create_draft(db, result, "SNOW_DISASTER", body, actor, audit)
 
 
 def _create_draft(db: Session, result: WarningResult, hazard_type: str, body: WarningDraftText,

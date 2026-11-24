@@ -3,9 +3,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .assessment_schemas import HazardMetric, TyphoonAssessment
+from .assessment_schemas import HazardMetric, SnowAssessment, TyphoonAssessment
 
-from .cities import ALL_CITIES, CITIES
+from .cities import ALL_CITIES, WARNING_CITIES
 from .deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER
 from .hazards import ALL_HAZARDS, HAZARDS
 
@@ -196,6 +196,11 @@ class TyphoonWarningCreate(WarningDraftText):
     city_code: str = Field(min_length=1, max_length=32)
 
 
+class SnowWarningCreate(WarningDraftText):
+    model_config = ConfigDict(extra="forbid")
+    case_id: str = Field(min_length=1, max_length=64)
+
+
 class WarningUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     area_text: str | None = Field(default=None, max_length=500)
@@ -269,6 +274,7 @@ class WarningOut(BaseModel):
     impact_text: str | None
     reasoning_text: str
     city_code: str
+    city_name: str | None = None
     valid_date: date
     risk_level: str | None
     fused_mm: float | None
@@ -283,6 +289,7 @@ class WarningOut(BaseModel):
 
 class WarningDetailOut(WarningOut):
     typhoon_assessment: TyphoonAssessment | None = None
+    snow_assessment: SnowAssessment | None = None
     rejection_comment: str | None = None
     # 融合追溯：四模式输入、基线、代理标签与数据集版本（旧预警无输入明细时 models 为空）
     baseline_mm: float | None
@@ -321,7 +328,7 @@ class AuditOut(BaseModel):
 
 # ---- 通知与订阅 ----
 HAZARD_CODES = frozenset(h["code"] for h in HAZARDS)
-CITY_CODES = frozenset(CITIES)
+CITY_CODES = frozenset(WARNING_CITIES)
 
 
 class NotificationOut(BaseModel):
