@@ -11,7 +11,7 @@
 ## 2. 从已准备的镜像启动
 
 ```bash
-docker load -i weather-course-images-<SHA10>.tar.gz
+docker load -i /path/to/weather-course-images-<SHA10>.tar.gz
 docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml config -q
 docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml up -d --no-build --pull never
 docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml ps
@@ -21,7 +21,9 @@ docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f
 
 ## 3. 演示与验收
 
-1. [九城同样本指标与数据年份](data-and-method.md)：解释 2024/2025/2026 分期、固定 24 h、ERA5 代理，10 mm/24 h 的 F1 不是严重暴雨准确率。
+1. [九城同样本指标与数据年份](data-and-method.md)：解释 2024/2025/2026 分期、固定 24 h、ERA5 代理，10 mm/24 h 的 F1 不是严重暴雨准确率。用回放样本讲清改善及反例（数值为 mm/24 h，不混入 2026 测试）：
+   - 南宁 2024-02-04：ECMWF **10.5**、融合 **5.025**、ERA5 **2.5**，融合消除 10 mm 档误报。
+   - 南昌 2024-02-05：ECMWF **9.7**、融合 **12.35**、ERA5 **8.3**，融合新增 10 mm 档误报。
 2. 按[操作指南](user-guide-v1.md)手算长沙、更换南京样例、跑坏文件，再展示台风、雪灾、雷电历史案例及事后核对。
 3. [基础试算](user-guide-v1.md#basic-forecast)逐项改输入：干旱第 5 天 1.00 mm，高温 34.9→35.0，低温 0.1→0.0，风雹分别试算真实布尔值与缺测。证明结论可变，基础路径不会生成预警。
 4. 仅在一次性 QA 库，按 B 流程用不同身份驳回、改稿重提、审批发布、响应反馈和查看审计；演示实例与集成测试的写入权限不能混用。

@@ -142,12 +142,13 @@ def main():
         pending = []
 
         def hold_response(route):
-            pending.append((route, route.fetch()))
+            pending.append(route)
 
-        page.route('**/api/v1/basic-forecast/heat/assessment', hold_response)
-        calculate.click()
+        late_endpoint = '**/api/v1/basic-forecast/heat/assessment'
+        page.route(late_endpoint, hold_response)
+        with page.expect_request(lambda r: urlsplit(r.url).path == trial and r.method == 'POST'):
+            calculate.click()
         expect(heat.get_by_role('button', name='正在试算…')).to_be_disabled()
-        assert len(pending) == 1
         page.get_by_role('link', name='低温', exact=True).click()
         expect(forecast).to_have_count(0)
         page.wait_for_url(base + '/basic-forecast?hazard=cold')
@@ -162,12 +163,15 @@ def main():
         location = cold.get_by_label('地点', exact=True)
         location.fill('A' * 80)
         assert compute()['extreme_c'] == 0.1
-        old_route, response = pending[0]
+        assert len(pending) == 1, 'The heat request must still be held after switching mode'
+        old_route = pending[0]
+        response = old_route.fetch()
+        assert response.ok
         with page.expect_response(lambda r: urlsplit(r.url).path == '/api/v1/basic-forecast/heat/assessment') as old_reply:
             old_route.fulfill(response=response)
         assert old_reply.value.ok
         old_reply.value.finished()
-        page.unroute('**/api/v1/basic-forecast/heat/assessment', hold_response)
+        page.unroute(late_endpoint, hold_response)
         expect(page.get_by_role('region', name='高温预测结果')).to_have_count(0)
         expect(calculate).to_be_enabled()
         expect(outcome).to_have_text('未达低温教学阈值')
