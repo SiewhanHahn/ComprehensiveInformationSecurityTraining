@@ -208,6 +208,7 @@ const navGroups = computed(() => {
       children: [
         { path: '/monitor', label: '监测' },
         { path: '/replay', label: '历史回放' },
+        { path: '/typhoon', label: '台风路径' },
         { path: '/metrics', label: '指标对比' }
       ]
     },

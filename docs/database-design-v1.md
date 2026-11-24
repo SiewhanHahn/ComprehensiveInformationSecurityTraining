@@ -365,3 +365,7 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 ### B 修复迁移 0007
 
 `warnings.cancelled_at`（UTC）、`cancelled_by`（可空用户外键）保存草稿取消轨迹；`audit_logs.resource_version` 允许旧日志为空，新审计引用对应内容版本。历史 `impact_text` 仍允许数据库 NULL；新创建及提交在服务层要求非空。含有 0007 专有数据的数据库拒绝直接降级；保留预升级备份。
+
+### C2 台风：迁移 0008
+
+`warning_results.assessment_json` 保存只读的版本化预报证据。`fusion_run_id`、`threshold_id`、`fused_mm` 允许为空以支持非降水结果；旧降水行不会被重写，仍以原外键和 mm 追溯。CHECK 区分有降水值和有结构化证据的结果；应用不会把公里数写入 mm 字段。台风不占用 `fusion_runs`，事后核对不写入正式证据，预警仍关联公共结果行。降级先检查，存在新结构化判定时终止而不是删除；迁移前先停写并备份。

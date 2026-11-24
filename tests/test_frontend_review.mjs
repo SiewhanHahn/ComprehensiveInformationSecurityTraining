@@ -1279,3 +1279,52 @@ test('trial fixtures and file controls keep external samples separate and drop s
     assert.equal(s.result.value, null); assert.equal(s.busy.value, false)
   } finally { scope.stop() }
 })
+
+
+function typhoonResponse(city, outcome) {
+  return { forecast: { case: { case_id: 'hato-20170822', name: '天鸽 Hato' }, city: { code: city, name: city }, outcome }, verification: null }
+}
+
+test('typhoon view scopes the draft to the latest near-city result and keeps cutoff controls on change', async () => {
+  const requests = []
+  const { exposed: t, scope } = instantiateSetupScript('src/views/Typhoon.vue', {
+    '../auth': { auth: lifecycleAuth() },
+    '../api': { apiFetch: (url, opts) => {
+      if (opts?.method === 'POST') throw new Error('should not submit a stale result')
+      const request = deferredRequest(); requests.push({url, ...request}); return request.promise
+    } },
+    'vue-router': { useRouter: () => ({ push() {} }) },
+  })
+  try {
+    t.caseId.value = 'hato-20170822'; t.cityCode.value = 'GUANGZHOU'
+    const previous = t.loadAssessment()
+    t.cityCode.value = 'SHANGHAI'; const now = t.loadAssessment()
+    requests[1].resolve(typhoonResponse('SHANGHAI', 'NOT_NEAR')); await now
+    requests[0].resolve(typhoonResponse('GUANGZHOU', 'NEAR')); await previous
+    assert.equal(t.result.value.forecast.city.code, 'SHANGHAI')
+    assert.equal(t.canDraft.value, false)
+    assert.equal(t.draftOpen.value, false)
+    await t.createDraft()
+  } finally { scope.stop() }
+})
+
+test('formal typhoon detail never labels the saved distance as rainfall', async () => {
+  const { exposed: detail, scope } = instantiateSetupScript('src/views/WarningDetail.vue', {
+    '../auth': { auth: lifecycleAuth() },
+    '../ui/labels': await import('../frontend/src/ui/labels.js'),
+    'vue-router': { useRoute: () => ({ params: { publicId: 'warning-1' } }) },
+  })
+  try {
+    detail.loading.value = false
+    detail.w.value = {...warningFixture('DRAFT'), hazard_type: 'TYPHOON', fused_mm: null,
+      metric: {label: '预报点最小距离', value: 144.3, unit: 'km'}, typhoon_assessment: {outcome: 'NEAR'} }
+    const render = compileVueTemplate('src/views/WarningDetail.vue')
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...detail }), render })
+    for (const name of ['StatusBadge', 'EmptyState', 'ClosedLoopStepper', 'ChartPanel']) app.component(name, { template: '<div><slot /></div>' })
+    app.component('TyphoonEvidence', { template: '<div>台风预报证据</div>' })
+    const html = await renderToString(app)
+    assert.match(html, /144\.3 km/)
+    assert.match(html, /台风预报证据/)
+    assert.doesNotMatch(html, /融合累计|无融合输入明细|ERA5|null mm/)
+  } finally { scope.stop() }
+})

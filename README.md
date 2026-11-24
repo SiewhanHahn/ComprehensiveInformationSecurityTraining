@@ -1,14 +1,16 @@
 # 气象灾害预测与预警系统
 
-基于多源数据融合的气象灾害预测与预警教学演示系统（B/S 架构）。以**暴雨（强降水）**完成端到端闭环与量化对比，其余七类灾种复用同一预警框架作为扩展设计。
+基于多源数据融合的气象灾害预测与预警教学演示系统（B/S 架构）。以**暴雨（强降水）**展示端到端闭环和量化对比，以**台风**展示历史公报接近判定、事后核对和复用的预警闭环；属于教学演练，不是实时预警。
 
 - 后端：FastAPI + SQLAlchemy + PyMySQL + Redis（服务端 Session）+ MySQL 8.4
 - 前端：Vue 3 + Vite，Nginx 反代 `/api` 到后端
 - 编排：Docker Compose，一条命令启动 frontend / api / mysql / redis
 
-**终期范围已更新：** 当前代码中的“1 类端到端 + 7 类框架”是旧演示的能力边界，不是最终目标。按教师反馈，C 需要四类重点实现、四类具备基本预测功能。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
+**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。此阶段只实现暴雨、台风，其他六类待实现。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
 
 **C1 暴雨集成**：从本地验收标签 `checkpoint/c1-rain` 取源码，不从旧演示目录或 `main` 取。先核对页面实际提供的提交号，再展示指标、长沙手算和南京试算。见[当前版本与验收入口](docs/c1-rain-handoff.md)和[演示启动指南](docs/user-guide-v1.md#defense)。
+
+**台风历史演练**：登录后到「数据 → 台风路径」，用同一份天鸽公报换城计算。先选广州看达标，再选上海看未达标。按[来源与口径](docs/c2-typhoon-source-check.md)分开解释预报与事后结果；按[演练步骤](docs/user-guide-v1.md#typhoon)和[C2 版本验收](docs/c2-typhoon-handoff.md)启动，勿覆盖 C1。
 
 ## 普通开发启动（非多版本并行演示）
 

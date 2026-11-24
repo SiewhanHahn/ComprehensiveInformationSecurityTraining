@@ -1,0 +1,27 @@
+{
+  "info": {
+    "case_id": "hato-20170822",
+    "name": "天鸽 Hato",
+    "storm_number": "1713",
+    "issued_at": "2017-08-22T10:30:00Z",
+    "forecast_source": {
+      "agency": "香港天文台",
+      "product": "航运用热带气旋警报（香港科技大学存档）",
+      "url": "https://envf.ust.hk/dataview/api_2dmap/current/display_winfo.py?file=%2Fdataop%2Fdata%2Fhko%2Fwebpages%2Fhourly%2F2017%2F201708%2F2017082211.hko.htm",
+      "checked_on_utc": "2026-11-24"
+    }
+  },
+  "forecast_points": [
+    {"valid_at": "2017-08-23T09:00:00Z", "latitude": 22.4, "longitude": 112.1},
+    {"valid_at": "2017-08-24T09:00:00Z", "latitude": 23.3, "longitude": 105.1}
+  ],
+  "verification_source": {
+    "agency": "香港天文台",
+    "product": "天鸽 1713 事后位置与强度表",
+    "url": "https://www.hko.gov.hk/en/publica/tc/tc2017/six_hrly_data_hato.html",
+    "checked_on_utc": "2026-11-24"
+  },
+  "verification_points": [
+    {"valid_at": "2017-08-23T09:00:00Z", "latitude": 22.4, "longitude": 112.0}
+  ]
+}

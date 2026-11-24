@@ -4,7 +4,7 @@
       <div class="page-heading">
         <h2 class="page-title">灾种覆盖</h2>
         <span class="page-subtitle">
-          共 {{ summary.total }} 类场景 · {{ summary.implemented }} 类端到端实现 · {{ summary.framework }} 类扩展框架
+          共 {{ summary.total }} 类场景 · {{ summary.implemented }} 类端到端实现 · {{ summary.framework }} 类待实现
         </span>
       </div>
     </div>
@@ -43,7 +43,7 @@
             :class="h.status === 'IMPLEMENTED' ? 'badge--success' : 'badge--neutral'"
             style="margin-left: auto"
           >
-            {{ h.status === 'IMPLEMENTED' ? '端到端实现' : '扩展框架' }}
+            {{ h.status === 'IMPLEMENTED' ? '端到端实现' : '待实现' }}
           </span>
         </div>
         <div class="mono muted" style="margin-bottom: 10px">{{ h.code }}</div>
@@ -55,7 +55,7 @@
 
         <div class="hazard-row">
           <span class="detail-label">阈值</span>
-          <span class="badge-group">
+          <span v-if="h.thresholds.length" class="badge-group">
             <span
               v-for="t in h.thresholds"
               :key="t.code"
@@ -64,6 +64,7 @@
               {{ t.label }} {{ t.value }}{{ h.unit }}
             </span>
           </span>
+          <span v-else class="muted">待定，尚未用于预测</span>
         </div>
 
         <div class="hazard-row">
@@ -79,18 +80,18 @@
         </div>
 
         <p class="muted hazard-note">{{ h.note }}</p>
+        <router-link v-if="h.code === 'TYPHOON' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/typhoon">查看台风历史案例</router-link>
       </div>
     </div>
 
     <div v-if="!loading && hazards.length" class="card">
       <h3 class="card-title" style="margin-bottom: 8px">交付边界说明</h3>
       <p class="muted" style="margin-bottom: 6px">
-        选题要求覆盖八类场景。当前交付采用「1 类端到端 + 7 类扩展框架」口径：暴雨已完成数据接入、
-        四模式融合、量化对比与完整发布闭环；其余七类复用同一套预警状态机、角色权限、审批发布与审计结构，
-        数据源与判定指标已登记，但尚未接入数据、也不承诺同等的量化验证。
+        终期要求四类重点运行（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。
+        当前跑通暴雨和台风：只有暴雨展示九城统计对照，台风只做历史案例核对。
       </p>
       <p class="muted" style="margin: 0">
-        答辩时按此边界说明，不把扩展设计表述为已完成验证。
+        未实现项不生成预测结果；这里显示的是开发进度，不是八灾种终验。
       </p>
     </div>
   </div>

@@ -174,7 +174,10 @@
           </thead>
           <tbody>
             <tr v-for="w in warnings" :key="w.public_id">
-              <td class="cell-primary">{{ w.title }}</td>
+              <td class="cell-primary">
+                {{ w.title }}
+                <small v-if="w.hazard_type === 'TYPHOON'" class="muted"> · 台风演练</small>
+              </td>
               <td>{{ cityName(w.city_code) }}</td>
               <td class="cell-nowrap">{{ formatDate(w.valid_date) }}</td>
               <td><StatusBadge kind="risk" :value="w.risk_level" size="sm" /></td>

@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .assessment_schemas import HazardMetric, TyphoonAssessment
 
 from .cities import ALL_CITIES, CITIES
 from .deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER
@@ -156,10 +158,7 @@ class ExperimentDetail(BaseModel):
 
 
 # ---- warnings ----
-class WarningCreate(BaseModel):
-    city_code: str
-    valid_date: date
-    threshold_code: str
+class WarningDraftText(BaseModel):
     title: str = Field(max_length=200)
     area_text: str = Field(max_length=500)
     impact_text: str = Field(max_length=2000)
@@ -183,6 +182,18 @@ class WarningCreate(BaseModel):
         if len(v.encode("utf-8")) > 65535:
             raise ValueError("reasoning_text 超出 TEXT 列容量（65,535 字节）")
         return v
+
+
+class WarningCreate(WarningDraftText):
+    city_code: str
+    valid_date: date
+    threshold_code: str
+
+
+class TyphoonWarningCreate(WarningDraftText):
+    model_config = ConfigDict(extra="forbid")
+    case_id: str = Field(min_length=1, max_length=64)
+    city_code: str = Field(min_length=1, max_length=32)
 
 
 class WarningUpdate(BaseModel):
@@ -260,7 +271,8 @@ class WarningOut(BaseModel):
     city_code: str
     valid_date: date
     risk_level: str | None
-    fused_mm: float
+    fused_mm: float | None
+    metric: HazardMetric | None = None
     version_no: int
     created_by: str
     submitted_at: datetime | None
@@ -270,6 +282,7 @@ class WarningOut(BaseModel):
 
 
 class WarningDetailOut(WarningOut):
+    typhoon_assessment: TyphoonAssessment | None = None
     rejection_comment: str | None = None
     # 融合追溯：四模式输入、基线、代理标签与数据集版本（旧预警无输入明细时 models 为空）
     baseline_mm: float | None

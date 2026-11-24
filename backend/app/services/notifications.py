@@ -38,6 +38,9 @@ def warning_summary(w: Warning) -> str:
         return w.title
     city = CITIES.get(result.city_code, result.city_code)
     hazard = HAZARD_NAMES.get(w.hazard_type, w.hazard_type)
+    if result.assessment_json is not None:
+        metric = result.assessment_json["metric"]
+        return f"{city} {result.valid_date} {hazard}教学演练；{metric['label']} {metric['value']:.1f} {metric['unit']}"
     return f"{city} {result.valid_date} {hazard}；四模式融合 {float(result.fused_mm):.1f}mm"
 
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     ForeignKey,
     Index,
@@ -216,11 +217,12 @@ class WarningResult(Base):
     __tablename__ = "warning_results"
 
     id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
-    fusion_run_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("fusion_runs.id"), nullable=False)
-    threshold_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), ForeignKey("warning_thresholds.id"), nullable=False)
+    fusion_run_id: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("fusion_runs.id"), nullable=True)
+    threshold_id: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("warning_thresholds.id"), nullable=True)
     city_code: Mapped[str] = mapped_column(String(32), nullable=False)
     valid_date: Mapped[date] = mapped_column(Date, nullable=False)
-    fused_mm: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
+    fused_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
+    assessment_json: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     baseline_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
     proxy_label_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
@@ -228,6 +230,14 @@ class WarningResult(Base):
     created_at: Mapped[datetime] = mapped_column(
         DATETIME(fsp=6), nullable=False, default=_utcnow, server_default=text("CURRENT_TIMESTAMP(6)")
     )
+
+
+    __table_args__ = (CheckConstraint(
+        "(assessment_json IS NULL AND fused_mm IS NOT NULL) OR "
+        "(assessment_json IS NOT NULL AND JSON_TYPE(assessment_json) = 'OBJECT' AND "
+        "fused_mm IS NULL AND baseline_mm IS NULL AND proxy_label_mm IS NULL)",
+        name="ck_warning_result_evidence",
+    ),)
 
 
 class Warning(Base, TimestampMixin):

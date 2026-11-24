@@ -135,7 +135,7 @@
 
       <ChartPanel
         title="最近预警 · 四模式输入"
-        :subtitle="latestTitle || '取最新一条预警的融合输入'"
+        :subtitle="latestTitle || '取最新一条暴雨预警的融合输入'"
         :option="modelOption"
         :height="248"
         empty-text="暂无预警，创建后展示四模式对比"
@@ -329,9 +329,10 @@ onMounted(async () => {
 
   loading.value = false
 
-  if (allWarnings.value.length) {
+  const latestRain = allWarnings.value.find(w => w.hazard_type === 'RAINSTORM' && w.status !== 'CANCELLED')
+  if (latestRain) {
     try {
-      const detail = await apiFetch(`/warnings/${allWarnings.value[0].public_id}`)
+      const detail = await apiFetch(`/warnings/${latestRain.public_id}`)
       latestModels.value = detail.models || []
       latestBaseline.value = detail.baseline_mm
       latestProxy.value = detail.proxy_label_mm

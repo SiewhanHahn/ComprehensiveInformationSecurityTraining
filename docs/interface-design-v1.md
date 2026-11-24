@@ -276,3 +276,9 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 - UTF-8，≤256 KiB，1–200 条；城市名不受内置九城限制，UTC 日期必须为 `YYYY-MM-DD`；同城市同日期不重复，未知列或 JSON 对象内重复字段名均整批拒绝（重复字段返回 422 TRIAL_DUPLICATE_FIELD）。四路必须齐全，数值 0–2000 mm、最多三位小数，不接受数字字符串。可省略两列参考值，或同时给出数值和 `ERA5_PROXY` / `STATION_OBS`。
 - 200 返回 `threshold_mm` 和原顺序的 `rows`：城市/日期、四路 `models`、ECMWF `baseline_mm`、`fused_mm` 及两者的 `*_hit`、可空的 `reference_mm/reference_type/reference_hit`。等权均值用 Decimal 半入到三位小数后按 `>=` 判定；参考值不参与计算。响应禁止缓存。
 - 未登录 401；角色或 CSRF 不合规 403；阈值不存在 404；字节数超限 413；格式或行不合法 422（`error.message` 给出行和字段）。试算不写预报、观测、数据集、预警或实验结果；成功只记录 `REPLAY_TRIAL` 元数据审计。
+
+## C2：台风离线回放与演练草稿
+
+- `GET /api/v1/typhoon/cases` 列出内置早期公报和参与演练的城市；`GET /api/v1/typhoon/cases/{case_id}/assessment?city_code=...` 返回 `forecast` 与独立 `verification`。登录后可读。未知案例 404，未支持的城市 422。`forecast.outcome` 为 `NEAR` / `NOT_NEAR` / `INSUFFICIENT`，不是实际台风预警等级。
+- `POST /api/v1/warnings/typhoon`（分析员或管理员、现有 CSRF 策略）只接收 `case_id`、`city_code`、`title`、`area_text`、`impact_text`、`reasoning_text`。余字段拒绝。服务端重算；无数据或未达教学阈值返回 409，不创建记录。达标建立 `DRAFT`，不直接发布。
+- 对台风，既有预警列表和详情中的 `fused_mm` 是 `null`，另有带单位的 `metric`。详情还返回 `typhoon_assessment`（签发时可用的输入、预报证据和判定），不返回事后核对；降水详情沿用既有 mm、四模式与标签字段。提交、审核轮次、发布、响应和审计接口沿用 B。

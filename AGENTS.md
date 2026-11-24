@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` is the only end-to-end hazard; the other seven are framework entries, not validated implementations.
+This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` has an end-to-end workflow and a frozen quantitative experiment. `TYPHOON` has a source-backed historical teaching case and reuses that warning workflow; the other six entries are not yet implemented.
 
 ## Project Structure & Module Organization
 

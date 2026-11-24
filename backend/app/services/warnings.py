@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -17,8 +17,13 @@ from ..cities import DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY
 from ..clock import utcnow
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
-from ..schemas import FeedbackRequest, ModelValue, WarningCreate, WarningDetailOut, WarningOut, WarningUpdate
+from ..assessment_schemas import TyphoonAssessment
+from ..schemas import (
+    FeedbackRequest, ModelValue, TyphoonWarningCreate, WarningCreate, WarningDetailOut,
+    WarningDraftText, WarningOut, WarningUpdate,
+)
 from ..security import new_public_id
+from . import typhoon
 from .audit import AuditContext
 from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
@@ -127,8 +132,15 @@ def review_token(w: Warning) -> str | None:
     return f"{w.version_no}:{w.submitted_at.isoformat(timespec='microseconds')}"
 
 
+def _typhoon_snapshot(w: Warning) -> TyphoonAssessment | None:
+    if w.hazard_type == "TYPHOON" and w.warning_result is not None:
+        return TyphoonAssessment.model_validate(w.warning_result.assessment_json)
+    return None
+
+
 def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
     result = w.warning_result
+    assessment = _typhoon_snapshot(w)
     return WarningOut(
         public_id=w.public_id,
         hazard_type=w.hazard_type,
@@ -140,7 +152,8 @@ def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
         city_code=result.city_code if result else "",
         valid_date=result.valid_date if result else date.min,
         risk_level=result.risk_level if result else None,
-        fused_mm=float(result.fused_mm) if result else 0.0,
+        fused_mm=(float(result.fused_mm) if result.fused_mm is not None else None) if result else 0.0,
+        metric=assessment.metric if assessment is not None else None,
         version_no=w.version_no,
         review_token=review_token(w),
         created_by=names.get(w.created_by, str(w.created_by)),
@@ -164,7 +177,7 @@ def to_detail_out(db: Session, w: Warning, names: dict[int, str], *, reader_id: 
     proxy_label_mm = None
     dataset_version = None
     models: list[ModelValue] = []
-    if result is not None:
+    if result is not None and result.fusion_run_id is not None:
         baseline_mm = float(result.baseline_mm) if result.baseline_mm is not None else None
         proxy_label_mm = float(result.proxy_label_mm) if result.proxy_label_mm is not None else None
         inputs = db.scalars(
@@ -194,6 +207,7 @@ def to_detail_out(db: Session, w: Warning, names: dict[int, str], *, reader_id: 
         proxy_label_mm=proxy_label_mm,
         dataset_version=dataset_version,
         models=models,
+        typhoon_assessment=_typhoon_snapshot(w),
     )
 
 
@@ -252,13 +266,34 @@ def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: 
         risk_level=compute["risk_level"],
         data_status="COMPLETE",
     )
+    return _create_draft(db, result, "RAINSTORM", body, actor, audit)
+
+
+def create_typhoon_warning(db: Session, body: TyphoonWarningCreate, actor: CurrentUser, audit: AuditContext) -> Warning:
+    # No browser-supplied distance, weather file, or post-event position is a source for formal creation.
+    _, forecast = typhoon.assess_case(body.case_id, body.city_code)
+    if forecast.outcome == "INSUFFICIENT" or forecast.closest_point is None:
+        raise HTTPException(409, "PARTIAL_DATA")
+    if forecast.outcome != "NEAR":
+        raise HTTPException(409, "THRESHOLD_NOT_REACHED")
+    result = WarningResult(
+        city_code=forecast.city.code,
+        valid_date=forecast.closest_point.valid_at.astimezone(timezone.utc).date(),
+        risk_level=typhoon.NEAR_RISK_LEVEL,
+        data_status="COMPLETE",
+        assessment_json=forecast.model_dump(mode="json"),
+    )
+    return _create_draft(db, result, "TYPHOON", body, actor, audit)
+
+
+def _create_draft(db: Session, result: WarningResult, hazard_type: str, body: WarningDraftText,
+                  actor: CurrentUser, audit: AuditContext) -> Warning:
     db.add(result)
     db.flush()
-
     w = Warning(
         public_id=new_public_id(),
         warning_result_id=result.id,
-        hazard_type="RAINSTORM",
+        hazard_type=hazard_type,
         created_by=actor.id,
         status=DRAFT,
         title=body.title,

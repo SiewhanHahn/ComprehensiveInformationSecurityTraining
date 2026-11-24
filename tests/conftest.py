@@ -248,8 +248,9 @@ def _delete_warnings(public_ids):
                 run_id = result.fusion_run_id
                 db.delete(result)
                 db.flush()
-                db.execute(delete(FusionInput).where(FusionInput.fusion_run_id == run_id))
-                db.execute(delete(FusionRun).where(FusionRun.id == run_id))
+                if run_id is not None:
+                    db.execute(delete(FusionInput).where(FusionInput.fusion_run_id == run_id))
+                    db.execute(delete(FusionRun).where(FusionRun.id == run_id))
         db.commit()
 
 

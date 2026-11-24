@@ -104,12 +104,12 @@ export const DATA_STATUS = {
 export const HAZARD_TYPE = {
   RAINSTORM: '暴雨',
   TYPHOON: '台风',
-  HEATWAVE: '高温',
-  DROUGHT: '干旱',
+  SNOW_DISASTER: '雪灾',
   THUNDERSTORM: '雷电',
-  FOG: '大雾',
-  FLASH_FLOOD: '山洪',
-  URBAN_WATERLOGGING: '城市内涝'
+  DROUGHT: '干旱',
+  HEATWAVE: '高温',
+  LOW_TEMPERATURE: '低温',
+  WIND_HAIL: '风雹'
 }
 
 export const MODEL_LABELS = {

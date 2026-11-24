@@ -10,6 +10,7 @@ from ..schemas import (
     FeedbackRequest,
     ReviewOut,
     ReviewRequest,
+    TyphoonWarningCreate,
     WarningActionRequest,
     WarningCreate,
     WarningDetailOut,
@@ -38,6 +39,17 @@ def create_warning(
     current: CurrentUser = Depends(analyst_required),
 ):
     w = svc.create_warning(db, body, current, audit_context(request, db, current))
+    return _respond(db, w)
+
+
+@router.post("/warnings/typhoon", response_model=WarningOut)
+def create_typhoon_warning(
+    body: TyphoonWarningCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current: CurrentUser = Depends(analyst_required),
+):
+    w = svc.create_typhoon_warning(db, body, current, audit_context(request, db, current))
     return _respond(db, w)
 
 

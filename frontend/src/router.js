@@ -7,6 +7,7 @@ const routes = [
   { path: '/', component: () => import('./views/Dashboard.vue') },
   { path: '/monitor', component: () => import('./views/Monitor.vue') },
   { path: '/replay', component: () => import('./views/Replay.vue') },
+  { path: '/typhoon', component: () => import('./views/Typhoon.vue') },
   { path: '/metrics', component: () => import('./views/Metrics.vue') },
   { path: '/warnings', component: () => import('./views/Warnings.vue') },
   { path: '/warnings/:publicId', component: () => import('./views/WarningDetail.vue') },

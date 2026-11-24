@@ -9,9 +9,19 @@ from __future__ import annotations
 
 HAZARD_STATUS_IMPLEMENTED = "IMPLEMENTED"
 HAZARD_STATUS_FRAMEWORK = "FRAMEWORK"
+TYPHOON_PROXIMITY_KM = 200.0  # 项目教学距离，不是业务预警标准。
 
 # 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_HAZARDS = "*"
+
+def _planned(code: str, name: str, indicator: str, unit: str, data_sources: list[str]) -> dict:
+    return {
+        "code": code, "name": name, "status": HAZARD_STATUS_FRAMEWORK,
+        "indicator": indicator, "unit": unit, "data_sources": data_sources, "thresholds": [],
+        "judgement": "待按验收表实现，不输出风险结论",
+        "note": "当前仅登记，不能创建此灾种预警；终期仍需实现。",
+    }
+
 
 HAZARDS: list[dict] = [
     {
@@ -35,108 +45,20 @@ HAZARDS: list[dict] = [
     {
         "code": "TYPHOON",
         "name": "台风",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "最大风速 / 阵风",
-        "unit": "m/s",
-        "thresholds": [
-            {"code": "BLUE", "label": "热带风暴", "value": 17.2},
-            {"code": "YELLOW", "label": "强热带风暴", "value": 24.5},
-            {"code": "ORANGE", "label": "台风", "value": 32.7},
-        ],
-        "data_sources": ["台风路径与风圈预报", "地面自动站风速"],
-        "judgement": "路径、最大风速与影响范围综合判定",
-        "note": "扩展框架：需接入台风路径与风圈数据",
+        "status": HAZARD_STATUS_IMPLEMENTED,
+        "indicator": "签发后 24 小时内离散预报点的最小距离",
+        "unit": "km",
+        "thresholds": [{"code": "PROXIMITY", "label": "教学接近 ≤", "value": TYPHOON_PROXIMITY_KM}],
+        "data_sources": ["香港天文台天鸽航运预报（香港科技大学存档）", "香港天文台事后位置表（仅核对）"],
+        "judgement": "预报点到城市代表点的球面最小距离；不推断风圈与灾损",
+        "note": "已接入一份可追溯历史案例和共用预警闭环，未做统计精度验证。",
     },
-    {
-        "code": "HEATWAVE",
-        "name": "高温",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "日最高气温",
-        "unit": "°C",
-        "thresholds": [
-            {"code": "YELLOW", "label": "高温", "value": 35.0},
-            {"code": "ORANGE", "label": "强高温", "value": 37.0},
-            {"code": "RED", "label": "特强高温", "value": 40.0},
-        ],
-        "data_sources": ["Open-Meteo temperature_2m_max", "站点日最高气温"],
-        "judgement": "日最高气温阈值与持续日数",
-        "note": "扩展框架：数据变量已明确，尚未接入",
-    },
-    {
-        "code": "DROUGHT",
-        "name": "干旱",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "连续无有效降水日 / SPI",
-        "unit": "天",
-        "thresholds": [
-            {"code": "YELLOW", "label": "轻旱", "value": 10.0},
-            {"code": "ORANGE", "label": "中旱", "value": 20.0},
-            {"code": "RED", "label": "重旱", "value": 30.0},
-        ],
-        "data_sources": ["多模式累计降水", "土壤湿度再分析"],
-        "judgement": "连续无有效降水日数与标准化降水指数",
-        "note": "扩展框架：需补土壤湿度与更长统计窗口",
-    },
-    {
-        "code": "THUNDERSTORM",
-        "name": "雷电",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "对流有效位能 / 闪电密度",
-        "unit": "J/kg",
-        "thresholds": [
-            {"code": "YELLOW", "label": "较易发生", "value": 1000.0},
-            {"code": "ORANGE", "label": "易发生", "value": 2500.0},
-            {"code": "RED", "label": "极易发生", "value": 4000.0},
-        ],
-        "data_sources": ["Open-Meteo CAPE", "闪电定位资料"],
-        "judgement": "CAPE、抬升指数与闪电频次",
-        "note": "扩展框架：多变量融合需单独建模",
-    },
-    {
-        "code": "FOG",
-        "name": "大雾",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "能见度",
-        "unit": "m",
-        "thresholds": [
-            {"code": "YELLOW", "label": "大雾", "value": 1000.0},
-            {"code": "ORANGE", "label": "浓雾", "value": 500.0},
-            {"code": "RED", "label": "强浓雾", "value": 200.0},
-        ],
-        "data_sources": ["Open-Meteo visibility", "站点能见度观测"],
-        "judgement": "能见度阈值与持续时间",
-        "note": "扩展框架：单变量阈值，接入成本较低",
-    },
-    {
-        "code": "FLASH_FLOOD",
-        "name": "山洪",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "面雨量 / 致灾阈值",
-        "unit": "mm",
-        "thresholds": [
-            {"code": "YELLOW", "label": "注意", "value": 50.0},
-            {"code": "ORANGE", "label": "警戒", "value": 100.0},
-            {"code": "RED", "label": "危险", "value": 150.0},
-        ],
-        "data_sources": ["多模式流域面雨量", "地形与汇流参数"],
-        "judgement": "面雨量结合地形、坡度与汇流时间",
-        "note": "扩展框架：需 GIS 地形与流域数据",
-    },
-    {
-        "code": "URBAN_WATERLOGGING",
-        "name": "城市内涝",
-        "status": HAZARD_STATUS_FRAMEWORK,
-        "indicator": "小时雨强 / 积水风险",
-        "unit": "mm/h",
-        "thresholds": [
-            {"code": "YELLOW", "label": "注意", "value": 20.0},
-            {"code": "ORANGE", "label": "警戒", "value": 30.0},
-            {"code": "RED", "label": "危险", "value": 50.0},
-        ],
-        "data_sources": ["短时强降水预报", "管网排水能力与下垫面"],
-        "judgement": "小时雨强结合管网能力与不透水面比例",
-        "note": "扩展框架：需城市管网与下垫面数据",
-    },
+    _planned("SNOW_DISASTER", "雪灾", "24 小时累计预报降雪", "cm", ["历史签发降雪预报", "同地点降雪记录"]),
+    _planned("THUNDERSTORM", "雷电", "6 小时雷暴伴随雷电风险", "风险提示", ["已签发雷暴预报信号", "雷暴或闪电记录"]),
+    _planned("DROUGHT", "干旱", "未来 7 天少雨持续风险", "天", ["签发前历史降水", "未来 7 天降水预报"]),
+    _planned("HEATWAVE", "高温", "未来 24 小时最高气温", "°C", ["逐时气温预报"]),
+    _planned("LOW_TEMPERATURE", "低温", "未来 24 小时最低气温", "°C", ["逐时气温预报"]),
+    _planned("WIND_HAIL", "风雹", "未来 6 小时阵风及冰雹风险", "m/s / 风险提示", ["阵风预报", "明确的预报冰雹信号"]),
 ]
 
 
