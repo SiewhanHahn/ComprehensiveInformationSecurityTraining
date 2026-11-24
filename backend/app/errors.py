@@ -24,6 +24,7 @@ MESSAGES: dict[str, str] = {
     "INVALID_CREDENTIALS": "用户名或密码错误",
     "ACCOUNT_DISABLED": "账号已停用",
     "LOGIN_RATE_LIMITED": "尝试过于频繁，请稍后再试",
+    "REVIEW_CHANGED": "预警版本或提交轮次已变化，请重新加载并核对后再审核",
     "IMPACT_REQUIRED": "请先编辑草稿，补全影响说明后再提交",
     # 预警
     "PARTIAL_DATA": "数据不完整，无法创建正式预警",

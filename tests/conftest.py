@@ -61,6 +61,12 @@ def csrf_headers(csrf: str) -> dict[str, str]:
     return {"X-CSRF-Token": csrf}
 
 
+def review_body(reviewer, public_id, decision, comment):
+    screen = reviewer.get(f"/api/v1/warnings/{public_id}")
+    assert screen.status_code == 200 and screen.json()["review_token"]
+    return {"decision": decision, "comment": comment, "review_token": screen.json()["review_token"]}
+
+
 def publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, prefix, **overrides) -> str:
     """建草稿 → 提交 → 批准 → 发布，返回 public_id。三个集成测试文件共用。"""
     public_id = make_warning(analyst, analyst_csrf, prefix, **overrides)
@@ -70,7 +76,7 @@ def publish_warning(analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning
     assert reviewer.post(
         f"/api/v1/warnings/{public_id}/review",
         headers=csrf_headers(reviewer_csrf),
-        json={"decision": "APPROVE", "comment": "同意发布"},
+        json=review_body(reviewer, public_id, "APPROVE", "同意发布"),
     ).status_code == 200
     resp = reviewer.post(f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf))
     assert resp.status_code == 200, resp.text

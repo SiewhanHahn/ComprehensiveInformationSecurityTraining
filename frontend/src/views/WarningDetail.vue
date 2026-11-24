@@ -69,6 +69,7 @@
           </div>
         </div>
 
+        <p v-if="w.status === 'REJECTED' && w.rejection_comment" role="note"><strong>驳回意见：</strong>{{ w.rejection_comment }}</p>
         <form v-if="canManageDraft && editForm" style="margin-top: 16px" @submit.prevent="saveEdit">
           <h3 class="card-title">编辑草稿</h3>
           <div v-for="field in draftFields" :key="field.name" class="field" style="margin-top: 12px">
@@ -651,7 +652,7 @@ async function act(kind, decision) {
       }
       await apiFetch(`/warnings/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ decision, comment: comment.value })
+        body: JSON.stringify({ decision, comment: comment.value, review_token: w.value.review_token })
       })
       notice.value = decision === 'APPROVE' ? '已批准' : '已驳回'
     } else if (kind === 'publish' || kind === 'withdraw') {

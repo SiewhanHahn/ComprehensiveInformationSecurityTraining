@@ -115,7 +115,7 @@
 | GET | `/warnings/{public_id}` | 已登录 | 详情（含融合追溯）与可执行动作 |
 | PATCH | `/warnings/{public_id}` | ANALYST/ADMIN（本人草稿） | 修改未提交草稿 |
 | POST | `/warnings/{public_id}/submit` | ANALYST/ADMIN（本人） | 提交审核，状态 `PENDING_REVIEW` |
-| POST | `/warnings/{public_id}/review` | REVIEWER/ADMIN | 批准/驳回，必须填写意见；不能审批自己创建的预警 |
+| POST | `/warnings/{public_id}/review` | REVIEWER/ADMIN | 批准/驳回，须回传所见提交轮次的 `review_token`；驳回必填意见；不能审批自己创建的预警 |
 | POST | `/warnings/{public_id}/publish` | REVIEWER/ADMIN | 只有 `APPROVED` 可发布 |
 | POST | `/warnings/{public_id}/withdraw` | REVIEWER/ADMIN | `PUBLISHED` 可撤回 |
 | POST | `/warnings/{public_id}/feedback` | ANALYST/ADMIN | 追加响应/反馈，不修改已发布内容 |
@@ -260,3 +260,5 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 - `POST /warnings` 的 `impact_text` 去除首尾空白后必填；`PATCH /warnings/{public_id}` 只改明确提供且实际变化的字段，相同 PATCH 不增加版本或审计。旧空值草稿须由作者补全再提交。无效城市/活动阈值为 422，回放不完整为 409。
 - `POST /warnings/{public_id}/cancel`：仅具备编辑角色的创建者取消 DRAFT/REJECTED，返回 CANCELLED 并保留审计和原数据。详情不再开放；查看用户看不到取消记录。驳回后原编号可编辑并直接重提为 PENDING_REVIEW。
 - `publish` / `withdraw` / `cancel` 接受可选 JSON `{"reason":"…"}`，原因最多 500 字；旧无请求体调用兼容。`GET /audit-logs` 返回可空 `resource_version`（旧行可为空），变更草稿后递增内容版本。请求编号由服务端生成。
+
+- 待审核预警的列表和详情返回不透明的 `review_token`。`POST /warnings/{public_id}/review` 必须回传审核员在屏幕上核对的 token，连同 `decision` 与 `comment` 提交；不应在点击时另取最新 token 代替所见版本。锁内核对内容版本及提交轮次，旧轮次、无 token 的有效审核请求返回 `409 REVIEW_CHANGED`，须重新加载核对，不自动重试。未改稿重新提交也生成新轮次；已驳回的详情只向创建者附带 `rejection_comment`。

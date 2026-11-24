@@ -113,16 +113,20 @@ onMounted(async () => {
   }
 })
 
+let detailRequest = 0
 async function loadDetail() {
+  const seq = ++detailRequest
   loading.value = true
   error.value = ''
   try {
-    detail.value = await apiFetch(`/metrics/experiments/${version.value}`)
+    const value = await apiFetch(`/metrics/experiments/${version.value}`)
+    if (seq === detailRequest) detail.value = value
   } catch (e) {
+    if (seq !== detailRequest) return
     detail.value = null
     error.value = e.message
   } finally {
-    loading.value = false
+    if (seq === detailRequest) loading.value = false
   }
 }
 </script>

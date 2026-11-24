@@ -41,6 +41,7 @@ const api = await import('../frontend/src/api.js')
 const { apiFetch } = api
 const { router } = await import('../frontend/src/router.js')
 const { default: App } = await import('../frontend/src/App.vue')
+const { refreshUnread, resetUnread, notificationState } = await import('../frontend/src/notifications.js')
 hooks.deregister()
 
 const analyst = { id: 1, username: 'analyst', roles: ['ANALYST'] }
@@ -261,4 +262,14 @@ test('a stale refresh hands off to the current cookie without retrying a depende
   assert.equal(auth.ready, false)
   assert.equal(auth.user, null)
   assert.ok(auth.refreshError)
+})
+
+test('an old unread response cannot overwrite the new badge or a reset', async (t) => {
+  const setCookie = browser(t); setCookie('a'); auth.set(analyst, 'a', 'a'); resetUnread()
+  const results = []; globalThis.fetch = () => { const q = deferred(); results.push(q); return q.promise }
+  const old = refreshUnread(); setCookie('b'); auth.set(viewer, 'b', 'b')
+  const now = refreshUnread(); results[1].resolve(json({count: 4})); await now
+  results[0].resolve(json({count: 27})); await old; assert.equal(notificationState.unread, 4)
+  const pending = refreshUnread(); resetUnread(); results[2].resolve(json({count: 8})); await pending
+  assert.equal(notificationState.unread, 0)
 })

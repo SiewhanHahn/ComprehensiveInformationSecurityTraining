@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -67,7 +67,10 @@ def _apply(w: Warning, transition: Transition, actor: CurrentUser, audit: AuditC
     resource_version = w.version_no
     w.status = transition.target
     if transition.timestamp_field:
-        setattr(w, transition.timestamp_field, utcnow())
+        stamp = utcnow()
+        if transition is SUBMIT and w.submitted_at is not None and stamp <= w.submitted_at:
+            stamp = w.submitted_at + timedelta(microseconds=1)
+        setattr(w, transition.timestamp_field, stamp)
     if transition.actor_field:
         setattr(w, transition.actor_field, actor.id)
     audit.record(
@@ -117,6 +120,13 @@ def usernames(db: Session, user_ids: set[int]) -> dict[int, str]:
     return {uid: name for uid, name in rows}
 
 
+def review_token(w: Warning) -> str | None:
+    # Opaque optimistic-concurrency precondition, not an authorization credential.
+    if w.status != PENDING_REVIEW or w.submitted_at is None:
+        return None
+    return f"{w.version_no}:{w.submitted_at.isoformat(timespec='microseconds')}"
+
+
 def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
     result = w.warning_result
     return WarningOut(
@@ -132,6 +142,7 @@ def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
         risk_level=result.risk_level if result else None,
         fused_mm=float(result.fused_mm) if result else 0.0,
         version_no=w.version_no,
+        review_token=review_token(w),
         created_by=names.get(w.created_by, str(w.created_by)),
         submitted_at=w.submitted_at,
         approved_at=w.approved_at,
@@ -145,7 +156,7 @@ def to_out_list(db: Session, warnings: list[Warning]) -> list[WarningOut]:
     return [to_out(w, names) for w in warnings]
 
 
-def to_detail_out(db: Session, w: Warning, names: dict[int, str]) -> WarningDetailOut:
+def to_detail_out(db: Session, w: Warning, names: dict[int, str], *, reader_id: int | None = None) -> WarningDetailOut:
     """预警详情：在列表字段基础上附带融合追溯（四模式输入、基线、代理标签、数据集版本）。"""
     base = to_out(w, names)
     result = w.warning_result
@@ -172,8 +183,13 @@ def to_detail_out(db: Session, w: Warning, names: dict[int, str]) -> WarningDeta
                 .where(ForecastRecord.id.in_([i.forecast_record_id for i in inputs]))
                 .limit(1)
             )
+    rejection = None
+    if w.status == REJECTED and reader_id == w.created_by:
+        rejection = db.scalar(select(WarningReview.comment).where(
+            WarningReview.warning_id == w.id, WarningReview.decision == "REJECT"
+        ).order_by(WarningReview.id.desc()).limit(1))
     return WarningDetailOut(
-        **base.model_dump(),
+        **base.model_dump(), rejection_comment=rejection,
         baseline_mm=baseline_mm,
         proxy_label_mm=proxy_label_mm,
         dataset_version=dataset_version,
@@ -295,7 +311,8 @@ def submit_warning(db: Session, public_id: str, actor: CurrentUser, audit: Audit
     return w
 
 
-def review_warning(db: Session, public_id: str, decision: str, comment: str, actor: CurrentUser, audit: AuditContext) -> WarningReview:
+def review_warning(db: Session, public_id: str, decision: str, comment: str, actor: CurrentUser,
+                   audit: AuditContext, expected_token: str | None = None) -> WarningReview:
     w = get_warning(db, public_id, lock=True)
     if w is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
@@ -312,6 +329,8 @@ def review_warning(db: Session, public_id: str, decision: str, comment: str, act
     else:
         raise HTTPException(status_code=422, detail="INVALID_DECISION")
 
+    if not expected_token or expected_token != review_token(w):
+        raise HTTPException(status_code=409, detail="REVIEW_CHANGED")
     _apply(w, transition, actor, audit, reason=comment)
     review = WarningReview(warning_id=w.id, reviewer_id=actor.id, decision=decision, comment=comment)
     db.add(review)

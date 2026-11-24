@@ -196,7 +196,7 @@ async function review(w, decision) {
   try {
     await apiFetch(`/warnings/${w.public_id}/review`, {
       method: 'POST',
-      body: JSON.stringify({ decision, comment })
+      body: JSON.stringify({ decision, comment, review_token: w.review_token })
     })
     notice.value = decision === 'APPROVE' ? `已批准：${w.title}` : `已驳回：${w.title}`
     delete comments.value[w.public_id]

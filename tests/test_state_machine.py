@@ -5,7 +5,7 @@
 
 import pytest
 
-from conftest import csrf_headers
+from conftest import review_body, csrf_headers
 
 import pytest
 from sqlalchemy import select
@@ -74,8 +74,11 @@ def test_owner_can_cancel_rejected_with_reason_and_viewer_cannot_read(login, mak
     assert reviewer.post(
         f"/api/v1/warnings/{public_id}/review",
         headers=csrf_headers(reviewer_csrf),
-        json={"decision": "REJECT", "comment": "需要补充"},
+        json=review_body(reviewer, public_id, "REJECT", "需要补充"),
     ).status_code == 200
+
+    assert analyst.get(f"/api/v1/warnings/{public_id}").json()["rejection_comment"] == "需要补充"
+    assert reviewer.get(f"/api/v1/warnings/{public_id}").json()["rejection_comment"] is None
 
     response = analyst.post(
         f"/api/v1/warnings/{public_id}/cancel",
@@ -117,7 +120,7 @@ def test_publish_with_optional_reason_and_legacy_no_body_audit_version(login, ma
     assert reviewer.post(
         f"/api/v1/warnings/{public_id}/review",
         headers=csrf_headers(reviewer_csrf),
-        json={"decision": "APPROVE", "comment": "审核通过"},
+        json=review_body(reviewer, public_id, "APPROVE", "审核通过"),
     ).status_code == 200
     assert reviewer.post(
         f"/api/v1/warnings/{public_id}/publish",
@@ -178,7 +181,7 @@ def test_full_lifecycle_and_guards(login, make_warning):
     approve = reviewer.post(
         f"/api/v1/warnings/{public_id}/review",
         headers=csrf_headers(reviewer_csrf),
-        json={"decision": "APPROVE", "comment": "同意发布"},
+        json=review_body(reviewer, public_id, "APPROVE", "同意发布"),
     )
     assert approve.status_code == 200, approve.text
 
@@ -219,10 +222,31 @@ def test_rejected_warning_can_be_resubmitted(login, make_warning):
     reject = reviewer.post(
         f"/api/v1/warnings/{public_id}/review",
         headers=csrf_headers(reviewer_csrf),
-        json={"decision": "REJECT", "comment": "依据不足"},
+        json=review_body(reviewer, public_id, "REJECT", "依据不足"),
     )
     assert reject.status_code == 200, reject.text
 
     resubmit = analyst.post(f"/api/v1/warnings/{public_id}/submit", headers=csrf_headers(analyst_csrf))
     assert resubmit.status_code == 200, resubmit.text
     assert resubmit.json()["status"] == "PENDING_REVIEW"
+
+
+@pytest.mark.parametrize("edit", [True, False])
+def test_concurrent_reviewers_must_reconfirm_new_submission(login, make_warning, edit):
+    analyst, a = login('analyst_demo')
+    reviewer, r = login('reviewer_demo')
+    admin, ad = login('admin_demo')
+    ident = make_warning(analyst, a, 'review-precondition')
+    path = f'/api/v1/warnings/{ident}'
+    assert analyst.post(path+'/submit', headers=csrf_headers(a)).status_code == 200
+    before = review_body(admin, ident, 'APPROVE', '已核对')
+    rejected = reviewer.post(path+'/review', headers=csrf_headers(r), json=review_body(reviewer, ident, 'REJECT', '请复核时段'))
+    assert rejected.status_code == 200
+    if edit:
+        assert analyst.patch(path, headers=csrf_headers(a), json={'impact_text':'补充了处置范围'}).status_code == 200
+    assert analyst.post(path+'/submit', headers=csrf_headers(a)).status_code == 200
+    stale = admin.post(path+'/review', headers=csrf_headers(ad), json=before)
+    assert stale.status_code == 409 and stale.json()['error']['code'] == 'REVIEW_CHANGED'
+    after = review_body(admin, ident, 'APPROVE', '已重新核对')
+    assert after['review_token'] != before['review_token']
+    assert admin.post(path+'/review', headers=csrf_headers(ad), json=after).status_code == 200

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from conftest import csrf_headers, publish_warning
+from conftest import review_body, csrf_headers, publish_warning
 
 pytestmark = pytest.mark.integration
 
@@ -312,7 +312,7 @@ def test_inactive_creator_task_goes_to_publisher(login, make_warning):
         assert reviewer.post(
             f"/api/v1/warnings/{public_id}/review",
             headers=csrf_headers(reviewer_csrf),
-            json={"decision": "APPROVE", "comment": "同意发布"},
+            json=review_body(reviewer, public_id, "APPROVE", "同意发布"),
         ).status_code == 200
         resp = reviewer.post(f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf))
         assert resp.status_code == 200, resp.text
@@ -392,7 +392,7 @@ def test_demoted_creator_task_goes_to_publisher(login, make_warning):
         assert reviewer.post(
             f"/api/v1/warnings/{public_id}/review",
             headers=csrf_headers(reviewer_csrf),
-            json={"decision": "APPROVE", "comment": "同意发布"},
+            json=review_body(reviewer, public_id, "APPROVE", "同意发布"),
         ).status_code == 200
         assert reviewer.post(
             f"/api/v1/warnings/{public_id}/publish", headers=csrf_headers(reviewer_csrf)
@@ -428,7 +428,7 @@ def test_escalate_overdue_and_publish_acquire_expected_locks(login, make_warning
     assert reviewer.post(
         f"/api/v1/warnings/{public_id}/review",
         headers=csrf_headers(reviewer_csrf),
-        json={"decision": "APPROVE", "comment": "同意"},
+        json=review_body(reviewer, public_id, "APPROVE", "同意"),
     ).status_code == 200
 
     executed_sqls: list[str] = []

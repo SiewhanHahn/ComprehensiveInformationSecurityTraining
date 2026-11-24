@@ -45,7 +45,8 @@ def main():
         assert click_write(a, '提交审核', '/submit')['status'] == 'PENDING_REVIEW'
         r.goto(detail); r.get_by_label('审核意见').fill('请补充影响范围')
         assert click_write(r, '驳回', '/review')['decision'] == 'REJECT'
-        a.reload(); a.get_by_role('button', name='编辑草稿').click()
+        a.reload(); expect(a.get_by_role('note')).to_contain_text('请补充影响范围')
+        a.get_by_role('button', name='编辑草稿').click()
         a.locator('#edit-impact_text').fill('低洼路段及学校周边积水')
         assert click_write(a, '保存修改', '/'+ident, 'PATCH')['version_no'] == 2
         assert click_write(a, '重新提交审核', '/submit')['status'] == 'PENDING_REVIEW'

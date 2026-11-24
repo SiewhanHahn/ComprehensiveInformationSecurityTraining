@@ -30,8 +30,36 @@ def main():
         with engine.connect() as con:
             assert con.scalar(text('SELECT version_num FROM alembic_version')) == direction
             assert con.scalar(text("SELECT COUNT(*) FROM audit_logs WHERE action='QA_LEGACY' AND reason='keep'")) == 1
-    with engine.begin() as con:
-        con.execute(text("INSERT INTO audit_logs(action,resource_type,result,resource_version) VALUES('QA_VERSIONED','qa','SUCCESS',2)"))
+    case = os.environ.get('B_QA_GUARD_CASE', 'audit')
+    if case == 'audit':
+        with engine.begin() as con:
+            con.execute(text("INSERT INTO audit_logs(action,resource_type,result,resource_version) VALUES('QA_VERSIONED','qa','SUCCESS',2)"))
+        check_sql = "SELECT COUNT(*) FROM audit_logs WHERE action='QA_VERSIONED' AND resource_version=2"
+    elif case == 'cancelled':
+        # Isolate the warnings-side condition: create a valid FK graph and only an unversioned legacy audit.
+        from pathlib import Path
+        from sqlalchemy.orm import Session
+        from backend.app import seed
+        from backend.app.deps import CurrentUser
+        from backend.app.models import User
+        from backend.app.schemas import WarningCreate
+        from backend.app.services.audit import AuditContext
+        from backend.app.services.warnings import create_warning
+        with Session(engine) as db:
+            seed.seed_reference_data(db)
+            seed.import_sample(db, Path('data/sample/replay_sample.json'))
+            user = User(username='qa_fixture', display_name='QA', password_hash='unused', is_active=False)
+            db.add(user); db.flush()
+            actor = CurrentUser(user.id, user.username, ['ANALYST'])
+            w = create_warning(db, WarningCreate(city_code='CHANGSHA', valid_date='2024-03-27', threshold_code='HEAVY',
+                               title='QA', area_text='QA', impact_text='QA', reasoning_text='QA'), actor,
+                               AuditContext(db, actor, None, None))
+            w.status = 'CANCELLED'; w.cancelled_by = user.id
+            db.commit()
+            assert not db.scalar(text('SELECT COUNT(*) FROM audit_logs WHERE resource_version IS NOT NULL'))
+        check_sql = "SELECT COUNT(*) FROM warnings WHERE status='CANCELLED' AND cancelled_by IS NOT NULL"
+    else:
+        raise SystemExit('unexpected QA guard case')
     try:
         command.downgrade(cfg, b6)
     except RuntimeError as err:
@@ -40,8 +68,8 @@ def main():
         raise AssertionError('downgrade should have stopped before DDL')
     with engine.connect() as con:
         assert con.scalar(text('SELECT version_num FROM alembic_version')) == b7
-        assert con.scalar(text("SELECT resource_version FROM audit_logs WHERE action='QA_VERSIONED'")) == 2
-    print('PASS 0006 -> 0007 -> 0006 -> 0007; legacy row retained; nonempty 0007 downgrade safely refused')
+        assert con.scalar(text(check_sql)) == 1
+    print(f'PASS 0006 -> 0007 -> 0006 -> 0007; legacy row retained; {case}-only downgrade safely refused')
 
 
 if __name__ == '__main__':

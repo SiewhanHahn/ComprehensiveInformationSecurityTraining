@@ -57,7 +57,7 @@ def get_warning(
     current: CurrentUser = Depends(get_current_user),
 ):
     w = svc.get_visible_warning(db, public_id, current)
-    return svc.to_detail_out(db, w, svc.usernames(db, {w.created_by}))
+    return svc.to_detail_out(db, w, svc.usernames(db, {w.created_by}), reader_id=current.id)
 
 
 @router.patch("/warnings/{public_id}", response_model=WarningOut)
@@ -91,7 +91,7 @@ def review_warning(
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(reviewer_required),
 ):
-    review = svc.review_warning(db, public_id, body.decision, body.comment, current, audit_context(request, db, current))
+    review = svc.review_warning(db, public_id, body.decision, body.comment, current, audit_context(request, db, current), body.review_token)
     db.commit()
     return ReviewOut(
         decision=review.decision,

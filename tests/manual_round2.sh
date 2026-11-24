@@ -66,7 +66,8 @@ WID=$(jget /tmp/r2_w.json public_id)
 check "created_draft" "$(jget /tmp/r2_w.json status)" DRAFT
 check "publish_from_draft_invalid" "$(code -b /tmp/r2_r.txt -X POST $BASE/api/v1/warnings/$WID/publish -H "X-CSRF-Token: $RTOKEN")" 409
 check "submit" "$(code -b /tmp/r2_a.txt -X POST $BASE/api/v1/warnings/$WID/submit -H "X-CSRF-Token: $ATOKEN")" 200
-check "reviewer_approve" "$(code -b /tmp/r2_r.txt -X POST $BASE/api/v1/warnings/$WID/review -H 'Content-Type: application/json' -H "X-CSRF-Token: $RTOKEN" -d '{"decision":"APPROVE","comment":"ok"}')" 200
+REVIEW_BODY=$(curl -fsS -b /tmp/r2_r.txt "$BASE/api/v1/warnings/$WID" | python3 -c 'import sys,json; print(json.dumps(dict(decision="APPROVE", comment="ok", review_token=json.load(sys.stdin)["review_token"])))')
+check "reviewer_approve" "$(code -b /tmp/r2_r.txt -X POST $BASE/api/v1/warnings/$WID/review -H 'Content-Type: application/json' -H "X-CSRF-Token: $RTOKEN" -d "$REVIEW_BODY")" 200
 check "publish" "$(code -b /tmp/r2_r.txt -X POST $BASE/api/v1/warnings/$WID/publish -H "X-CSRF-Token: $RTOKEN")" 200
 check "viewer_sees_published" "$(code -b /tmp/r2_v.txt $BASE/api/v1/warnings/$WID)" 200
 check "withdraw" "$(code -b /tmp/r2_r.txt -X POST $BASE/api/v1/warnings/$WID/withdraw -H "X-CSRF-Token: $RTOKEN")" 200

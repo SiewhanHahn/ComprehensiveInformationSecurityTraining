@@ -22,7 +22,8 @@ ck "admin_create_200" "$(jget /tmp/l6_w.json status)" DRAFT
 ck "admin_submit_200" "$(code -b /tmp/l6_adm.txt -X POST $BASE/api/v1/warnings/$WID/submit -H "X-CSRF-Token: $ADM")" 200
 curl -s -c /tmp/l6_rev.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"username\":\"reviewer_demo\",\"password\":\"$DEMO_REVIEWER_PASSWORD\"}" > /tmp/l6_rev.json
 REV=$(jget /tmp/l6_rev.json csrf_token)
-ck "reviewer_approve_200" "$(code -b /tmp/l6_rev.txt -X POST $BASE/api/v1/warnings/$WID/review -H 'Content-Type: application/json' -H "X-CSRF-Token: $REV" -d '{"decision":"APPROVE","comment":"ok"}')" 200
+REVIEW_BODY=$(curl -fsS -b /tmp/l6_rev.txt "$BASE/api/v1/warnings/$WID" | python3 -c 'import sys,json; print(json.dumps(dict(decision="APPROVE", comment="ok", review_token=json.load(sys.stdin)["review_token"])))')
+ck "reviewer_approve_200" "$(code -b /tmp/l6_rev.txt -X POST $BASE/api/v1/warnings/$WID/review -H 'Content-Type: application/json' -H "X-CSRF-Token: $REV" -d "$REVIEW_BODY")" 200
 ck "admin_publish_200" "$(code -b /tmp/l6_adm.txt -X POST $BASE/api/v1/warnings/$WID/publish -H "X-CSRF-Token: $ADM")" 200
 
 echo "== L2/L4. 审计 IP 取自 X-Forwarded-For + request_id =="

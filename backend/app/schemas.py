@@ -211,6 +211,8 @@ class WarningUpdate(BaseModel):
 
 
 class ReviewRequest(BaseModel):
+    # Optional at parse time: existing clients receive a specific 409 asking them to reload.
+    review_token: str | None = Field(default=None, max_length=96)
     decision: Literal["APPROVE", "REJECT"]
     # 批准可不填意见；驳回必须填写（在端点内校验）
     comment: str = Field(default="", max_length=1000)
@@ -247,6 +249,7 @@ class WarningActionRequest(BaseModel):
 
 
 class WarningOut(BaseModel):
+    review_token: str | None = None
     public_id: str
     hazard_type: str
     status: str
@@ -267,6 +270,7 @@ class WarningOut(BaseModel):
 
 
 class WarningDetailOut(WarningOut):
+    rejection_comment: str | None = None
     # 融合追溯：四模式输入、基线、代理标签与数据集版本（旧预警无输入明细时 models 为空）
     baseline_mm: float | None
     proxy_label_mm: float | None

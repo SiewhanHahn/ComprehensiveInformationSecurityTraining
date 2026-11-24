@@ -104,3 +104,33 @@ def test_downgrade_refuses_to_discard_lifecycle_history(monkeypatch):
         migration.downgrade()
     ops.drop_column.assert_not_called()
     ops.drop_constraint.assert_not_called()
+
+
+@pytest.mark.parametrize('changed', [True, False])
+def test_review_is_bound_to_one_displayed_submission(changed, monkeypatch):
+    from datetime import datetime, timedelta
+    from backend.app.deps import CurrentUser
+    author = CurrentUser(1, 'author', ['ANALYST']); reviewer = CurrentUser(2, 'reviewer', ['REVIEWER'])
+    first = datetime(2026, 1, 1)
+    w = SimpleNamespace(id=3, status=warnings.PENDING_REVIEW, version_no=1, submitted_at=first,
+                        public_id='draft', created_by=1, impact_text='通勤')
+    monkeypatch.setattr(warnings, 'get_warning', lambda *a, **kw: w)
+    # A frozen clock must not make two different submission rounds indistinguishable.
+    monkeypatch.setattr(warnings, 'utcnow', lambda: first)
+    db, audit = Mock(), Mock()
+    previous = warnings.review_token(w)
+    warnings.review_warning(db, 'draft', 'REJECT', '请复核区域', reviewer, audit, previous)
+    if changed:
+        warnings.update_warning(db, 'draft', WarningUpdate(impact_text='道路交通'), author, audit)
+    warnings.submit_warning(db, 'draft', author, audit)
+    current = warnings.review_token(w)
+    assert current != previous and w.submitted_at >= first + timedelta(microseconds=1)
+    for unavailable in [previous, None]:
+        audit.reset_mock()
+        with pytest.raises(HTTPException) as err:
+            warnings.review_warning(db, 'draft', 'APPROVE', '', reviewer, audit, unavailable)
+        assert (err.value.status_code, err.value.detail) == (409, 'REVIEW_CHANGED')
+        assert w.status == warnings.PENDING_REVIEW
+        audit.record.assert_not_called()
+    warnings.review_warning(db, 'draft', 'APPROVE', '', reviewer, audit, current)
+    assert w.status == warnings.APPROVED

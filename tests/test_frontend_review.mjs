@@ -1205,3 +1205,32 @@ test('reviewer can supply an auditable publication reason in both review entry p
     } finally { view.scope.stop() }
   }
 })
+
+
+test('both review forms submit the token originally displayed, not a refetched version', async () => {
+  for (const name of ['Review', 'WarningDetail']) {
+    const w = { ...warningFixture('PENDING_REVIEW'), review_token: '2:round-from-screen' }
+    const calls = []; const view = await lifecycleView(name, { auth: lifecycleAuth('reviewer_demo', ['REVIEWER']),
+      apiFetch: async (url, options) => { if (options?.method === 'POST') calls.push(JSON.parse(options.body)); return [] } })
+    try {
+      if (name === 'Review') await view.exposed.review(w, 'APPROVE')
+      else { view.exposed.w.value = w; await view.exposed.act('review', 'APPROVE') }
+      assert.equal(calls.length, 1); assert.equal(calls[0].review_token, w.review_token)
+    } finally { view.scope.stop() }
+  }
+})
+
+test('metrics ignores late detail responses, errors and loading changes', async () => {
+  for (const fail of [false, true]) {
+    const calls = []
+    const { exposed: m, scope } = instantiateSetupScript('src/views/Metrics.vue', { '../api': { apiFetch: () => {
+      const req = deferredRequest(); calls.push(req); return req.promise
+    } } })
+    try {
+      const old = m.loadDetail(); m.version.value = '25mm'; const current = m.loadDetail()
+      if (fail) calls[0].reject(new Error('late error')); else calls[0].resolve({version:'10mm'})
+      await old; assert.equal(m.loading.value, true); assert.equal(m.error.value, ''); assert.equal(m.detail.value, null)
+      calls[1].resolve({version:'25mm'}); await current; assert.equal(m.detail.value.version,'25mm')
+    } finally {scope.stop()}
+  }
+})
