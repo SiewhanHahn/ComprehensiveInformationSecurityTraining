@@ -7,7 +7,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from backend.app.models import WarningResult
@@ -56,7 +56,8 @@ def main():
         try:
             with engine.begin() as conn:
                 conn.execute(insert, {"run": run, "th": threshold, "mm": mm, "assessment": assessment})
-        except IntegrityError as error:
+        except DBAPIError as error:
+            # PyMySQL maps 3819 CHECK failures to OperationalError, unlike 1452 FK failures.
             assert error.orig.args[0] == expected, (error.orig, expected)
         else:
             raise AssertionError(f'expected MySQL integrity error {expected}: {run, threshold, mm, assessment}')
