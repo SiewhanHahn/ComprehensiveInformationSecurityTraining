@@ -78,6 +78,7 @@ def main():
         page.locator('input[type=password]').fill(os.getenv('DEMO_ANALYST_PASSWORD') or getpass('Demo analyst password: '))
         page.locator('button[type=submit]').click()
         page.wait_for_url(base + '/')
+        expect(page.get_by_role('img', name='九城暴雨教学记录条形图').locator('canvas').first).to_be_visible()
         verify(page, base, args.evidence)
         browser.close()
     print('PASS: source dates, both thresholds, Changsha replay, offline sample, error row and network isolation')

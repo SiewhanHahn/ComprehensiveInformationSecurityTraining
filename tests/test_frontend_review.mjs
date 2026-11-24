@@ -1332,10 +1332,9 @@ test('formal typhoon detail never labels the saved distance as rainfall', async 
 })
 
 
-test('non-rainfall teaching results are not rainfall signals or rainfall map points', () => {
+test('nine-city rainfall chart retains zero-count cities and ignores other hazards', () => {
   const { exposed: d, scope } = instantiateSetupScript('src/views/Dashboard.vue', {
-    '../data/cityCoords': { CITY_COORDS: { GUANGZHOU: [113.2644, 23.1291], CHANGSHA: [112.9388, 28.2282] } },
-    '../charts/options': { chinaMap: points => points },
+    '../charts/options': { cityRiskBar: points => points },
     '../ui/useCountUp': { useCountUp: ref => ref },
   })
   try {
@@ -1348,7 +1347,8 @@ test('non-rainfall teaching results are not rainfall signals or rainfall map poi
     assert.equal(d.signalCounts.value.YELLOW, 0)
     assert.equal(d.signalCounts.value.BLUE, 1)
     assert.equal(d.statusCounts.value.DRAFT, 2)
-    const city = name => d.mapOption.value.find(item => item.name === name)
+    const city = name => d.cityOption.value.find(item => item.name === name)
+    assert.equal(d.cityOption.value.length, 2)
     assert.equal(city('广州').count, 0); assert.equal(city('广州').risk, null)
     assert.equal(city('长沙').count, 1); assert.equal(city('长沙').risk, 'BLUE')
   } finally { scope.stop() }

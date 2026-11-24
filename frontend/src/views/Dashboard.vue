@@ -73,10 +73,9 @@
       <ChartPanel
         title="九城暴雨记录"
         subtitle="仅按暴雨记录中的最高教学等级着色 · 非实时"
-        :option="mapOption"
+        :option="cityOption"
         :height="416"
-        aria-label="中国地图，九城暴雨教学记录分布"
-        sweep
+        aria-label="九城暴雨教学记录条形图"
       />
       <div class="chart-stack">
         <ChartPanel
@@ -192,8 +191,7 @@ import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import ChartPanel from '../components/ChartPanel.vue'
 import { useCountUp } from '../ui/useCountUp'
-import { CITY_COORDS } from '../data/cityCoords'
-import { baselineRadar, chinaMap, modelBar, statusBar } from '../charts/options'
+import { baselineRadar, cityRiskBar, modelBar, statusBar } from '../charts/options'
 
 const RISK_RANK = { BLUE: 1, YELLOW: 2, ORANGE: 3, RED: 4 }
 
@@ -234,19 +232,11 @@ const statusCounts = computed(() => {
   return counts
 })
 
-const mapOption = computed(() => {
+const cityOption = computed(() => {
   if (!cities.value.length) return null
   const byCity = {}
   for (const city of cities.value) {
-    const coord = CITY_COORDS[city.code]
-    if (!coord) continue
-    byCity[city.code] = {
-      name: city.name,
-      lon: coord[0],
-      lat: coord[1],
-      count: 0,
-      risk: null
-    }
+    byCity[city.code] = { name: city.name, count: 0, risk: null }
   }
   for (const w of rainWarnings.value) {
     const point = byCity[w.city_code]
@@ -256,7 +246,7 @@ const mapOption = computed(() => {
       point.risk = w.risk_level
     }
   }
-  return chinaMap(Object.values(byCity))
+  return cityRiskBar(Object.values(byCity))
 })
 
 const radarOption = computed(() =>

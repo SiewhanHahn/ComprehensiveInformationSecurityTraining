@@ -1,11 +1,11 @@
 # Repository Guidelines
 
-This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` has an end-to-end workflow and a frozen quantitative experiment. `TYPHOON`, `SNOW_DISASTER`, and `THUNDERSTORM` replay source-backed historical cases and reuse that warning workflow; `DROUGHT` has a non-persistent teaching calculator; three entries are not yet implemented.
+This course project demonstrates multi-source precipitation fusion and a warning workflow from approval through publication, feedback, and audit. `RAINSTORM` has an end-to-end workflow and a frozen quantitative experiment. `TYPHOON`, `SNOW_DISASTER`, and `THUNDERSTORM` replay source-backed historical cases and reuse that warning workflow; drought, heat, cold, and wind/hail are non-persistent teaching trials that never create warnings.
 
 ## Project Structure & Module Organization
 
 - `backend/app/` contains the FastAPI app, with endpoints in `routers/`, business logic in `services/`, and the worker in `scheduler.py`. Alembic revisions live in `backend/migrations/versions/`; research scripts live directly under `backend/`.
-- `frontend/src/` contains the Vue 3 app: routed pages in `views/`, reusable UI in `components/`, and map assets in `assets/`.
+- `frontend/src/` contains the Vue 3 app: routed pages in `views/`, reusable UI in `components/`, and chart options in `charts/`.
 - `tests/` holds Python, frontend, and manual checks. `data/sample/` contains offline replay input, `data/results/` holds frozen metrics, and `docs/` documents architecture, API contracts, and deployment.
 
 ## Build, Test, and Development Commands

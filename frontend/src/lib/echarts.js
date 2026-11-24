@@ -2,13 +2,10 @@ import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import {
   BarChart,
-  EffectScatterChart,
   LineChart,
-  RadarChart,
-  ScatterChart
+  RadarChart
 } from 'echarts/charts'
 import {
-  GeoComponent,
   GridComponent,
   LegendComponent,
   MarkLineComponent,
@@ -21,13 +18,10 @@ echarts.use([
   BarChart,
   LineChart,
   RadarChart,
-  EffectScatterChart,
-  ScatterChart,
   GridComponent,
   RadarComponent,
   LegendComponent,
   TooltipComponent,
-  GeoComponent,
   MarkLineComponent
 ])
 

@@ -1,6 +1,6 @@
 # 终验与离线启动
 
-**这是教学项目。** 四个重点灾种支持受控的研判与正式演练流程；四个基础试算不入库、不制单。以下现场路线不需要现取天气数据，但须在有网时预先取得镜像、源码和样本，且环境已安装 Docker Compose V2。
+**这是教学项目。** 四个重点灾种支持受控的研判与正式演练流程；四个基础试算不入库、不制单。以下现场路线不需要现取天气数据，但须在有网时预先取得镜像、源码和样本，且环境已安装兼容的 Docker。实测平台为 **Docker Engine 29.7.2（Linux/amd64）和 Docker Compose 5.5.0**。出发前先运行 `docker version`、`docker compose version` 和下方 `config -q`；`!override`、`!reset` 或 `gw_priority` 不兼容时先更新并重验，勿等断网后修复。
 
 ## 1. 核对交付文件
 
@@ -17,9 +17,26 @@ docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f
 docker compose -p weather-course-demo -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml ps
 ```
 
-镜像包包含同 SHA 的应用/Nginx 构建、MySQL 和 Redis；种子与迁移复用应用镜像。缺镜像时应报错，不会联网拉取或就地重建。可换 `-p` 项目名，为每次验收新建 MySQL 卷。浏览器打开 `http://127.0.0.1:<DEFENSE_PORT>`，检查 `/build-revision.txt` 等于完整 SHA，检查 `/health`、`/health/db`、`/health/redis` 后再进入。若版本不符，停止写入。对既有演示不要运行 `down -v`。
+镜像包包含同 SHA 的应用/Nginx 构建、MySQL 和 Redis；种子与迁移复用应用镜像。缺镜像时应报错，不会联网拉取或就地重建。上述 `weather-course-demo` 只供演示；做写入验收必须按下一节新建 QA 项目和 MySQL 卷，不能复用演示库。浏览器打开 `http://127.0.0.1:<DEFENSE_PORT>`，检查 `/build-revision.txt` 等于完整 SHA，检查 `/health`、`/health/db`、`/health/redis` 后再进入。若版本不符，停止写入。对既有演示不要运行 `down -v`。
 
-## 3. 演示与验收
+<a id="qa-preflight"></a>
+## 3. 写入验收的 QA 前置检查
+
+先准备空闲的回环端口（填入 `.env` 的 `DEFENSE_PORT`），选择全新的 QA 项目名并确认它未关联任何现有容器或卷。`image-identities.json` 随匹配的镜像包交付，记录保存时的 API 与前端镜像 ID。示例在 Docker 主机内执行；`REV` 为完整交付 SHA，按实际情况替换文件路径：
+
+```bash
+QA=weather-course-qa-run1
+PORT=18589
+REV='替换成完整验收SHA'
+python tests/verify_offline_qa_target.py preflight --project "$QA" --port "$PORT" --revision "$REV" > qa-fresh.json
+docker compose -p "$QA" -f compose.yaml -f compose.defense.yaml -f compose.offline.yaml up -d --no-build --pull never
+python tests/verify_offline_qa_target.py verify --project "$QA" --port "$PORT" --revision "$REV" \
+  --fresh-proof qa-fresh.json --image-manifest /path/to/image-identities.json > qa-target.json
+```
+
+前置检查失败即停止；不要继续执行后面的命令。容器启动后等待健康检查通过再运行 `verify`。它核对回环映射、运行镜像 ID、当前 QA 专属 MySQL 卷和页面 SHA。给 `tests/browser_b_acceptance.py` 传 `--qa-proof qa-target.json --expect-revision "$REV"`，并仅为该 QA 注入账号密码与 `BCHECK_ALLOW_WRITE=1`。若使用 SSH 回环转发，由验收启动器核对实际映射后在证明中补充测试用的 `test_url`。
+
+## 4. 演示与验收
 
 1. [九城同样本指标与数据年份](data-and-method.md)：解释 2024/2025/2026 分期、固定 24 h、ERA5 代理，10 mm/24 h 的 F1 不是严重暴雨准确率。用回放样本讲清改善及反例（数值为 mm/24 h，不混入 2026 测试）：
    - 南宁 2024-02-04：ECMWF **10.5**、融合 **5.025**、ERA5 **2.5**，融合消除 10 mm 档误报。

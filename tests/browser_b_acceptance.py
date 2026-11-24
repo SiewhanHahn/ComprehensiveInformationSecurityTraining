@@ -2,24 +2,30 @@
 Install playwright plus Chromium, or specify an installed browser in CHROMIUM_PATH.
 """
 import argparse
+import json
 import os
-import re
+from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 from playwright.sync_api import expect, sync_playwright
+
+from verify_offline_qa_target import validate_browser_proof
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--qa-url', required=True)
     parser.add_argument('--expect-revision', required=True)
+    parser.add_argument('--qa-proof', required=True, type=Path)
     args = parser.parse_args()
     base = args.qa_url.rstrip('/')
     if urlsplit(base).hostname != '127.0.0.1' or os.getenv('BCHECK_ALLOW_WRITE') != '1':
         raise SystemExit('Require a loopback QA endpoint and BCHECK_ALLOW_WRITE=1')
-    if not re.fullmatch(r'[0-9a-f]{40}', args.expect_revision):
-        raise SystemExit('Require the full candidate SHA')
+    try:
+        validate_browser_proof(json.loads(args.qa_proof.read_text(encoding='utf-8-sig')), base, args.expect_revision)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f'Unsafe QA target: {exc}') from exc
     parsed = urlsplit(base)
     origin = (parsed.scheme, parsed.netloc)
     outside = []
@@ -38,7 +44,8 @@ def main():
         def login(role):
             ctx = browser.new_context(service_workers='block', reduced_motion='reduce')
             revision = ctx.request.get(base + '/build-revision.txt')
-            assert revision.ok and revision.text().strip() == args.expect_revision, 'Wrong QA revision'
+            if not revision.ok or revision.text().strip() != args.expect_revision:
+                raise SystemExit('Wrong QA revision; aborted before browser writes')
             ctx.route('**/*', offline)
             page = ctx.new_page()
             page.set_default_timeout(12000)

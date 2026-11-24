@@ -1708,26 +1708,7 @@ tbody tr:last-child td {
 .signal-dot--orange { background: var(--signal-orange); }
 .signal-dot--red { background: var(--signal-red); }
 
-.map-sweep {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: conic-gradient(from 0deg at 50% 50%, rgba(53, 201, 230, 0.14), transparent 24%, transparent 100%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 72%);
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 72%);
-  animation: map-sweep 3.2s ease-out 1 both;
-}
 
-@keyframes map-sweep {
-  from {
-    transform: rotate(0deg);
-    opacity: 0.9;
-  }
-  to {
-    transform: rotate(360deg);
-    opacity: 0;
-  }
-}
 
 /* ============================================================
    过渡动画
@@ -1941,7 +1922,4 @@ tbody tr:last-child td {
     transform: none;
   }
 
-  .map-sweep {
-    display: none;
-  }
 }

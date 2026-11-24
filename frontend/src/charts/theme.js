@@ -13,9 +13,7 @@ export const CHART = {
   orange: '#ff8b3d',
   red: '#f05a50',
   green: '#3fca8d',
-  purple: '#9d7bff',
-  mapArea: '#14223a',
-  mapBorder: 'rgba(88, 166, 255, 0.35)'
+  purple: '#9d7bff'
 }
 
 export const SIGNAL_COLORS = {

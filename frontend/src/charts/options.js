@@ -279,81 +279,24 @@ export function coverageBar(perCity, expected, nameOf) {
   }
 }
 
-export function chinaMap(points) {
-  const active = points.filter((p) => p.count > 0)
-  const idle = points.filter((p) => !p.count)
-  const toData = (list) =>
-    list.map((p) => ({
-      name: p.name,
-      value: [p.lon, p.lat, p.count],
-      risk: p.risk,
-      itemStyle: { color: SIGNAL_COLORS[p.risk] || CHART.cyan }
-    }))
+export function cityRiskBar(points) {
   return {
     ...BASE,
+    grid: { top: 14, right: 44, bottom: 35, left: 66 },
+    xAxis: { ...axisStyle, type: 'value', minInterval: 1 },
+    yAxis: { ...axisStyle, type: 'category', inverse: true, data: points.map(point => point.name) },
     tooltip: {
       ...tooltipStyle,
       trigger: 'item',
-      formatter: (p) => {
-        if (!p.data) return p.name
-        const risk = p.data.risk
-        return `${p.name}<br/>暴雨记录：${p.value[2]} 条<br/>最高教学信号：${RISK_LABEL[risk] || '无'}`
-      }
+      renderMode: 'richText',
+      formatter: ({ name, value, data }) => `${name}\n暴雨记录：${value} 条\n最高教学信号：${RISK_LABEL[data.risk] || '无'}`
     },
-    geo: {
-      map: 'china',
-      roam: false,
-      zoom: 1.32,
-      center: [104, 35],
-      label: { show: false },
-      itemStyle: {
-        areaColor: CHART.mapArea,
-        borderColor: CHART.mapBorder,
-        borderWidth: 0.8,
-        shadowColor: 'rgba(53,201,230,0.18)',
-        shadowBlur: 16
-      },
-      emphasis: {
-        itemStyle: { areaColor: '#1b2d4a' },
-        label: { show: false }
-      },
-      select: { disabled: true }
-    },
-    series: [
-      {
-        name: '预警城市',
-        type: 'effectScatter',
-        coordinateSystem: 'geo',
-        zlevel: 2,
-        rippleEffect: { scale: 2.6, brushType: 'stroke' },
-        symbolSize: (val) => Math.min(24, 7 + Math.sqrt(val[2] || 0) * 3),
-        label: {
-          show: true,
-          position: 'right',
-          formatter: (p) => p.name,
-          color: CHART.text,
-          fontSize: 10
-        },
-        labelLayout: { hideOverlap: true },
-        data: toData(active)
-      },
-      {
-        name: '无预警城市',
-        type: 'scatter',
-        coordinateSystem: 'geo',
-        zlevel: 1,
-        symbolSize: 7,
-        itemStyle: { color: CHART.cyan, opacity: 0.65 },
-        label: {
-          show: true,
-          position: 'right',
-          formatter: (p) => p.name,
-          color: CHART.muted,
-          fontSize: 10
-        },
-        labelLayout: { hideOverlap: true },
-        data: toData(idle)
-      }
-    ]
+    series: [{
+      type: 'bar',
+      name: '暴雨记录',
+      barMaxWidth: 21,
+      label: { show: true, position: 'right', color: CHART.text },
+      data: points.map(({ count, risk }) => ({ value: count, risk, itemStyle: { color: SIGNAL_COLORS[risk] || CHART.cyan } }))
+    }]
   }
 }

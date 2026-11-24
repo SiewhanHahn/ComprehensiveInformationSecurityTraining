@@ -4,7 +4,6 @@
       <span class="chart-panel-title">{{ title }}</span>
       <span v-if="subtitle" class="chart-panel-sub">{{ subtitle }}</span>
     </div>
-    <span v-if="sweep && ready && option" class="map-sweep" aria-hidden="true"></span>
     <div
       ref="host"
       class="chart-body"
@@ -27,12 +26,10 @@ const props = defineProps({
   subtitle: { type: String, default: '' },
   height: { type: Number, default: 320 },
   emptyText: { type: String, default: '' },
-  ariaLabel: { type: String, default: '' },
-  sweep: { type: Boolean, default: false }
+  ariaLabel: { type: String, default: '' }
 })
 
 const host = ref(null)
-const ready = ref(false)
 const failed = ref(false)
 
 let chart = null
@@ -42,17 +39,10 @@ let disposed = false
 
 async function ensureChart() {
   if (chart || !host.value) return chart
-  const [{ default: echarts }, { ensureChinaMap }] = await Promise.all([
-    import('../lib/echarts'),
-    import('../lib/chinaMap')
-  ])
-  if (props.option?.geo?.map === 'china') {
-    await ensureChinaMap()
-  }
+  const { default: echarts } = await import('../lib/echarts')
   if (disposed) return null
   echartsLib = echarts
   chart = echarts.init(host.value, null, { renderer: 'canvas' })
-  ready.value = true
   observer = new ResizeObserver(() => chart && chart.resize())
   observer.observe(host.value)
   return chart
