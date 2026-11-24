@@ -9,6 +9,7 @@ const routes = [
   { path: '/replay', component: () => import('./views/Replay.vue') },
   { path: '/typhoon', component: () => import('./views/Typhoon.vue') },
   { path: '/snow', component: () => import('./views/Snow.vue') },
+  { path: '/lightning', component: () => import('./views/Lightning.vue') },
   { path: '/metrics', component: () => import('./views/Metrics.vue') },
   { path: '/warnings', component: () => import('./views/Warnings.vue') },
   { path: '/warnings/:publicId', component: () => import('./views/WarningDetail.vue') },

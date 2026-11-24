@@ -8,6 +8,7 @@ from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser, get_cur
 from ..schemas import (
     FeedbackOut,
     FeedbackRequest,
+    LightningWarningCreate,
     ReviewOut,
     ReviewRequest,
     SnowWarningCreate,
@@ -62,6 +63,17 @@ def create_snow_warning(
     current: CurrentUser = Depends(analyst_required),
 ):
     w = svc.create_snow_warning(db, body, current, audit_context(request, db, current))
+    return _respond(db, w)
+
+
+@router.post("/warnings/lightning", response_model=WarningOut)
+def create_lightning_warning(
+    body: LightningWarningCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current: CurrentUser = Depends(analyst_required),
+):
+    w = svc.create_lightning_warning(db, body, current, audit_context(request, db, current))
     return _respond(db, w)
 
 

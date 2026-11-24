@@ -11,6 +11,7 @@ HAZARD_STATUS_IMPLEMENTED = "IMPLEMENTED"
 HAZARD_STATUS_FRAMEWORK = "FRAMEWORK"
 TYPHOON_PROXIMITY_KM = 200.0  # 项目教学距离，不是业务预警标准。
 SNOW_24H_THRESHOLD_CM = 10.0  # 项目教学阈值，不是官方雪灾预警标准。
+LIGHTNING_LTNG_THRESHOLD = 0.05  # 固定教学界线，不是官方信号或概率。
 
 # 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_HAZARDS = "*"
@@ -65,7 +66,17 @@ HAZARDS: list[dict] = [
         "judgement": "24 个逐时降雪量相加，气温仅作解释；缺测不判风险。",
         "note": "新奥尔良原业务预报达标可制单；济南正反例只回放。站码核对过程，不验证累计量或灾损。",
     },
-    _planned("THUNDERSTORM", "雷电", "6 小时雷暴伴随雷电风险", "风险提示", ["已签发雷暴预报信号", "雷暴或闪电记录"]),
+    {
+        "code": "THUNDERSTORM",
+        "name": "雷电",
+        "status": HAZARD_STATUS_IMPLEMENTED,
+        "indicator": "6 小时最大 LTNG",
+        "unit": "无量纲",
+        "thresholds": [{"code": "LIGHTNING_LTNG", "label": "教学触发 ≥", "value": LIGHTNING_LTNG_THRESHOLD}],
+        "data_sources": ["NOAA HRRR 原业务归档", "KSTL METAR/SPECI（仅事后核验）"],
+        "judgement": "比较 6 个小时的瞬时 LTNG 最大值，并列出达标时次；缺测无法判断。",
+        "note": "圣路易斯归档两窗对照。LTNG 不是概率或闪电计数，站点报告不验证落点。",
+    },
     _planned("DROUGHT", "干旱", "未来 7 天少雨持续风险", "天", ["签发前历史降水", "未来 7 天降水预报"]),
     _planned("HEATWAVE", "高温", "未来 24 小时最高气温", "°C", ["逐时气温预报"]),
     _planned("LOW_TEMPERATURE", "低温", "未来 24 小时最低气温", "°C", ["逐时气温预报"]),

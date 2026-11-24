@@ -136,3 +136,73 @@ class SnowCatalog(BaseModel):
 class SnowReplay(BaseModel):
     forecast: SnowAssessment
     verification: SnowVerification | None = None
+
+
+LIGHTNING_WINDOW_HOURS = 6
+
+
+class LightningCaseInfo(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    case_id: str
+    name: str
+    city: CaseCity
+    station_id: str = Field(pattern=r'^[A-Z][A-Z0-9]{3}$')
+    forecast_grid: GeoPoint
+    initialized_at: AwareDatetime
+    window_start: AwareDatetime
+    archive_latest_modified_at: AwareDatetime | None = None
+    forecast_source: CaseSource
+
+    @model_validator(mode='after')
+    def validate_archive_clock(self) -> 'LightningCaseInfo':
+        start = self.window_start
+        if (start.utcoffset() != timedelta(0) or self.initialized_at.utcoffset() != timedelta(0)
+                or start.minute or start.second or start.microsecond
+                or start != self.initialized_at + timedelta(hours=6)):
+            raise ValueError('lightning window must begin on a UTC hour, 6h after model initialization')
+        dated = self.archive_latest_modified_at
+        if dated is not None and not self.initialized_at < dated < start:
+            raise ValueError('original archive objects must be dated after initialization and before the window')
+        return self
+
+
+class LightningForecastHour(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    valid_at: AwareDatetime  # Instantaneous; not a cumulative hour or observed strike.
+    ltng: float | None = Field(ge=0, strict=True, allow_inf_nan=False)
+
+
+class LightningAssessment(BaseModel):
+    schema_version: Literal[1] = 1
+    method: Literal['hourly-ltng-max-v1'] = 'hourly-ltng-max-v1'
+    case: LightningCaseInfo
+    forecast_window_end: AwareDatetime
+    usable_hours: int = Field(ge=0, le=LIGHTNING_WINDOW_HOURS)
+    hours: tuple[LightningForecastHour, ...]
+    outcome: Literal['INSUFFICIENT', 'REACHED', 'NOT_REACHED']
+    metric: HazardMetric | None = None
+    reached_times: tuple[AwareDatetime, ...] = ()
+
+
+class LightningStationReport(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    observed_at: AwareDatetime
+    thunder_code: str | None = Field(default=None, pattern=r'^[+-]?TS(?:RA(?:GR)?)?$')
+    lightning_remark: str | None = Field(default=None, pattern=r'^LTG(?:IC|CC|CG|CA)+$', max_length=15)
+    end_remark: str | None = Field(default=None, pattern=r'^TSE[0-5][0-9]$')
+
+
+class LightningVerification(BaseModel):
+    source: CaseSource
+    station_id: str
+    observations: tuple[LightningStationReport, ...]
+    outcome: Literal['THUNDER_AND_LIGHTNING_REPORTED', 'THUNDER_REPORTED', 'LIGHTNING_REPORTED', 'NO_EVENT_IN_SAMPLES']
+
+
+class LightningCatalog(BaseModel):
+    cases: list[LightningCaseInfo]
+
+
+class LightningReplay(BaseModel):
+    forecast: LightningAssessment
+    verification: LightningVerification | None = None

@@ -141,8 +141,8 @@ def test_hazards_registry_contains_eight_entries(login):
     data = client.get("/api/v1/hazards").json()
 
     assert data["summary"]["total"] == 8
-    assert data["summary"]["implemented"] == 3
-    assert data["summary"]["framework"] == 5
+    assert data["summary"]["implemented"] == 4
+    assert data["summary"]["framework"] == 4
 
     codes = {item["code"] for item in data["hazards"]}
     assert codes == {
@@ -156,4 +156,4 @@ def test_hazards_registry_contains_eight_entries(login):
         "WIND_HAIL",
     }
     implemented = {item["code"] for item in data["hazards"] if item["status"] == "IMPLEMENTED"}
-    assert implemented == {"RAINSTORM", "TYPHOON", "SNOW_DISASTER"}
+    assert implemented == {"RAINSTORM", "TYPHOON", "SNOW_DISASTER", "THUNDERSTORM"}

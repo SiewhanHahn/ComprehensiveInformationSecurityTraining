@@ -282,3 +282,9 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 - `GET /api/v1/typhoon/cases` 列出内置早期公报和参与演练的城市；`GET /api/v1/typhoon/cases/{case_id}/assessment?city_code=...` 返回 `forecast` 与独立 `verification`。登录后可读。未知案例 404，未支持的城市 422。`forecast.outcome` 为 `NEAR` / `NOT_NEAR` / `INSUFFICIENT`，不是实际台风预警等级。
 - `POST /api/v1/warnings/typhoon`（分析员或管理员、现有 CSRF 策略）只接收 `case_id`、`city_code`、`title`、`area_text`、`impact_text`、`reasoning_text`。余字段拒绝。服务端重算；无数据或未达教学阈值返回 409，不创建记录。达标建立 `DRAFT`，不直接发布。
 - 对台风，既有预警列表和详情中的 `fused_mm` 是 `null`，另有带单位的 `metric`。详情还返回 `typhoon_assessment`（签发时可用的输入、预报证据和判定），不返回事后核对；降水详情沿用既有 mm、四模式与标签字段。提交、审核轮次、发布、响应和审计接口沿用 B。
+
+## C2：雷电离线回放与演练草稿
+
+- 登录后 `GET /api/v1/lightning/cases` 列出内置档案；`GET /api/v1/lightning/cases/{case_id}/assessment` 返回 `forecast` 与可空的 `verification`。六个有效时次和 LTNG 最大值仅来自原业务预报；站点摘录缺失、损坏或不匹配时仍能读取预报。未知案例返回 404。
+- `POST /api/v1/warnings/lightning` 仅分析员或管理员可调用，须带 CSRF。只接受 `case_id`、`title`、`area_text`、`impact_text`、`reasoning_text`，其他字段 422。服务器重算，缺测、未达和原发不可证分别返回 409 `PARTIAL_DATA`、`THRESHOLD_NOT_REACHED`、`SOURCE_NOT_VERIFIED`。
+- 成功时为 `THUNDERSTORM` 草稿，`fused_mm` 为 `null`。详情 `lightning_assessment` 是预报快照，不含事后核验；沿用 `0008_hazard_assessment` 和 B 的审核、发布、响应、反馈、审计。`ST_LOUIS` 在 `/warning-cities`，不扩展雨量实验 `/cities`。

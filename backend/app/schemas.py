@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .assessment_schemas import HazardMetric, SnowAssessment, TyphoonAssessment
+from .assessment_schemas import HazardMetric, LightningAssessment, SnowAssessment, TyphoonAssessment
 
 from .cities import ALL_CITIES, WARNING_CITIES
 from .deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, ROLE_VIEWER
@@ -201,6 +201,11 @@ class SnowWarningCreate(WarningDraftText):
     case_id: str = Field(min_length=1, max_length=64)
 
 
+class LightningWarningCreate(WarningDraftText):
+    model_config = ConfigDict(extra="forbid")
+    case_id: str = Field(min_length=1, max_length=64)
+
+
 class WarningUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     area_text: str | None = Field(default=None, max_length=500)
@@ -290,6 +295,7 @@ class WarningOut(BaseModel):
 class WarningDetailOut(WarningOut):
     typhoon_assessment: TyphoonAssessment | None = None
     snow_assessment: SnowAssessment | None = None
+    lightning_assessment: LightningAssessment | None = None
     rejection_comment: str | None = None
     # 融合追溯：四模式输入、基线、代理标签与数据集版本（旧预警无输入明细时 models 为空）
     baseline_mm: float | None

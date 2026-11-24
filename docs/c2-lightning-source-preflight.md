@@ -1,6 +1,6 @@
 # C2 雷电：圣路易斯候选数据预核对
 
-**2026-11-24 查验。** 本文件仅核对数据链路，未实现雷电判定、正式流程或通过验收。当前已验收的代码仍以雪灾检查点为准。
+**2026-11-24 来源预核对。** 此处记录数据链路；不把历史档案写成实时数据，也不把资料核对当作软件验收。
 
 ## 预测：窗口前形成的原业务档案
 
@@ -13,7 +13,11 @@
 - `2025-03-15 00:00 UTC` 批次的 [f12 索引](https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20250315/conus/hrrr.t00z.wrfsfcf12.grib2.idx) 与其 `f07`–`f11` 同样取 `LTNG`。文件的 `Last-Modified` 在 **01:00:32–01:06:24 UTC**；晚于起报、早于 `(06:00, 12:00] UTC` 研判窗。07:00–12:00 的六个近站格点值均为 0。两窗各距起报 6 小时起算，可用相同规则切换演示。
 - 06:12 METAR 的 `TSE06` 指上一轮雷暴结束，不能当作对照窗仍有雷暴的当时码；随后抽样未报告雷暴。档案与模式都不是整窗无雷保证。
 
-## 事后旁证与下一步
+## 事后旁证
 
 - 站点 [KSTL METAR/SPECI 历史查询](https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=STL&data=metar&year1=2025&month1=3&day1=15&year2=2025&month2=3&day2=16&tz=Etc%2FUTC&format=onlycomma&latlon=yes&report_type=3&report_type=4)（Iowa State IEM 保管）。01:46 UTC 有雷暴及闪电备注，02:33 UTC 同时报出含雷暴的降雨及持续闪电备注，05:51 UTC 仍报雷暴。可引用 [FAA METAR/SPECI 观测说明](https://www.faa.gov/documentLibrary/media/Order/JO_7900.5E_with_Change_1.pdf) 解释编码。仅验证站点附近在窗内报告了雷暴和闪电；无传感器落点，不声称判断了落点、逐时命中或模型精度。
-- 下一步明确教学阈值、逐时采样边界及缺测行为，先写失败测试，再接入页面和正式流程。预测输入与站点报告分文件、分 API 字段，复用 `0008` 结构化证据与 B 角色流程，不新增独立审批系统。
+## 离线摘录与复算
+
+- [12 个档案时次及原索引](evidence/c2-lightning-hrrr-extract.csv)记录两个批次及各自窗内最晚的对象时间。复取时在各索引中定位 `:LTNG:entire atmosphere:`，按下一行偏移计算结束字节，用 HTTP `Range` 取对应 GRIB2 消息。解码确认批次、时次、参数和上述同一最近格点；原档案对象时间取 `Last-Modified`，不是课程资料的下载时间。
+- 应用仅随包分发 12 个点值、元数据与另存的简短天气码摘录，不分发全格点 GRIB 或原站点报文文件。提供原机构查询入口；未把第三方原资料归入代码许可。
+- 演练规则：逐个检查六个有效时次，齐全才比较 `max(LTNG) ≥ 0.05`。这是未校准的教学界线，不是官方预警标准。预报与核验分文件、分 API 字段；只验证案例，不报告统计精度。详见[实施与验收规则](superpowers/plans/2026-11-24-c2-lightning.md)。

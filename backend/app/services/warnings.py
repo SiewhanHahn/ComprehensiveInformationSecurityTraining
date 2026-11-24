@@ -17,13 +17,14 @@ from ..cities import DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY, WARNING_CITIES
 from ..clock import utcnow
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
 from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
-from ..assessment_schemas import SnowAssessment, TyphoonAssessment
+from ..assessment_schemas import LightningAssessment, SnowAssessment, TyphoonAssessment
 from ..schemas import (
-    FeedbackRequest, ModelValue, SnowWarningCreate, TyphoonWarningCreate, WarningCreate, WarningDetailOut,
+    FeedbackRequest, LightningWarningCreate, ModelValue, SnowWarningCreate, TyphoonWarningCreate,
+    WarningCreate, WarningDetailOut,
     WarningDraftText, WarningOut, WarningUpdate,
 )
 from ..security import new_public_id
-from . import snow, typhoon
+from . import lightning, snow, typhoon
 from .audit import AuditContext
 from .notifications import NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN, notify_warning
 from .replay import compute_replay
@@ -132,10 +133,15 @@ def review_token(w: Warning) -> str | None:
     return f"{w.version_no}:{w.submitted_at.isoformat(timespec='microseconds')}"
 
 
-_ASSESSMENT_MODELS = {"TYPHOON": TyphoonAssessment, "SNOW_DISASTER": SnowAssessment}
+_Assessment = TyphoonAssessment | SnowAssessment | LightningAssessment
+_ASSESSMENT_MODELS = {
+    "TYPHOON": TyphoonAssessment,
+    "SNOW_DISASTER": SnowAssessment,
+    "THUNDERSTORM": LightningAssessment,
+}
 
 
-def _assessment_snapshot(w: Warning) -> TyphoonAssessment | SnowAssessment | None:
+def _assessment_snapshot(w: Warning) -> _Assessment | None:
     model = _ASSESSMENT_MODELS.get(w.hazard_type)
     if model is not None and w.warning_result is not None:
         return model.model_validate(w.warning_result.assessment_json)
@@ -146,7 +152,7 @@ def to_out(w: Warning, names: dict[int, str]) -> WarningOut:
     return _to_out(w, names, _assessment_snapshot(w))
 
 
-def _to_out(w: Warning, names: dict[int, str], assessment: TyphoonAssessment | SnowAssessment | None) -> WarningOut:
+def _to_out(w: Warning, names: dict[int, str], assessment: _Assessment | None) -> WarningOut:
     result = w.warning_result
     return WarningOut(
         public_id=w.public_id,
@@ -218,6 +224,7 @@ def to_detail_out(db: Session, w: Warning, names: dict[int, str], *, reader_id: 
         models=models,
         typhoon_assessment=assessment if isinstance(assessment, TyphoonAssessment) else None,
         snow_assessment=assessment if isinstance(assessment, SnowAssessment) else None,
+        lightning_assessment=assessment if isinstance(assessment, LightningAssessment) else None,
     )
 
 
@@ -313,6 +320,26 @@ def create_snow_warning(db: Session, body: SnowWarningCreate, actor: CurrentUser
         assessment_json=forecast.model_dump(mode="json"),
     )
     return _create_draft(db, result, "SNOW_DISASTER", body, actor, audit)
+
+
+def create_lightning_warning(db: Session, body: LightningWarningCreate, actor: CurrentUser,
+                             audit: AuditContext) -> Warning:
+    # Forecast-only path: do not load verification or accept values supplied by the browser.
+    forecast = lightning.assess_case(body.case_id)
+    if forecast.outcome == "INSUFFICIENT":
+        raise HTTPException(409, "PARTIAL_DATA")
+    if forecast.outcome != "REACHED":
+        raise HTTPException(409, "THRESHOLD_NOT_REACHED")
+    if forecast.case.archive_latest_modified_at is None:
+        raise HTTPException(409, "SOURCE_NOT_VERIFIED")
+    result = WarningResult(
+        city_code=forecast.case.city.code,
+        valid_date=forecast.case.window_start.date(),  # Window clock is validated as UTC.
+        risk_level=lightning.REACHED_RISK_LEVEL,
+        data_status="COMPLETE",
+        assessment_json=forecast.model_dump(mode="json"),
+    )
+    return _create_draft(db, result, "THUNDERSTORM", body, actor, audit)
 
 
 def _create_draft(db: Session, result: WarningResult, hazard_type: str, body: WarningDraftText,

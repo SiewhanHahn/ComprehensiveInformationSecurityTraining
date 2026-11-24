@@ -263,6 +263,7 @@
 
       <TyphoonEvidence v-if="w.typhoon_assessment" :assessment="w.typhoon_assessment" />
       <SnowEvidence v-else-if="w.snow_assessment" :assessment="w.snow_assessment" />
+      <LightningEvidence v-else-if="w.lightning_assessment" :assessment="w.lightning_assessment" />
       <div v-else-if="w.hazard_type === 'RAINSTORM'" class="card">
         <div class="card-head">
           <h3 class="card-title">融合追溯</h3>
@@ -355,6 +356,7 @@ import ClosedLoopStepper from '../components/ClosedLoopStepper.vue'
 import ChartPanel from '../components/ChartPanel.vue'
 import TyphoonEvidence from '../components/TyphoonEvidence.vue'
 import SnowEvidence from '../components/SnowEvidence.vue'
+import LightningEvidence from '../components/LightningEvidence.vue'
 import { modelBar } from '../charts/options'
 import { HAZARD_TYPE, formatDate, formatDateTime, shortId } from '../ui/labels'
 
@@ -458,9 +460,11 @@ const stages = computed(() => {
     publishNote = '已撤回'
   }
 
+  const forecastNotes = { TYPHOON: '历史航运公报', SNOW_DISASTER: '历史单批次降雪预报',
+    THUNDERSTORM: '历史 HRRR 雷电预报' }
   return [
     { key: 'monitor', label: '监测', state: 'done', note: '离线数据快照' },
-    { key: 'forecast', label: '预测', state: 'done', note: item.typhoon_assessment ? '历史航运公报' : item.snow_assessment ? '历史单批次降雪预报' : '四模式 24h' },
+    { key: 'forecast', label: '预测', state: 'done', note: forecastNotes[item.hazard_type] || '四模式 24h' },
     { key: 'analysis', label: '研判', state: 'done', note: item.metric ? `${item.metric.value} ${item.metric.unit}` : `${item.fused_mm} mm` },
     {
       key: 'warning',

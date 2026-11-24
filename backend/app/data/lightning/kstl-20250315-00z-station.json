@@ -1,0 +1,89 @@
+{
+  "source": {
+    "agency": "KSTL / Iowa State IEM",
+    "product": "METAR/SPECI 天气码摘录",
+    "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=STL&data=metar&year1=2025&month1=3&day1=15&year2=2025&month2=3&day2=16&tz=Etc%2FUTC&format=onlycomma&latlon=yes&report_type=3&report_type=4",
+    "checked_on_utc": "2026-11-24"
+  },
+  "station_id": "KSTL",
+  "observations": [
+    {
+      "observed_at": "2025-03-15T00:51:00Z"
+    },
+    {
+      "observed_at": "2025-03-15T01:46:00Z",
+      "thunder_code": "TS",
+      "lightning_remark": "LTGCCCG"
+    },
+    {
+      "observed_at": "2025-03-15T01:51:00Z",
+      "thunder_code": "TS",
+      "lightning_remark": "LTGCCCG"
+    },
+    {
+      "observed_at": "2025-03-15T02:33:00Z",
+      "thunder_code": "+TSRA",
+      "lightning_remark": "LTGICCCCGCA"
+    },
+    {
+      "observed_at": "2025-03-15T02:35:00Z",
+      "thunder_code": "+TSRAGR",
+      "lightning_remark": "LTGICCCCGCA"
+    },
+    {
+      "observed_at": "2025-03-15T02:48:00Z",
+      "thunder_code": "+TSRA",
+      "lightning_remark": "LTGICCCCGCA"
+    },
+    {
+      "observed_at": "2025-03-15T02:55:00Z",
+      "thunder_code": "+TSRA",
+      "lightning_remark": "LTGICCG"
+    },
+    {
+      "observed_at": "2025-03-15T02:57:00Z",
+      "thunder_code": "-TSRA",
+      "lightning_remark": "LTGICCG"
+    },
+    {
+      "observed_at": "2025-03-15T03:10:00Z",
+      "thunder_code": "TSRA",
+      "lightning_remark": "LTGICCG"
+    },
+    {
+      "observed_at": "2025-03-15T03:51:00Z",
+      "thunder_code": "-TSRA",
+      "lightning_remark": "LTGICCG"
+    },
+    {
+      "observed_at": "2025-03-15T04:12:00Z",
+      "thunder_code": "-TSRA",
+      "lightning_remark": "LTGICCCCG"
+    },
+    {
+      "observed_at": "2025-03-15T04:24:00Z",
+      "thunder_code": "-TSRA",
+      "lightning_remark": "LTGICCCCG"
+    },
+    {
+      "observed_at": "2025-03-15T04:45:00Z",
+      "lightning_remark": "LTGICCC",
+      "end_remark": "TSE44"
+    },
+    {
+      "observed_at": "2025-03-15T04:51:00Z",
+      "lightning_remark": "LTGICCC",
+      "end_remark": "TSE44"
+    },
+    {
+      "observed_at": "2025-03-15T05:14:00Z",
+      "thunder_code": "TS",
+      "lightning_remark": "LTGCC"
+    },
+    {
+      "observed_at": "2025-03-15T05:51:00Z",
+      "thunder_code": "TS",
+      "lightning_remark": "LTGCC"
+    }
+  ]
+}

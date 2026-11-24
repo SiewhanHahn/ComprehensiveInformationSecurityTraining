@@ -1,18 +1,20 @@
 # 气象灾害预测与预警系统
 
-基于多源数据融合的气象灾害预测与预警教学演示系统（B/S 架构）。以**暴雨（强降水）**展示端到端闭环和量化对比，以**台风**和**雪灾**展示来源可追溯的历史风险判定、事后核对和复用的预警闭环；属于教学演练，不是实时预警。
+基于多源数据融合的气象灾害预测与预警教学演示系统（B/S 架构）。以**暴雨（强降水）**展示端到端闭环和量化对比，以**台风、雪灾和雷电**展示来源可追溯的历史风险判定、事后核对和复用的预警闭环；属于教学演练，不是实时预警。
 
 - 后端：FastAPI + SQLAlchemy + PyMySQL + Redis（服务端 Session）+ MySQL 8.4
 - 前端：Vue 3 + Vite，Nginx 反代 `/api` 到后端
 - 编排：Docker Compose，一条命令启动 frontend / api / mysql / redis
 
-**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。此阶段实现暴雨、台风、雪灾，其他五类待实现。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
+**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。当前有四类重点灾种的研判和预警流程；四类基本预测待实现。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
 
 **C1 暴雨集成**：从本地验收标签 `checkpoint/c1-rain` 取源码，不从旧演示目录或 `main` 取。先核对页面实际提供的提交号，再展示指标、长沙手算和南京试算。见[当前版本与验收入口](docs/c1-rain-handoff.md)和[演示启动指南](docs/user-guide-v1.md#defense)。
 
 **台风历史演练**：登录后到「数据 → 台风路径」，用同一份天鸽公报换城计算。先选广州看达标，再选上海看未达标。按[来源与口径](docs/c2-typhoon-source-check.md)分开解释预报与事后结果；按[演练步骤](docs/user-guide-v1.md#typhoon)和[C2 版本验收](docs/c2-typhoon-handoff.md)启动，勿覆盖 C1。
 
 **雪灾历史演练**：在「数据 → 雪灾回放」选择新奥尔良原业务预报，20.19 cm 达到 10.00 cm 教学阈值，可以创建演练草稿。济南两个归档对照为 12.74 cm、0.00 cm，仅回放。独立站点天气编码只核对降雪过程，不验证累计量。见[来源与口径](docs/c2-snow-source-preflight.md)和[雪灾检查点验收](docs/evidence/c2-snow-2026-11-24.md)。
+
+**雷电历史演练**：在「数据 → 雷电回放」切换圣路易斯 KSTL 的两个 6 小时窗口。前窗最大 LTNG 0.09、后窗 0.00；教学界线 0.05，只有六时次完整且原档案时间可证的达标案例可创建草稿。LTNG 无量纲；独立站点报告只核对天气现象。见[演练步骤](docs/user-guide-v1.md#lightning)和[来源与口径](docs/c2-lightning-source-preflight.md)。
 
 ## 普通开发启动（非多版本并行演示）
 

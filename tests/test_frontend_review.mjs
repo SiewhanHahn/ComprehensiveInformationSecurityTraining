@@ -1421,3 +1421,92 @@ test('formal snow detail renders the snowfall-only evidence with the registered 
     assert.doesNotMatch(html, /融合累计|无融合输入明细|ERA5|事后核验/)
   } finally { scope.stop() }
 })
+
+
+function lightningReplay(caseId, outcome, dated = true) {
+  return { forecast: { case: { case_id: caseId, name: '圣路易斯归档', city: { name: '圣路易斯' },
+    station_id: 'KSTL', archive_latest_modified_at: dated ? '2025-03-14T19:08:29Z' : null }, outcome,
+    metric: outcome === 'INSUFFICIENT' ? null : { value: outcome === 'REACHED' ? 0.09 : 0, threshold: 0.05, unit: '无量纲' } },
+  verification: { outcome: 'THUNDER_AND_LIGHTNING_REPORTED' } }
+}
+
+test('lightning ignores delayed results and blocks drafting from an incomplete or replay-only window', async () => {
+  const requests = [], writes = [], destinations = []
+  const { exposed: l, scope, unmountedHooks } = instantiateSetupScript('src/views/Lightning.vue', {
+    '../api': { apiFetch: (endpoint, opts) => {
+      if (opts?.method === 'POST') {
+        writes.push([endpoint, JSON.parse(opts.body)])
+        return Promise.resolve({ public_id: 'lightning-draft-1' })
+      }
+      return new Promise((resolve, reject) => requests.push({ resolve, reject }))
+    } },
+    '../auth': { auth: { hasAnyRole: () => true } },
+    'vue-router': { useRouter: () => ({ push: (dest) => destinations.push(dest) }) },
+  })
+  try {
+    const positive = 'kstl-20250315-00z', control = 'kstl-20250315-06z'
+    l.caseId.value = positive
+    l.result.value = lightningReplay(positive, 'REACHED')
+    l.openDraft()
+    assert.equal(l.draftOpen.value, true)
+    const old = l.loadAssessment()
+    assert.equal(l.result.value, null)
+    assert.equal(l.draftOpen.value, false)
+    assert.equal(l.canDraft.value, false)
+    await l.createDraft()
+    assert.equal(writes.length, 0)
+
+    l.caseId.value = control
+    const current = l.loadAssessment()
+    requests[1].resolve(lightningReplay(control, 'NOT_REACHED')); await current
+    requests[0].resolve(lightningReplay(positive, 'REACHED')); await old
+    assert.equal(l.result.value.forecast.case.case_id, control)
+    assert.equal(l.canDraft.value, false)
+
+    l.caseId.value = positive
+    const missing = l.loadAssessment()
+    requests[2].resolve(lightningReplay(positive, 'INSUFFICIENT')); await missing
+    assert.equal(l.canDraft.value, false)
+    const undated = l.loadAssessment()
+    requests[3].resolve(lightningReplay(positive, 'REACHED', false)); await undated
+    assert.equal(l.canDraft.value, false)
+
+    const stable = l.loadAssessment()
+    requests[4].resolve(lightningReplay(positive, 'REACHED')); await stable
+    assert.equal(l.canDraft.value, true)
+    l.openDraft()
+    await l.createDraft()
+    assert.equal(writes.length, 1)
+    assert.equal(writes[0][0], '/warnings/lightning')
+    assert.equal(writes[0][1].case_id, positive)
+    assert.deepEqual(Object.keys(writes[0][1]).sort(), ['area_text', 'case_id', 'impact_text', 'reasoning_text', 'title'])
+    assert.deepEqual(destinations, ['/warnings/lightning-draft-1'])
+
+    const leaving = l.loadAssessment()
+    for (const fn of unmountedHooks) fn()
+    requests[5].resolve(lightningReplay(positive, 'REACHED')); await leaving
+    assert.equal(l.result.value, null)
+  } finally { scope.stop() }
+})
+
+test('formal lightning detail uses only the stored lightning evidence and labels its forecast step', async () => {
+  const { exposed: detail, scope } = instantiateSetupScript('src/views/WarningDetail.vue', {
+    '../auth': { auth: { hasAnyRole: () => false, hasRole: () => false, user: null } },
+    'vue-router': { useRoute: () => ({ params: { publicId: 'lightning-draft-1' } }) },
+  })
+  try {
+    detail.loading.value = false
+    detail.w.value = {...warningFixture('DRAFT'), hazard_type: 'THUNDERSTORM', fused_mm: null,
+      city_code: 'ST_LOUIS', city_name: '圣路易斯', metric: {label: '6 小时最大 LTNG', value: 0.09, unit: '无量纲'},
+      lightning_assessment: {outcome: 'REACHED'} }
+    const app = vueRuntime.createSSRApp({ setup: () => ({ ...detail }), render: compileVueTemplate('src/views/WarningDetail.vue') })
+    for (const name of ['StatusBadge', 'EmptyState', 'ClosedLoopStepper', 'ChartPanel', 'TyphoonEvidence', 'SnowEvidence']) {
+      app.component(name, { template: '<div><slot /></div>' })
+    }
+    app.component('LightningEvidence', { template: '<div>雷电预报证据</div>' })
+    const html = await renderToString(app)
+    for (const word of ['圣路易斯', '0.09 无量纲', '雷电预报证据']) assert.ok(html.includes(word), word)
+    assert.equal(detail.stages.value.find(stage => stage.key === 'forecast').note, '历史 HRRR 雷电预报')
+    assert.doesNotMatch(html, /融合累计|ERA5|独立事后核验/)
+  } finally { scope.stop() }
+})
