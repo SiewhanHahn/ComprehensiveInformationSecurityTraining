@@ -7,6 +7,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app.models import WarningResult
@@ -43,6 +44,22 @@ def main():
             assert conn.execute(text("SELECT fusion_run_id, threshold_id, fused_mm FROM warning_results")).one() == (
                 run_id, threshold_id, Decimal("29.625"),
             )
+    insert = text("""INSERT INTO warning_results
+        (fusion_run_id,threshold_id,fused_mm,assessment_json,city_code,valid_date,risk_level,data_status)
+        VALUES (:run,:th,:mm,:assessment,'CHANGSHA','2024-03-27','YELLOW','COMPLETE')""")
+    pairs = [
+        (None, threshold_id, 1, None, 3819), (run_id, None, 1, None, 3819),
+        (run_id, None, None, '{}', 3819), (None, threshold_id, None, '{}', 3819),
+        (run_id + 1000, threshold_id, 1, None, 1452), (run_id, threshold_id + 1000, 1, None, 1452),
+    ]
+    for run, threshold, mm, assessment, expected in pairs:
+        try:
+            with engine.begin() as conn:
+                conn.execute(insert, {"run": run, "th": threshold, "mm": mm, "assessment": assessment})
+        except IntegrityError as error:
+            assert error.orig.args[0] == expected, (error.orig, expected)
+        else:
+            raise AssertionError(f'expected MySQL integrity error {expected}: {run, threshold, mm, assessment}')
     f = typhoon.replay('hato-20170822', 'GUANGZHOU').forecast
     with Session(engine) as db:
         db.add(WarningResult(city_code='GUANGZHOU', valid_date=f.closest_point.valid_at.date(),
@@ -57,7 +74,7 @@ def main():
     with engine.connect() as conn:
         assert conn.scalar(text('SELECT version_num FROM alembic_version')) == C8
         assert conn.scalar(text('SELECT COUNT(*) FROM warning_results WHERE assessment_json IS NOT NULL')) == 1
-    print('PASS: 0007→0008→0007→0008 kept the rain result; typhoon evidence prevents downgrade')
+    print('PASS: 0007→0008→0007→0008 kept the rain result; mixed evidence and missing foreign rows rejected; typhoon evidence prevents downgrade')
 
 
 if __name__ == '__main__':

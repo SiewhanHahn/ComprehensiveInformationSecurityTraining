@@ -233,9 +233,9 @@ class WarningResult(Base):
 
 
     __table_args__ = (CheckConstraint(
-        "(assessment_json IS NULL AND fused_mm IS NOT NULL) OR "
+        "(assessment_json IS NULL AND fused_mm IS NOT NULL AND fusion_run_id IS NOT NULL AND threshold_id IS NOT NULL) OR "
         "(assessment_json IS NOT NULL AND JSON_TYPE(assessment_json) = 'OBJECT' AND "
-        "fused_mm IS NULL AND baseline_mm IS NULL AND proxy_label_mm IS NULL)",
+        "fused_mm IS NULL AND baseline_mm IS NULL AND proxy_label_mm IS NULL AND fusion_run_id IS NULL AND threshold_id IS NULL)",
         name="ck_warning_result_evidence",
     ),)
 

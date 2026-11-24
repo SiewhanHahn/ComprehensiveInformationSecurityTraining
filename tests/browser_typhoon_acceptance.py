@@ -61,7 +61,11 @@ def main():
         expect(verify).to_contain_text('10.3 km')
         if args.evidence:
             args.evidence.mkdir(parents=True, exist_ok=True)
-            a.locator('.page').screenshot(path=args.evidence / 'typhoon-forecast.png')
+            evidence.screenshot(path=args.evidence / 'typhoon-forecast.png')
+        a.set_viewport_size({'width': 390, 'height': 844})
+        expect(evidence.get_by_test_id('typhoon-distance')).to_be_visible()
+        assert evidence.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Typhoon evidence overflows on mobile'
+        a.set_viewport_size({'width': 1360, 'height': 920})
         a.locator('#typhoon-city').select_option('SHANGHAI')
         expect(evidence.get_by_test_id('typhoon-distance')).to_have_text('1351.3 km')
         expect(evidence.get_by_text('供比较的预报点未达到阈值')).to_be_visible()

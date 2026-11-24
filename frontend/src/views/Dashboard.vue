@@ -64,18 +64,18 @@
             <span class="signal-pill signal-pill--yellow">黄 {{ signalCounts.YELLOW }}</span>
             <span class="signal-pill signal-pill--orange">橙 {{ signalCounts.ORANGE }}</span>
           </div>
-          <div class="stat-label">信号分布</div>
+          <div class="stat-label">暴雨教学信号（全部记录）</div>
         </div>
       </div>
     </div>
 
     <div class="chart-grid">
       <ChartPanel
-        title="城市态势"
-        subtitle="九城预警分布 · 颜色为最高信号"
+        title="九城暴雨记录"
+        subtitle="仅按暴雨记录中的最高教学等级着色 · 非实时"
         :option="mapOption"
         :height="416"
-        aria-label="中国地图，九城预警分布"
+        aria-label="中国地图，九城暴雨教学记录分布"
         sweep
       />
       <div class="chart-stack">
@@ -88,7 +88,7 @@
         />
         <ChartPanel
           title="预警状态分布"
-          subtitle="按当前状态计数"
+          subtitle="综合计数（含台风教学演练）"
           :option="statusOption"
           :height="200"
           aria-label="预警状态分布条形图"
@@ -165,7 +165,10 @@
           </thead>
           <tbody>
             <tr v-for="w in warnings" :key="w.public_id">
-              <td class="cell-primary">{{ w.title }}</td>
+              <td class="cell-primary">
+                {{ w.title }}
+                <small v-if="w.hazard_type === 'TYPHOON'" class="muted"> · 台风演练</small>
+              </td>
               <td>{{ cityName(w.city_code) }}</td>
               <td><StatusBadge :value="w.status" size="sm" dot /></td>
               <td>
@@ -211,10 +214,11 @@ const warningDisplay = useCountUp(warningCount)
 const f1Display = useCountUp(f1Value, { decimals: 4 })
 
 const warnings = computed(() => allWarnings.value.slice(0, 10))
+const rainWarnings = computed(() => allWarnings.value.filter(w => w.hazard_type === 'RAINSTORM'))
 
 const signalCounts = computed(() => {
   const counts = { BLUE: 0, YELLOW: 0, ORANGE: 0, RED: 0 }
-  for (const w of allWarnings.value) {
+  for (const w of rainWarnings.value) {
     if (counts[w.risk_level] != null) counts[w.risk_level] += 1
   }
   return counts
@@ -242,7 +246,7 @@ const mapOption = computed(() => {
       risk: null
     }
   }
-  for (const w of allWarnings.value) {
+  for (const w of rainWarnings.value) {
     const point = byCity[w.city_code]
     if (!point) continue
     point.count += 1
@@ -329,7 +333,7 @@ onMounted(async () => {
 
   loading.value = false
 
-  const latestRain = allWarnings.value.find(w => w.hazard_type === 'RAINSTORM' && w.status !== 'CANCELLED')
+  const latestRain = rainWarnings.value.find(w => w.status !== 'CANCELLED')
   if (latestRain) {
     try {
       const detail = await apiFetch(`/warnings/${latestRain.public_id}`)

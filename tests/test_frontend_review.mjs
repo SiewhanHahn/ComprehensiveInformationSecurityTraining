@@ -1328,3 +1328,25 @@ test('formal typhoon detail never labels the saved distance as rainfall', async 
     assert.doesNotMatch(html, /融合累计|无融合输入明细|ERA5|null mm/)
   } finally { scope.stop() }
 })
+
+
+test('draft typhoon teaching results are not rainfall signals or rainfall map points', () => {
+  const { exposed: d, scope } = instantiateSetupScript('src/views/Dashboard.vue', {
+    '../data/cityCoords': { CITY_COORDS: { GUANGZHOU: [113.2644, 23.1291], CHANGSHA: [112.9388, 28.2282] } },
+    '../charts/options': { chinaMap: points => points },
+    '../ui/useCountUp': { useCountUp: ref => ref },
+  })
+  try {
+    d.cities.value = [{code: 'GUANGZHOU', name: '广州'}, {code: 'CHANGSHA', name: '长沙'}]
+    d.allWarnings.value = [
+      {hazard_type: 'RAINSTORM', city_code: 'CHANGSHA', risk_level: 'BLUE', status: 'PUBLISHED'},
+      {hazard_type: 'TYPHOON', city_code: 'GUANGZHOU', risk_level: 'YELLOW', status: 'DRAFT'},
+    ]
+    assert.equal(d.signalCounts.value.YELLOW, 0)
+    assert.equal(d.signalCounts.value.BLUE, 1)
+    assert.equal(d.statusCounts.value.DRAFT, 1)
+    const city = name => d.mapOption.value.find(item => item.name === name)
+    assert.equal(city('广州').count, 0); assert.equal(city('广州').risk, null)
+    assert.equal(city('长沙').count, 1); assert.equal(city('长沙').risk, 'BLUE')
+  } finally { scope.stop() }
+})

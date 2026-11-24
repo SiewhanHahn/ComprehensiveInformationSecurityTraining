@@ -14,9 +14,12 @@ depends_on = None
 
 _LEGACY_COLUMNS = (("fusion_run_id", mysql.BIGINT(unsigned=True)),
                    ("threshold_id", mysql.BIGINT(unsigned=True)), ("fused_mm", sa.Numeric(10, 3)))
-_ASSESSMENT_CHECK = """(assessment_json IS NULL AND fused_mm IS NOT NULL) OR
-    (assessment_json IS NOT NULL AND JSON_TYPE(assessment_json) = 'OBJECT' AND
-     fused_mm IS NULL AND baseline_mm IS NULL AND proxy_label_mm IS NULL)"""
+_ASSESSMENT_CHECK = """
+    (assessment_json IS NULL AND fused_mm IS NOT NULL AND fusion_run_id IS NOT NULL AND threshold_id IS NOT NULL)
+    OR (assessment_json IS NOT NULL AND JSON_TYPE(assessment_json) = 'OBJECT' AND
+        fused_mm IS NULL AND baseline_mm IS NULL AND proxy_label_mm IS NULL AND
+        fusion_run_id IS NULL AND threshold_id IS NULL)
+"""
 
 
 def upgrade() -> None:

@@ -297,7 +297,7 @@ export function chinaMap(points) {
       formatter: (p) => {
         if (!p.data) return p.name
         const risk = p.data.risk
-        return `${p.name}<br/>预警记录：${p.value[2]} 条<br/>最高信号：${RISK_LABEL[risk] || '无'}`
+        return `${p.name}<br/>暴雨记录：${p.value[2]} 条<br/>最高教学信号：${RISK_LABEL[risk] || '无'}`
       }
     },
     geo: {
