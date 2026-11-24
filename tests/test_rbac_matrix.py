@@ -23,8 +23,30 @@ def _create_payload(title):
         "threshold_code": "HEAVY",
         "title": title,
         "area_text": "权限矩阵测试",
+        "impact_text": "低洼路段可能积水",
         "reasoning_text": "权限矩阵测试",
     }
+
+
+def test_cancel_is_analyst_or_admin_only(login, make_warning):
+    analyst, analyst_csrf = login("analyst_demo")
+    viewer, viewer_csrf = login("viewer_demo")
+    public_id = make_warning(analyst, analyst_csrf, "rbac-cancel")
+
+    assert viewer.post(
+        f"/api/v1/warnings/{public_id}/cancel", headers=csrf_headers(viewer_csrf)
+    ).status_code == 403
+
+    assert analyst.post(
+        f"/api/v1/warnings/{public_id}/cancel", headers=csrf_headers(analyst_csrf)
+    ).status_code == 200
+
+
+def test_viewer_cannot_see_cancelled_status(login):
+    viewer, _ = login("viewer_demo")
+    assert viewer.get("/api/v1/warnings?status=CANCELLED").status_code == 200
+    assert viewer.get("/api/v1/warnings?status=CANCELLED").json() == []
+
 
 
 def test_unauthenticated_is_rejected(new_client):

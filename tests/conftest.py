@@ -131,6 +131,7 @@ def make_warning(created_warnings):
             "threshold_code": "HEAVY",
             "title": f"{prefix}-{uuid4().hex[:8]}",
             "area_text": "自动化测试",
+            "impact_text": "低洼路段可能积水",
             "reasoning_text": "自动化测试",
             **overrides,
         }

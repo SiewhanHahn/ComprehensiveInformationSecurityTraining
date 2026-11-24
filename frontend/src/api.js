@@ -1,4 +1,4 @@
-import { auth } from './auth'
+import { auth, readCsrfCookie, sessionContext } from './auth'
 
 const ERROR_ZH = {
   INVALID_CREDENTIALS: '用户名或密码错误',
@@ -39,14 +39,55 @@ function isCacheable(url) {
   return CACHEABLE_PATHS.some((p) => rest === p || rest.startsWith(p + '/'))
 }
 
-function readCookie(name) {
-  const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))
-  return m ? decodeURIComponent(m[1]) : ''
+let pendingRefresh
+
+export function needsAuthRefresh() {
+  return !auth.ready || Boolean(auth.refreshError) || auth.csrfCookie !== readCsrfCookie()
+}
+
+export function refreshAuth() {
+  const cookie = readCsrfCookie()
+  const revision = auth.revision
+  if (pendingRefresh?.cookie === cookie && pendingRefresh.revision === revision) {
+    return pendingRefresh.promise
+  }
+
+  const job = { cookie, revision }
+  const isCurrent = () => revision === auth.revision && cookie === readCsrfCookie()
+  const refreshIfNeeded = () => needsAuthRefresh() ? refreshAuth() : undefined
+  async function load() {
+    let user
+    try {
+      user = (await apiFetch('/auth/me'))?.user
+      if (!user) throw new Error('Missing user in auth response')
+    } catch (error) {
+      if (!isCurrent()) return refreshIfNeeded()
+      if (error.status === 401 && error.code === 'UNAUTHENTICATED') {
+        auth.clear(cookie)
+        return
+      }
+      auth.refreshError = error.status === 503 ? error.message : '暂时无法确认登录状态，请稍后重试'
+      throw error
+    }
+    if (!isCurrent()) return refreshIfNeeded()
+    // Only keep an in-memory fallback when there was no readable cookie and the account is unchanged.
+    const csrf = cookie || (!auth.csrfCookie && auth.user?.id === user.id ? auth.csrf : '')
+    auth.set(user, csrf, cookie)
+  }
+  job.promise = load().finally(() => {
+    if (pendingRefresh === job) pendingRefresh = undefined
+  })
+  pendingRefresh = job
+  return job.promise
 }
 
 export async function apiFetch(path, options = {}) {
   const url = path.startsWith('/api') || path.startsWith('http') ? path : '/api/v1' + path
   const method = (options.method || 'GET').toUpperCase()
+  const endpoint = url.split('?')[0]
+  const isLogin = endpoint.endsWith('/auth/login')
+  const isAuthMe = endpoint.endsWith('/auth/me')
+  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method) && !isLogin
   const cacheable = method === 'GET' && isCacheable(url)
 
   if (cacheable) {
@@ -60,11 +101,22 @@ export async function apiFetch(path, options = {}) {
   }
 
   const request = (async () => {
-    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
-    const csrf = auth.csrf || readCookie('ww_csrf')
-    if (csrf && !['GET', 'HEAD'].includes(method)) {
-      headers['X-CSRF-Token'] = csrf
+    let cookie = readCsrfCookie()
+    if (isWrite && auth.ready && needsAuthRefresh()) {
+      const previousContext = sessionContext(auth.user)
+      await refreshAuth()
+      cookie = readCsrfCookie()
+      // Don't submit an action prepared under a different account or set of permissions.
+      if (previousContext !== sessionContext(auth.user) || cookie !== auth.csrfCookie) {
+        const error = new Error('登录身份或权限已变化，请确认当前页面后重试')
+        error.code = 'SESSION_CHANGED'
+        throw error
+      }
     }
+    const revision = auth.revision
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+    const csrf = cookie || auth.csrf
+    if (isWrite && csrf) headers['X-CSRF-Token'] = csrf
     const resp = await fetch(url, {
       credentials: 'include',
       ...options,
@@ -73,9 +125,6 @@ export async function apiFetch(path, options = {}) {
     if (resp.status === 204) return null
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) {
-      // 会话过期/已登出时后端返回 401；清掉本地登录态，下一次路由跳转会回到登录页。
-      // /auth/login 的 401 是密码错误，不是会话失效；已登录用户误输密码不该被登出。
-      if (resp.status === 401 && !url.endsWith('/auth/login')) auth.clear()
       // 后端统一返回 { error: { code, message, request_id } }；detail 分支仅兼容未经全局处理的旧格式
       let code = data?.error?.code
       let detail = data?.error?.message
@@ -86,6 +135,11 @@ export async function apiFetch(path, options = {}) {
         code = code || data?.detail
         // 后端 message 为准，ERROR_ZH 仅在没有后端文案时兜底
         detail = detail || ERROR_ZH[code] || data?.detail || `请求失败(${resp.status})`
+      }
+      // Only the current session's confirmed auth failure should sign this tab out.
+      if (resp.status === 401 && code === 'UNAUTHENTICATED' && !isLogin && !isAuthMe &&
+          revision === auth.revision && cookie === readCsrfCookie()) {
+        auth.clear(cookie)
       }
       const err = new Error(detail)
       err.status = resp.status

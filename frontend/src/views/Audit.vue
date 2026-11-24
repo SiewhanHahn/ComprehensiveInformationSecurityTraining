@@ -73,8 +73,9 @@
                     <span class="badge badge--sm" :class="`badge--${resourceTone(r.resource_type)}`">
                       {{ resourceLabel(r.resource_type) }}
                     </span>
+                    <small v-if="r.resource_version != null">v{{ r.resource_version }}</small>
                     <router-link
-                      v-if="r.resource_type === 'warning' && r.resource_id"
+                      v-if="r.resource_type === 'warning' && r.resource_id && r.action !== 'WARNING_CANCEL'"
                       class="id-link"
                       :to="`/warnings/${r.resource_id}`"
                       :title="r.resource_id"

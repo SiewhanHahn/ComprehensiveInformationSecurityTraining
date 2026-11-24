@@ -16,7 +16,7 @@ ck "health_db_no_version" "$has_version" no
 echo "== L6. ADMIN 全业务权限 =="
 curl -s -c /tmp/l6_adm.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"username\":\"admin_demo\",\"password\":\"$DEMO_ADMIN_PASSWORD\"}" > /tmp/l6_adm.json
 ADM=$(jget /tmp/l6_adm.json csrf_token)
-curl -s -b /tmp/l6_adm.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $ADM" -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"admin权限测试","area_text":"长沙","reasoning_text":"x"}' > /tmp/l6_w.json
+curl -s -b /tmp/l6_adm.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $ADM" -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"admin权限测试","area_text":"长沙","impact_text":"低洼路段可能积水","reasoning_text":"x"}' > /tmp/l6_w.json
 WID=$(jget /tmp/l6_w.json public_id)
 ck "admin_create_200" "$(jget /tmp/l6_w.json status)" DRAFT
 ck "admin_submit_200" "$(code -b /tmp/l6_adm.txt -X POST $BASE/api/v1/warnings/$WID/submit -H "X-CSRF-Token: $ADM")" 200

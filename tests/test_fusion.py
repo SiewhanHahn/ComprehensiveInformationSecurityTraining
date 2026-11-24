@@ -47,6 +47,7 @@ def test_partial_day_cannot_create_warning(login):
         "threshold_code": "HEAVY",
         "title": "fusion-partial",
         "area_text": "自动化测试",
+        "impact_text": "低洼路段可能积水",
         "reasoning_text": "自动化测试",
     }
     resp = analyst.post("/api/v1/warnings", headers=csrf_headers(csrf), json=payload)
@@ -65,6 +66,7 @@ def test_complete_below_threshold_cannot_create_warning(login):
         "threshold_code": "STORM",
         "title": "fusion-below-threshold",
         "area_text": "自动化测试",
+        "impact_text": "低洼路段可能积水",
         "reasoning_text": "自动化测试",
     }
     resp = analyst.post("/api/v1/warnings", headers=csrf_headers(csrf), json=payload)

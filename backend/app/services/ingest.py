@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..cities import CITIES, DEFAULT_MODELS, LEAD_HOURS
+from ..cities import CITIES, DEFAULT_MODELS, LEAD_HOURS, PROTOCOL_END_DATE, PROTOCOL_START_DATE
 from ..clock import utcnow
 from ..models import Dataset, DatasetIssue, ForecastRecord, FusionInput, ObservationRecord
 
@@ -82,6 +83,16 @@ def _reset_dataset(session: Session, dataset: Dataset, status: str, checksum: st
     dataset.period_end = date.min
 
 
+def _parse_protocol_date(value: object) -> date:
+    """只接受协议范围内的 ASCII YYYY-MM-DD，不规范化或截断原始值。"""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None:
+        raise ValueError("invalid protocol date format")
+    parsed = date.fromisoformat(value)
+    if not PROTOCOL_START_DATE <= parsed <= PROTOCOL_END_DATE:
+        raise ValueError("date outside protocol bounds")
+    return parsed
+
+
 def _validate_days(days: list) -> dict:
     """在内存里预先校验并构造待写行；校验未通过时不触碰既有数据集。"""
     fc_rows: list[tuple[str, str, datetime, Decimal]] = []
@@ -90,7 +101,7 @@ def _validate_days(days: list) -> dict:
     fc_has_issue = False
     obs_has_issue = False
     seen: set[tuple[str, str, datetime, int]] = set()
-    seen_city_dates: set[tuple[str, date]] = set()
+    seen_obs: set[tuple[str, date]] = set()
     fc_dates: set[date] = set()
     obs_dates: set[date] = set()
     last_date_by_city: dict[str, date] = {}
@@ -114,14 +125,10 @@ def _validate_days(days: list) -> dict:
             issue(ISSUE_UNKNOWN_CITY, city_code=city, detail="未知城市代码")
             continue
         try:
-            valid_date = date.fromisoformat(day["valid_date"])
-        except (KeyError, ValueError, TypeError):
+            valid_date = _parse_protocol_date(day.get("valid_date"))
+        except ValueError:
             issue(ISSUE_INVALID_DATE, city_code=city, detail=str(day.get("valid_date")))
             continue
-        if (city, valid_date) in seen_city_dates:
-            issue(ISSUE_DUPLICATE, city_code=city, valid_date=valid_date, detail="城市+日期重复")
-            continue
-
         previous = last_date_by_city.get(city)
         if previous is not None and valid_date < previous:
             issue(ISSUE_OUT_OF_ORDER, city_code=city, valid_date=valid_date, detail="日期早于同城前一条记录")
@@ -162,18 +169,21 @@ def _validate_days(days: list) -> dict:
             if model_code not in DEFAULT_MODELS:
                 issue(ISSUE_UNKNOWN_MODEL, city_code=city, model_code=model_code, valid_date=valid_date)
 
-        if day.get("proxy_label_mm") is not None:
+        if day.get("proxy_label_mm") is None:
+            issue("MISSING_PROXY", city_code=city, valid_date=valid_date, on_obs=True)
+        else:
             proxy = _to_decimal(day["proxy_label_mm"])
             if proxy is None or proxy < 0 or proxy > MAX_PRECIP_MM:
                 issue(ISSUE_INVALID_VALUE, city_code=city, valid_date=valid_date, detail=str(day["proxy_label_mm"]), on_obs=True)
+            elif (city, valid_date) in seen_obs:
+                issue(ISSUE_DUPLICATE, city_code=city, valid_date=valid_date, detail="同城同日代理标签重复", on_obs=True)
             else:
+                seen_obs.add((city, valid_date))
                 obs_rows.append((city, valid_date, proxy))
                 obs_dates.add(valid_date)
 
-        # 只有真正产出记录的条目才占用 (city, date) 去重键；否则一条全坏条目
-        # 会把后面修正过的同城同日条目误判为 DUPLICATE，整天数据一起丢失。
+        # 预报和标签独立去重；一侧缺失不妨碍随后补全另一侧。
         if len(fc_rows) > day_fc_before or len(obs_rows) > day_obs_before:
-            seen_city_dates.add((city, valid_date))
             last_date_by_city[city] = valid_date
 
     return {
@@ -187,8 +197,23 @@ def _validate_days(days: list) -> dict:
     }
 
 
+def _import_result(session: Session, outcome: str, **values) -> dict:
+    """outcome 描述本次操作；可用性检查所有版本的 FORECAST，而非本次写入行数。"""
+    has_usable_forecast = session.scalar(
+        select(Dataset.id).where(
+            Dataset.dataset_type == "FORECAST",
+            Dataset.quality_status != "FAILED",
+            Dataset.row_count > 0,
+        ).limit(1)
+    ) is not None
+    return {
+        "imported": False, "forecast": 0, "observation": 0, "issues": 0,
+        **values, "outcome": outcome, "has_usable_forecast": has_usable_forecast,
+    }
+
+
 def import_sample(session: Session, path: Path, forecast_source_id: int, era5_source_id: int) -> dict:
-    """导入并校验回放样本；返回 ``{imported, forecast, observation, issues}``。
+    """返回兼容的计数字典，另含本次 ``outcome`` 和库内 ``has_usable_forecast``。
 
     幂等：同版本 FORECAST 与 ERA5_LABEL 数据集校验和都未变时跳过；FAILED 或 0 行版本允许用
     修正后的样本重导；已有可用数据时，新文件若无效或产出 0 条预报，不覆盖既有数据集。
@@ -196,7 +221,7 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        return {"imported": False, "forecast": 0, "observation": 0, "issues": 0, "unusable": True, "error": str(exc)}
+        return _import_result(session, "file_unreadable", unusable=True, error=str(exc))
     parse_error = None
     try:
         data = json.loads(raw.decode("utf-8"))
@@ -219,6 +244,8 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     usable_sample = isinstance(days, list) and bool(days)
     if not usable_sample:
         days = []
+        if parse_error is None:
+            parse_error = "样本缺少 days 数组或为空" if structure_ok else "样本顶层不是 JSON 对象"
 
     checksum = hashlib.sha256(raw).hexdigest()
     # 幂等按文件内容而不是只看版本：同版本换了文件（例如补上 proxy_label_mm）允许重导；
@@ -244,27 +271,26 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
         and obs_dataset is not None
         and obs_dataset.checksum == checksum
     ):
-        result = {"imported": False, "forecast": 0, "observation": 0, "issues": 0}
         if fc_dataset.quality_status == "FAILED":
-            result["unusable"] = True
-        return result
+            return _import_result(session, "unchanged_failed", unusable=True, error=parse_error)
+        return _import_result(session, "unchanged")
 
     # 被预警引用过的数据集不能删记录重写：fusion_inputs.forecast_record_id 外键是 RESTRICT。
     # 拒绝覆盖并让操作者提升 version，避免 MySQL 1451 或悄悄丢失溯源链。
     if fc_dataset is not None and _has_fusion_inputs(session, fc_dataset.id):
-        return {"imported": False, "forecast": 0, "observation": 0, "issues": 0, "blocked": "dataset_in_use"}
+        return _import_result(session, "dataset_in_use", blocked="dataset_in_use")
 
     staged = _validate_days(days) if usable_sample else None
-    has_usable_existing = fc_dataset is not None and fc_dataset.quality_status != "FAILED"
+    has_usable_existing = (
+        fc_dataset is not None and fc_dataset.quality_status != "FAILED" and fc_dataset.row_count > 0
+    )
     if has_usable_existing and (not usable_sample or len(staged["fc_rows"]) == 0):
-        return {
-            "imported": False,
-            "forecast": 0,
-            "observation": 0,
-            "issues": len(staged["issues"]) if staged is not None else 1,
-            "unusable": True,
-            "blocked": "unusable_sample",
-        }
+        return _import_result(
+            session, "preserved_existing",
+            issues=len(staged["issues"]) if staged is not None else 1,
+            unusable=True, blocked="unusable_sample",
+            error=parse_error or "样本没有任何可用的预报记录",
+        )
 
     initial_status = "READY" if usable_sample else "FAILED"
     if fc_dataset is None:
@@ -288,18 +314,12 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     session.flush()
 
     if not usable_sample:
-        if parse_error:
-            detail = parse_error
-        elif not structure_ok:
-            detail = "样本顶层不是 JSON 对象"
-        else:
-            detail = "样本缺少 days 数组或为空"
         _add_issue(
             session, fc_dataset.id, ISSUE_INVALID_VALUE,
-            detail=f"{detail}，整个数据集标 FAILED（不参与回放）",
+            detail=f"{parse_error}，整个数据集标 FAILED（不参与回放）",
         )
         session.commit()
-        return {"imported": False, "forecast": 0, "observation": 0, "issues": 1, "unusable": True}
+        return _import_result(session, "marked_failed", issues=1, unusable=True, error=parse_error)
 
     fc_rows = staged["fc_rows"]
     obs_rows = staged["obs_rows"]
@@ -352,7 +372,7 @@ def import_sample(session: Session, path: Path, forecast_source_id: int, era5_so
     elif obs_has_issue:
         obs_dataset.quality_status = "PARTIAL"
     session.commit()
-    result = {"imported": True, "forecast": n_fc, "observation": n_obs, "issues": n_issues}
+    counts = {"imported": True, "forecast": n_fc, "observation": n_obs, "issues": n_issues}
     if n_fc == 0:
-        result["unusable"] = True
-    return result
+        return _import_result(session, "marked_failed", **counts, unusable=True)
+    return _import_result(session, "imported", **counts)

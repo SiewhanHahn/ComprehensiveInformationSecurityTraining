@@ -6,7 +6,8 @@ export const WARNING_STATUS = {
   APPROVED: meta('已批准', 'info'),
   PUBLISHED: meta('已发布', 'success'),
   WITHDRAWN: meta('已撤回', 'neutral'),
-  REJECTED: meta('已驳回', 'danger')
+  REJECTED: meta('已驳回', 'danger'),
+  CANCELLED: meta('已取消', 'neutral')
 }
 
 export const RISK_LEVEL = {
@@ -37,6 +38,7 @@ export const AUDIT_ACTION = {
   WARNING_REVIEW: meta('审核预警', 'purple'),
   WARNING_PUBLISH: meta('发布预警', 'success'),
   WARNING_WITHDRAW: meta('撤回预警', 'orange'),
+  WARNING_CANCEL: meta('取消预警', 'neutral'),
   WARNING_FEEDBACK: meta('添加反馈', 'purple'),
   SUBSCRIPTION_CREATE: meta('新增订阅', 'info'),
   SUBSCRIPTION_DELETE: meta('取消订阅', 'neutral'),
@@ -50,7 +52,8 @@ export const AUDIT_ACTION = {
   USER_STATUS_CHANGE: meta('启用/停用用户', 'warning'),
   USER_ROLES_CHANGE: meta('修改用户角色', 'warning'),
   USER_PASSWORD_RESET: meta('重置密码', 'purple'),
-  USER_MANAGE_DENIED: meta('用户管理被拒', 'danger')
+  USER_MANAGE_DENIED: meta('用户管理被拒', 'danger'),
+  PERMISSION_DENIED: meta('权限拒绝', 'danger')
 }
 
 export const AUDIT_RESULT = {
@@ -185,6 +188,10 @@ function parseUtc(value) {
   }
   const date = new Date(text)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+export function utcDateTimeAttribute(value) {
+  return parseUtc(value)?.toISOString() ?? undefined
 }
 
 export function formatDateTime(value) {

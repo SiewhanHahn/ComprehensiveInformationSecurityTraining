@@ -32,6 +32,7 @@ def audit_logs(
             resource_id=r.resource_id,
             result=r.result,
             reason=r.reason,
+            resource_version=r.resource_version,
             ip_address=r.ip_address,
             created_at=r.created_at,
         )

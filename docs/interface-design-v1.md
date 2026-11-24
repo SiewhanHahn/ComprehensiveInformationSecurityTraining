@@ -255,3 +255,8 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 ## 8. 实现状态
 
 用户管理路由、Pydantic 输入边界、服务端 ADMIN/RBAC、CSRF 中间件、USER_* 审计调用、`/users` 前端路由与页面已落在代码中；本文不替代运行验证，接口联调、停用/重启 Session 语义和浏览器流程的实测结果由 `docs/test-report-v1.md` 记录。其余接口的实现/验证状态同样以代码和测试报告分别核对。
+## B 修复基线：草稿与审计契约
+
+- `POST /warnings` 的 `impact_text` 去除首尾空白后必填；`PATCH /warnings/{public_id}` 只改明确提供且实际变化的字段，相同 PATCH 不增加版本或审计。旧空值草稿须由作者补全再提交。无效城市/活动阈值为 422，回放不完整为 409。
+- `POST /warnings/{public_id}/cancel`：仅具备编辑角色的创建者取消 DRAFT/REJECTED，返回 CANCELLED 并保留审计和原数据。详情不再开放；查看用户看不到取消记录。驳回后原编号可编辑并直接重提为 PENDING_REVIEW。
+- `publish` / `withdraw` / `cancel` 接受可选 JSON `{"reason":"…"}`，原因最多 500 字；旧无请求体调用兼容。`GET /audit-logs` 返回可空 `resource_version`（旧行可为空），变更草稿后递增内容版本。请求编号由服务端生成。

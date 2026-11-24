@@ -55,13 +55,13 @@ def _max_dataset_id(session) -> int:
 def _sample_days():
     # 三个有效日：一个缺 GEM，一个含未知城市，一个含异常值
     return [
-        {**COMPLETE_DAY, "valid_date": "2024-01-01", "models": {
+        {**COMPLETE_DAY, "valid_date": "2024-02-01", "models": {
             "ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": None,
         }, "proxy_label_mm": 10.0},
-        {"city_code": "ATLANTIS", "valid_date": "2024-01-02", "models": {
+        {"city_code": "ATLANTIS", "valid_date": "2024-02-02", "models": {
             "ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0,
         }, "proxy_label_mm": 10.0},
-        {"city_code": "WUHAN", "valid_date": "2024-01-03", "models": {
+        {"city_code": "WUHAN", "valid_date": "2024-02-03", "models": {
             "ecmwf_ifs025": -5.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0,
         }, "proxy_label_mm": 10.0},
     ]
@@ -148,8 +148,8 @@ def test_models_null_is_recorded_not_fatal():
 
     result, version = _import_days(
         [
-            {**COMPLETE_DAY, "valid_date": "2024-01-05", "models": None, "proxy_label_mm": 5.0},
-            {**COMPLETE_DAY, "valid_date": "2024-01-06", "models": {
+            {**COMPLETE_DAY, "valid_date": "2024-02-05", "models": None, "proxy_label_mm": 5.0},
+            {**COMPLETE_DAY, "valid_date": "2024-02-06", "models": {
                 "ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0,
             }, "proxy_label_mm": 10.0},
         ]
@@ -170,8 +170,8 @@ def test_overlong_city_code_is_truncated_not_fatal():
 
     result, version = _import_days(
         [
-            {"city_code": "A" * 40, "valid_date": "2024-01-06", "models": {}, "proxy_label_mm": 5.0},
-            {**COMPLETE_DAY, "valid_date": "2024-01-07", "models": {
+            {"city_code": "A" * 40, "valid_date": "2024-02-06", "models": {}, "proxy_label_mm": 5.0},
+            {**COMPLETE_DAY, "valid_date": "2024-02-07", "models": {
                 "ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0,
             }, "proxy_label_mm": 10.0},
         ]
@@ -193,7 +193,7 @@ def test_absent_model_key_counts_as_missing():
 
     result, version = _import_days([{
         **COMPLETE_DAY,
-        "valid_date": "2024-01-07",
+        "valid_date": "2024-02-07",
         "models": {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0},
         "proxy_label_mm": 10.0,
     }])
@@ -252,7 +252,7 @@ def test_import_is_idempotent():
     from backend.app.services import ingest
 
     version = f"test_ingest_idem_{uuid4().hex}"
-    days = [{**COMPLETE_DAY, "valid_date": "2024-01-01", "models": {
+    days = [{**COMPLETE_DAY, "valid_date": "2024-02-01", "models": {
         "ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0,
     }, "proxy_label_mm": 10.0}]
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -271,6 +271,8 @@ def test_import_is_idempotent():
             obs = _source_id(session, "OPEN_METEO_ERA5")
             second = ingest.import_sample(session, path, fc, obs)
         assert second["imported"] is False
+        assert second["outcome"] == "unchanged"
+        assert second["has_usable_forecast"] is True
     finally:
         with SessionLocal() as session:
             _cleanup_dataset(session, version)
@@ -287,8 +289,8 @@ def test_same_date_multiple_cities_are_not_duplicates():
     version = f"test_ingest_cities_{uuid4().hex}"
     models = {"ecmwf_ifs025": 10.0, "gfs_global": 10.0, "icon_global": 10.0, "gem_global": 10.0}
     days = [
-        {"city_code": "WUHAN", "valid_date": "2024-01-05", "models": models, "proxy_label_mm": 10.0},
-        {"city_code": "CHANGSHA", "valid_date": "2024-01-05", "models": models, "proxy_label_mm": 10.0},
+        {"city_code": "WUHAN", "valid_date": "2024-02-05", "models": models, "proxy_label_mm": 10.0},
+        {"city_code": "CHANGSHA", "valid_date": "2024-02-05", "models": models, "proxy_label_mm": 10.0},
     ]
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump({"version": version, "days": days}, f)
@@ -337,6 +339,123 @@ def _import_days_with_version(version, days):
             )
     finally:
         path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("raw_date", [
+    pytest.param("2024-01-31", id="before-protocol"),
+    pytest.param("2026-10-01", id="after-protocol"),
+    pytest.param("0001-01-01", id="minimum-date"),
+    pytest.param("9999-12-31", id="maximum-date"),
+    pytest.param("20240327", id="compact-iso"),
+    pytest.param("2024-W13-3", id="iso-week"),
+    pytest.param("2024-03-27T00:00:00", id="datetime"),
+    pytest.param(" 2024-03-27", id="leading-space"),
+    pytest.param("2024-03-27 ", id="trailing-space"),
+    pytest.param("2024-03-27\n", id="trailing-newline"),
+    pytest.param(None, id="null"),
+    pytest.param(20240327, id="integer"),
+    pytest.param(True, id="boolean"),
+    pytest.param(["2024-03-27"], id="list"),
+    pytest.param({"date": "2024-03-27"}, id="object"),
+    pytest.param("2025-02-29", id="non-leap-year"),
+    pytest.param("2024-02-30", id="invalid-leap-day"),
+    pytest.param("２０２４-０３-２７", id="non-ascii-digits"),
+])
+@pytest.mark.parametrize("include_valid", [False, True], ids=["invalid-only", "mixed"])
+def test_import_rejects_non_protocol_dates(raw_date, include_valid):
+    """拒绝整条坏日期；不污染 DATE 列、两侧记录或期间，且保留质量语义。"""
+    from datetime import date
+    from sqlalchemy import select
+
+    from backend.app.cities import DEFAULT_MODELS
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset, DatasetIssue, ForecastRecord, ObservationRecord
+
+    version = f"test_ingest_dates_{uuid4().hex}"
+    day = {"city_code": "WUHAN", "models": {model: 10.0 for model in DEFAULT_MODELS}, "proxy_label_mm": 12.0}
+    days = [{**day, "valid_date": raw_date}]
+    if include_valid:
+        days.append({**day, "valid_date": "2024-05-01"})
+    try:
+        result = _import_days_with_version(version, days)
+        assert result["imported"] is True
+        assert result["forecast"] == (4 if include_valid else 0)
+        assert result["observation"] == (1 if include_valid else 0)
+        assert result["issues"] == (1 if include_valid else 2)
+        assert result.get("unusable", False) is (not include_valid)
+
+        with SessionLocal() as session:
+            datasets = {row.dataset_type: row for row in session.scalars(
+                select(Dataset).where(Dataset.version == version)
+            ).all()}
+            fc, obs = datasets["FORECAST"], datasets["ERA5_LABEL"]
+            assert fc.quality_status == ("PARTIAL" if include_valid else "FAILED")
+            # 日期问题沿用现有语义记在预报集；有效的观测集仍是 READY。
+            assert obs.quality_status == ("READY" if include_valid else "FAILED")
+            assert fc.row_count == result["forecast"]
+            assert obs.row_count == result["observation"]
+            expected_date = date(2024, 5, 1) if include_valid else date.min
+            assert fc.period_start == fc.period_end == expected_date
+            assert obs.period_start == obs.period_end == expected_date
+
+            forecast_rows = session.scalars(select(ForecastRecord).where(ForecastRecord.dataset_id == fc.id)).all()
+            observation_rows = session.scalars(select(ObservationRecord).where(ObservationRecord.dataset_id == obs.id)).all()
+            assert len(forecast_rows) == result["forecast"]
+            assert len(observation_rows) == result["observation"]
+            assert all(row.valid_at.date() == date(2024, 5, 1) for row in forecast_rows)
+            assert all(row.observed_date == date(2024, 5, 1) for row in observation_rows)
+            issues = session.scalars(select(DatasetIssue).where(DatasetIssue.dataset_id.in_([fc.id, obs.id]))).all()
+            assert len(issues) == result["issues"]
+            assert sum(issue.issue_type == "INVALID_DATE" for issue in issues) == 1
+            assert all(issue.valid_date is None for issue in issues)
+    finally:
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)
+
+
+@pytest.mark.parametrize(("raw_date", "expected_parts"), [
+    ("2024-02-01", (2024, 2, 1)),
+    ("2024-02-29", (2024, 2, 29)),
+    ("2026-09-30", (2026, 9, 30)),
+])
+def test_import_accepts_protocol_boundaries_and_leap_day(raw_date, expected_parts):
+    from datetime import date, datetime
+    from sqlalchemy import select
+
+    from backend.app.cities import DEFAULT_MODELS
+    from backend.app.db import SessionLocal
+    from backend.app.models import Dataset, ForecastRecord, ObservationRecord
+
+    version = f"test_ingest_date_bounds_{uuid4().hex}"
+    expected = date(*expected_parts)
+    try:
+        result = _import_days_with_version(version, [{
+            "city_code": "WUHAN", "valid_date": raw_date,
+            "models": {model: 10.0 for model in DEFAULT_MODELS}, "proxy_label_mm": 12.0,
+        }])
+        assert result == {"imported": True, "forecast": 4, "observation": 1, "issues": 0,
+                          "outcome": "imported", "has_usable_forecast": True}
+        with SessionLocal() as session:
+            datasets = {row.dataset_type: row for row in session.scalars(
+                select(Dataset).where(Dataset.version == version)
+            ).all()}
+            assert set(datasets) == {"FORECAST", "ERA5_LABEL"}
+            for dataset in datasets.values():
+                assert dataset.quality_status == "READY"
+                assert dataset.period_start == dataset.period_end == expected
+            forecast_rows = session.scalars(select(ForecastRecord).where(
+                ForecastRecord.dataset_id == datasets["FORECAST"].id
+            )).all()
+            observation_rows = session.scalars(select(ObservationRecord).where(
+                ObservationRecord.dataset_id == datasets["ERA5_LABEL"].id
+            )).all()
+            assert len(forecast_rows) == 4
+            assert all(row.valid_at == datetime(*expected_parts) and row.lead_hours == 24 for row in forecast_rows)
+            assert len(observation_rows) == 1
+            assert observation_rows[0].observed_date == expected
+    finally:
+        with SessionLocal() as session:
+            _cleanup_dataset(session, version)
 
 
 def test_all_rejected_days_mark_forecast_failed():
@@ -621,8 +740,17 @@ def test_unusable_reimport_does_not_overwrite_usable_dataset():
         )
         assert blocked2["imported"] is False
         assert blocked2.get("unusable") is True
+        for result in (blocked1, blocked2):
+            assert result["outcome"] == "preserved_existing"
+            assert result["has_usable_forecast"] is True
+
+        from sqlalchemy import func
+        from backend.app.models import DatasetIssue
 
         with SessionLocal() as session:
+            assert session.scalar(select(func.count()).select_from(DatasetIssue).join(
+                Dataset, Dataset.id == DatasetIssue.dataset_id,
+            ).where(Dataset.version == version)) == 0
             fc_ds = session.scalar(
                 select(Dataset).where(Dataset.dataset_type == "FORECAST", Dataset.version == version)
             )

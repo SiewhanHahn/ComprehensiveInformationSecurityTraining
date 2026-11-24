@@ -137,26 +137,37 @@ def _source_id(session: Session, code: str) -> int:
     return session.scalar(select(DataSource.id).where(DataSource.code == code))
 
 
-def import_sample(session: Session, path: Path) -> None:
+def import_sample(session: Session, path: Path) -> dict:
     fc_source = _source_id(session, "OPEN_METEO_PREVIOUS_RUNS")
     obs_source = _source_id(session, "OPEN_METEO_ERA5")
     result = ingest.import_sample(session, path, fc_source, obs_source)
-    if result.get("blocked") == "dataset_in_use":
-        print("[seed] 同版本数据集已被预警引用，拒绝覆盖；请提升样本 version 后重导")
-        return
-    if result.get("unusable"):
-        print("[seed] 样本没有可用的预报记录，已标记为 FAILED（不会遮蔽已有数据集）")
-        return
-    if not result["imported"]:
-        print("[seed] 样本已导入或为空，跳过")
-        return
-    print(
-        f"[seed] 导入 {result['forecast']} 条预报记录、{result['observation']} 条代理标签记录、"
-        f"{result['issues']} 条质量问题"
-    )
+    outcome = result["outcome"]
+    if outcome == "imported":
+        message = (
+            f"已导入 {result['forecast']} 条预报记录、{result['observation']} 条代理标签记录、"
+            f"{result['issues']} 条质量问题"
+        )
+    elif outcome == "unchanged":
+        message = "样本校验和未变，无需导入"
+    elif outcome == "file_unreadable":
+        message = "未读取样本，本次未写入数据"
+    elif outcome == "preserved_existing":
+        message = "样本不可用，保留已有可用版本；本次未写入记录或质量问题"
+    elif outcome == "marked_failed":
+        message = f"样本没有可用的预报记录，本次落为 FAILED；已记录 {result['issues']} 条质量问题"
+    elif outcome == "unchanged_failed":
+        message = "样本校验和未变，已有 FAILED 数据集未改变"
+    elif outcome == "dataset_in_use":
+        message = "同版本数据集已被预警引用，拒绝覆盖；请提升样本 version 后重导"
+    else:
+        raise ValueError(f"未知导入结果：{outcome}")
+    if result.get("error"):
+        message += f"：{result['error']}"
+    print(f"[seed] {message}")
+    return result
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sample", default="data/sample/replay_sample.json")
     parser.add_argument(
@@ -169,9 +180,13 @@ def main() -> None:
     with SessionLocal() as session:
         seed_reference_data(session)
         seed_users(session, sync_passwords=args.sync_demo_passwords)
-        import_sample(session, Path(args.sample))
-    print("[seed] 完成")
+        result = import_sample(session, Path(args.sample))
+    if not result["has_usable_forecast"]:
+        print("[seed] 失败：无可用预报数据，无法完成初始化")
+        return 1
+    print("[seed] 完成（已有可用预报数据）")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

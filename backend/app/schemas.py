@@ -162,26 +162,18 @@ class WarningCreate(BaseModel):
     threshold_code: str
     title: str = Field(max_length=200)
     area_text: str = Field(max_length=500)
-    impact_text: str | None = Field(default=None, max_length=2000)
+    impact_text: str = Field(max_length=2000)
     # 列是 TEXT（65,535 字节）。中文按 utf8mb4 占 3 字节，20,000 字符留有余量；
     # 不设上限时超长输入要到 flush 才触发 MySQL 1406，变成 500 而不是 422
     reasoning_text: str = Field(max_length=20000)
 
-    @field_validator("title", "area_text", "reasoning_text")
+    @field_validator("title", "area_text", "impact_text", "reasoning_text")
     @classmethod
     def _strip_required(cls, v: str) -> str:
         v = v.strip()
         if not v:
             raise ValueError("必填字段不能为空")
         return v
-
-    @field_validator("impact_text")
-    @classmethod
-    def _strip_optional(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        v = v.strip()
-        return v or None
 
     @field_validator("reasoning_text")
     @classmethod
@@ -199,7 +191,7 @@ class WarningUpdate(BaseModel):
     impact_text: str | None = Field(default=None, max_length=2000)
     reasoning_text: str | None = Field(default=None, max_length=20000)
 
-    @field_validator("title", "area_text", "reasoning_text")
+    @field_validator("title", "area_text", "impact_text", "reasoning_text")
     @classmethod
     def _strip_required_if_provided(cls, v: str | None) -> str | None:
         # 字段被显式提供时必须非空；未提供时校验器不会执行，保持“不修改”
@@ -209,14 +201,6 @@ class WarningUpdate(BaseModel):
         if not v:
             raise ValueError("必填字段不能为空")
         return v
-
-    @field_validator("impact_text")
-    @classmethod
-    def _strip_optional_update(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        v = v.strip()
-        return v or None
 
     @field_validator("reasoning_text")
     @classmethod
@@ -248,6 +232,18 @@ class FeedbackRequest(BaseModel):
         if not v:
             raise ValueError("反馈内容不能为空")
         return v
+
+
+class WarningActionRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _strip_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class WarningOut(BaseModel):
@@ -301,6 +297,7 @@ class AuditOut(BaseModel):
     resource_id: str | None
     result: str
     reason: str | None
+    resource_version: int | None
     ip_address: str | None
     created_at: datetime
 

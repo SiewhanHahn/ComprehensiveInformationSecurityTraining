@@ -362,3 +362,6 @@ MVP 中反馈只做追加记录、展示和审计，不自动回流训练模型�
 - `NOAA_GHCN_DAILY`：OBSERVATION
 
 不在初始化脚本中写入真实账号密码；演示账号由 seed 命令使用环境变量或交互方式创建。
+### B 修复迁移 0007
+
+`warnings.cancelled_at`（UTC）、`cancelled_by`（可空用户外键）保存草稿取消轨迹；`audit_logs.resource_version` 允许旧日志为空，新审计引用对应内容版本。历史 `impact_text` 仍允许数据库 NULL；新创建及提交在服务层要求非空。含有 0007 专有数据的数据库拒绝直接降级；保留预升级备份。

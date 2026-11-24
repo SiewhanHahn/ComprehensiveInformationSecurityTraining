@@ -105,9 +105,18 @@
     </header>
 
     <main id="main-content" class="app-main">
+      <div v-if="auth.refreshError && !route.meta.public" class="card">
+        <p role="status">{{ auth.refreshError }}</p>
+        <button class="btn btn-primary" type="button" :disabled="checkingSession" @click="checkSession">重试</button>
+      </div>
+      <p v-if="logoutError" role="status">{{ logoutError }}</p>
       <RouterView v-slot="{ Component, route: currentRoute }">
         <Transition name="page" mode="out-in">
-          <component :is="Component" :key="currentRoute.path" />
+          <component
+            v-if="canShowPage(currentRoute)"
+            :is="Component"
+            :key="`${pageContext}:${currentRoute.path}`"
+          />
         </Transition>
       </RouterView>
     </main>
@@ -117,8 +126,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { auth } from './auth'
-import { apiFetch } from './api'
+import { auth, readCsrfCookie, sessionContext } from './auth'
+import { apiFetch, refreshAuth } from './api'
+import { getRouteRedirect } from './router'
 import { notificationState, refreshUnread, resetUnread } from './notifications'
 import { roleLabel } from './ui/labels'
 
@@ -127,6 +137,15 @@ const route = useRoute()
 const menuOpen = ref(false)
 const groupOpen = ref('')
 const unread = computed(() => notificationState.unread)
+const pageContext = computed(() => sessionContext(auth.user))
+const checkingSession = ref(false)
+const logoutError = ref('')
+
+function canShowPage(currentRoute) {
+  if (currentRoute.meta.public) return true
+  return auth.ready && auth.user && !getRouteRedirect(currentRoute) &&
+    (!auth.refreshError || auth.csrfCookie === readCsrfCookie())
+}
 
 function syncUnread() {
   if (auth.user) {
@@ -136,26 +155,37 @@ function syncUnread() {
   }
 }
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') syncUnread()
+async function checkSession() {
+  if (document.visibilityState !== 'visible' || checkingSession.value) return
+  checkingSession.value = true
+  try {
+    await refreshAuth()
+  } catch {
+    // refreshAuth exposes the retry message without changing the known user.
+  } finally {
+    checkingSession.value = false
+  }
 }
 
 // 不做定时轮询：/notifications/unread-count 同样走 get_current_user，会刷新会话空闲 TTL，
 // 定时轮询等于让人离开后会话永不过期。只挂在用户真实操作（登录、切页、切回标签页）上。
 onMounted(() => {
   syncUnread()
-  document.addEventListener('visibilitychange', onVisibilityChange)
+  document.addEventListener('visibilitychange', checkSession)
+  window.addEventListener('focus', checkSession)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.removeEventListener('visibilitychange', checkSession)
+  window.removeEventListener('focus', checkSession)
 })
 
 let loggingOut = false
 
 watch(
-  () => auth.user,
-  (user) => {
+  [() => auth.user, () => auth.ready, () => auth.refreshError],
+  ([user]) => {
+    if (auth.refreshError) return
     syncUnread()
     if (!user && !loggingOut && auth.ready && !route.meta?.public && route.path !== '/login') {
       router.replace(
@@ -163,6 +193,8 @@ watch(
           ? { path: '/login', query: { redirect: route.fullPath } }
           : '/login'
       )
+    } else if (user && getRouteRedirect(route) === '/') {
+      router.replace('/')
     }
   }
 )
@@ -239,12 +271,18 @@ watch(
 
 async function logout() {
   menuOpen.value = false
+  logoutError.value = ''
   loggingOut = true
   try {
     try {
       await apiFetch('/auth/logout', { method: 'POST' })
-    } catch (e) {}
-    auth.clear()
+    } catch (error) {
+      if (auth.user) {
+        logoutError.value = error.message || '退出失败，请重试'
+        return
+      }
+    }
+    auth.clear('')
     await router.push('/login')
   } finally {
     loggingOut = false

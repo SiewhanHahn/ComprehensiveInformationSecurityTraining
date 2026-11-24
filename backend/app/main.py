@@ -1,5 +1,4 @@
 import logging
-import re
 import secrets
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -8,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from redis.exceptions import RedisError
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import get_settings
@@ -46,7 +46,6 @@ app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 
 
-_REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{8,36}$")
 
 
 def csrf_matches(token: str | None, expected: str | None) -> bool:
@@ -78,7 +77,8 @@ async def csrf_middleware(request: Request, call_next):
     if not session_id:
         return await call_next(request)
     try:
-        payload = read_session(session_id)
+        # Session helpers use the synchronous Redis client.
+        payload = await run_in_threadpool(read_session, session_id)
     except Exception:
         return error_response(request, 503, "DEPENDENCY_UNAVAILABLE")
     # 有 Cookie 但 Redis 会话已过期/绝对超时/已登出：这是未认证，不是 CSRF 失败。
@@ -86,7 +86,7 @@ async def csrf_middleware(request: Request, call_next):
         return error_response(request, 401, "UNAUTHENTICATED")
     if session_expired(payload):
         try:
-            delete_session(session_id)
+            await run_in_threadpool(delete_session, session_id)
         except Exception:
             pass
         return error_response(request, 401, "UNAUTHENTICATED")
@@ -109,9 +109,8 @@ if settings.cors_origin_list:
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    # 只接受格式合规的上游请求号（写入审计 VARCHAR(36)），否则自行生成
-    incoming = request.headers.get("x-request-id", "")
-    rid = incoming if _REQUEST_ID.match(incoming) else uuid4().hex
+    # 审计关联标识由本服务生成，不复用客户端提供的编号。
+    rid = uuid4().hex
     request.state.request_id = rid
     response = await call_next(request)
     response.headers["X-Request-ID"] = rid

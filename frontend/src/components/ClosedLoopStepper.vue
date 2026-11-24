@@ -10,6 +10,7 @@
         <svg v-if="stage.state === 'done'" viewBox="0 0 20 20" fill="none">
           <path d="m5 10.5 3.2 3.2L15 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
+        <span v-else-if="stage.state === 'cancelled'">×</span>
         <span v-else>{{ index + 1 }}</span>
       </span>
       <span class="stepper-body">
@@ -98,6 +99,11 @@ defineProps({
   border-color: var(--color-primary);
   color: var(--color-primary);
   box-shadow: 0 0 0 4px rgba(53, 201, 230, 0.18);
+}
+
+.stepper-item.is-cancelled .stepper-marker {
+  border-color: var(--color-text-muted);
+  color: var(--color-text-muted);
 }
 
 .stepper-body {

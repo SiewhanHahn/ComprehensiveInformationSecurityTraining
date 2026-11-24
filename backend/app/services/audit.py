@@ -23,6 +23,7 @@ def add_audit(
     actor_role: str | None = None,
     resource_id: str | None = None,
     reason: str | None = None,
+    resource_version: int | None = None,
     request_id: str | None = None,
     ip_address: str | None = None,
 ) -> None:
@@ -36,6 +37,7 @@ def add_audit(
             resource_id=_clip(resource_id, 64),
             result=_clip(result, 16),
             reason=_clip(reason, 500),
+            resource_version=resource_version,
             request_id=_clip(request_id, 36),
             ip_address=_clip(ip_address, 45),
         )
@@ -59,6 +61,7 @@ class AuditContext:
         resource_id: str | None = None,
         result: str = "SUCCESS",
         reason: str | None = None,
+        resource_version: int | None = None,
         actor_role: str | None = None,
     ) -> None:
         add_audit(
@@ -68,6 +71,7 @@ class AuditContext:
             resource_id=resource_id,
             result=result,
             reason=reason,
+            resource_version=resource_version,
             actor_id=self.actor.id if self.actor else None,
             actor_role=actor_role or (",".join(sorted(self.actor.roles)) if self.actor else None),
             request_id=self.request_id,

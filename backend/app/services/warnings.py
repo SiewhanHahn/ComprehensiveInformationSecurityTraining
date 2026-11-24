@@ -30,8 +30,9 @@ APPROVED = "APPROVED"
 REJECTED = "REJECTED"
 PUBLISHED = "PUBLISHED"
 WITHDRAWN = "WITHDRAWN"
+CANCELLED = "CANCELLED"
 
-WARNING_STATUSES = frozenset({DRAFT, PENDING_REVIEW, APPROVED, REJECTED, PUBLISHED, WITHDRAWN})
+WARNING_STATUSES = frozenset({DRAFT, PENDING_REVIEW, APPROVED, REJECTED, PUBLISHED, WITHDRAWN, CANCELLED})
 EDITABLE_STATUSES = frozenset({DRAFT, REJECTED})
 FEEDBACK_STATUSES = frozenset({PUBLISHED, WITHDRAWN})
 
@@ -52,6 +53,7 @@ APPROVE = Transition(frozenset({PENDING_REVIEW}), APPROVED, "WARNING_REVIEW", "a
 REJECT = Transition(frozenset({PENDING_REVIEW}), REJECTED, "WARNING_REVIEW")
 PUBLISH = Transition(frozenset({APPROVED}), PUBLISHED, "WARNING_PUBLISH", "published_at", "published_by")
 WITHDRAW = Transition(frozenset({PUBLISHED}), WITHDRAWN, "WARNING_WITHDRAW", "withdrawn_at", "withdrawn_by")
+CANCEL = Transition(EDITABLE_STATUSES, CANCELLED, "WARNING_CANCEL", "cancelled_at", "cancelled_by")
 
 
 def is_viewer_only(current: CurrentUser) -> bool:
@@ -62,12 +64,19 @@ def is_viewer_only(current: CurrentUser) -> bool:
 def _apply(w: Warning, transition: Transition, actor: CurrentUser, audit: AuditContext, reason: str | None = None) -> None:
     if w.status not in transition.sources:
         raise HTTPException(status_code=409, detail="INVALID_STATE")
+    resource_version = w.version_no
     w.status = transition.target
     if transition.timestamp_field:
         setattr(w, transition.timestamp_field, utcnow())
     if transition.actor_field:
         setattr(w, transition.actor_field, actor.id)
-    audit.record(transition.audit_action, resource_type="warning", resource_id=w.public_id, reason=reason)
+    audit.record(
+        transition.audit_action,
+        resource_type="warning",
+        resource_id=w.public_id,
+        reason=reason,
+        resource_version=resource_version,
+    )
 
 
 # ---- 查询 ----
@@ -83,7 +92,7 @@ def get_warning(db: Session, public_id: str, *, lock: bool = False) -> Warning |
 def get_visible_warning(db: Session, public_id: str, current: CurrentUser) -> Warning:
     """查看者只能看到已发布预警；其余状态对其一律表现为不存在。"""
     w = get_warning(db, public_id)
-    if w is None or (is_viewer_only(current) and w.status != PUBLISHED):
+    if w is None or w.status == CANCELLED or (is_viewer_only(current) and w.status != PUBLISHED):
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     return w
 
@@ -183,7 +192,8 @@ def list_feedback(db: Session, w: Warning) -> list[WarningFeedback]:
 def create_warning(db: Session, body: WarningCreate, actor: CurrentUser, audit: AuditContext) -> Warning:
     compute = compute_replay(db, body.city_code, body.valid_date, body.threshold_code)
     if compute is None:
-        raise HTTPException(status_code=404, detail="NOT_FOUND")
+        # 回放无法解析城市或活动阈值；已知参数但样本不完整由下面的 409 区分。
+        raise HTTPException(status_code=422, detail="INVALID_PARAMETER")
     if compute["data_status"] != "COMPLETE":
         raise HTTPException(status_code=409, detail="PARTIAL_DATA")
     if compute["risk_level"] is None:
@@ -253,19 +263,33 @@ def _require_own_editable(w: Warning | None, actor: CurrentUser) -> Warning:
     return w
 
 
+def cancel_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext, reason: str | None = None) -> Warning:
+    w = get_warning(db, public_id, lock=True)
+    if w is None or w.created_by != actor.id:
+        raise HTTPException(status_code=403, detail="FORBIDDEN")
+    if w.status not in EDITABLE_STATUSES:
+        raise HTTPException(status_code=409, detail="INVALID_STATE")
+    _apply(w, CANCEL, actor, audit, reason=reason or "未提供原因")
+    db.flush()
+    return w
+
+
 def update_warning(db: Session, public_id: str, body: WarningUpdate, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _require_own_editable(get_warning(db, public_id, lock=True), actor)
-    changes = body.model_dump(exclude_unset=True)
+    changes = {k: v for k, v in body.model_dump(exclude_unset=True).items() if getattr(w, k) != v}
     if changes:
         for field, value in changes.items():
             setattr(w, field, value)
-        audit.record("WARNING_UPDATE", resource_type="warning", resource_id=w.public_id)
+        w.version_no += 1
+        audit.record("WARNING_UPDATE", resource_type="warning", resource_id=w.public_id, resource_version=w.version_no)
         db.flush()
     return w
 
 
 def submit_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
     w = _require_own_editable(get_warning(db, public_id, lock=True), actor)
+    if not (w.impact_text or "").strip():
+        raise HTTPException(status_code=422, detail="IMPACT_REQUIRED")
     _apply(w, SUBMIT, actor, audit)
     db.flush()
     return w
@@ -288,33 +312,40 @@ def review_warning(db: Session, public_id: str, decision: str, comment: str, act
     else:
         raise HTTPException(status_code=422, detail="INVALID_DECISION")
 
-    _apply(w, transition, actor, audit, reason=decision)
+    _apply(w, transition, actor, audit, reason=comment)
     review = WarningReview(warning_id=w.id, reviewer_id=actor.id, decision=decision, comment=comment)
     db.add(review)
     db.flush()
     return review
 
 
-def _transition_existing(db: Session, public_id: str, transition: Transition, actor: CurrentUser, audit: AuditContext) -> Warning:
+def _transition_existing(
+    db: Session,
+    public_id: str,
+    transition: Transition,
+    actor: CurrentUser,
+    audit: AuditContext,
+    reason: str | None = None,
+) -> Warning:
     w = get_warning(db, public_id, lock=True)
     if w is None:
         # 发布/撤回接口历史上对不存在的预警也返回 409，保持兼容
         raise HTTPException(status_code=409, detail="INVALID_STATE")
-    _apply(w, transition, actor, audit)
+    _apply(w, transition, actor, audit, reason=reason)
     db.flush()
     return w
 
 
-def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
-    w = _transition_existing(db, public_id, PUBLISH, actor, audit)
+def publish_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext, reason: str | None = None) -> Warning:
+    w = _transition_existing(db, public_id, PUBLISH, actor, audit, reason=reason or "未提供原因")
     # 通知与响应任务都和状态变更、审计同事务（服务只 flush，路由 commit）
     notify_warning(db, w, NOTIFY_PUBLISHED)
     create_for_published(db, w, actor, audit)
     return w
 
 
-def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext) -> Warning:
-    w = _transition_existing(db, public_id, WITHDRAW, actor, audit)
+def withdraw_warning(db: Session, public_id: str, actor: CurrentUser, audit: AuditContext, reason: str | None = None) -> Warning:
+    w = _transition_existing(db, public_id, WITHDRAW, actor, audit, reason=reason or "未提供原因")
     # 先关闭关联响应任务再发送撤回通知，避免并行扫描窗口误判
     close_for_withdrawn(db, w, audit)
     notify_warning(db, w, NOTIFY_WITHDRAWN)

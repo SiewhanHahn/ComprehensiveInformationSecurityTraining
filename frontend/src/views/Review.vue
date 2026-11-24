@@ -73,7 +73,7 @@
               <td><StatusBadge :value="w.status" size="sm" dot /></td>
               <td>
                 <div class="row" style="gap: 6px; flex-wrap: nowrap; align-items: center">
-                  <template v-if="activeTab === 'PENDING_REVIEW' && w.created_by !== auth.user?.username">
+                  <template v-if="isReviewRow(w) && w.created_by !== auth.user?.username">
                     <input
                       v-model="comments[w.public_id]"
                       class="review-comment"
@@ -84,7 +84,7 @@
                     <button
                       class="btn btn-primary btn-sm"
                       type="button"
-                      :disabled="busyId === w.public_id"
+                      :disabled="Boolean(busyId)"
                       @click="review(w, 'APPROVE')"
                     >
                       <span v-if="busyId === w.public_id" class="spinner"></span>
@@ -93,18 +93,20 @@
                     <button
                       class="btn btn-danger btn-sm"
                       type="button"
-                      :disabled="busyId === w.public_id"
+                      :disabled="Boolean(busyId)"
                       @click="review(w, 'REJECT')"
                     >
                       驳回
                     </button>
                   </template>
-                  <span v-else-if="activeTab === 'PENDING_REVIEW'" class="muted">不可自审</span>
+                  <span v-else-if="isReviewRow(w)" class="muted">不可自审</span>
+                  <input v-if="isPublishRow(w)" v-model="publishReasons[w.public_id]" maxlength="500"
+                    class="review-comment" placeholder="发布原因（可选）" :aria-label="'发布原因：' + w.title" />
                   <button
-                    v-if="activeTab === 'APPROVED'"
+                    v-if="isPublishRow(w)"
                     class="btn btn-primary btn-sm"
                     type="button"
-                    :disabled="busyId === w.public_id"
+                    :disabled="Boolean(busyId)"
                     @click="publish(w)"
                   >
                     <span v-if="busyId === w.public_id" class="spinner"></span>
@@ -143,21 +145,34 @@ const error = ref('')
 const notice = ref('')
 const busyId = ref('')
 const comments = ref({})
+const publishReasons = ref({})
+let loadSeq = 0
 
 function cityName(code) {
   return cities.value.find((c) => c.code === code)?.name || code || '—'
 }
 
+function isReviewRow(w) {
+  return activeTab.value === 'PENDING_REVIEW' && w.status === 'PENDING_REVIEW'
+}
+
+function isPublishRow(w) {
+  return activeTab.value === 'APPROVED' && w.status === 'APPROVED'
+}
+
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
   try {
-    rows.value = await apiFetch(`/warnings?status=${activeTab.value}`)
+    const data = await apiFetch(`/warnings?status=${activeTab.value}`)
+    if (seq === loadSeq) rows.value = data
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = e.message
     rows.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -169,6 +184,7 @@ function switchTab(value) {
 }
 
 async function review(w, decision) {
+  if (busyId.value || !isReviewRow(w) || w.created_by === auth.user?.username) return
   const comment = (comments.value[w.public_id] || '').trim()
   if (decision === 'REJECT' && !comment) {
     error.value = '驳回时必须填写审核意见'
@@ -193,11 +209,14 @@ async function review(w, decision) {
 }
 
 async function publish(w) {
+  if (busyId.value || !isPublishRow(w)) return
   error.value = ''
   notice.value = ''
   busyId.value = w.public_id
   try {
-    await apiFetch(`/warnings/${w.public_id}/publish`, { method: 'POST' })
+    const reason = (publishReasons.value[w.public_id] || '').trim()
+    await apiFetch(`/warnings/${w.public_id}/publish`, { method: 'POST', ...(reason && { body: JSON.stringify({ reason }) }) })
+    delete publishReasons.value[w.public_id]
     notice.value = `已发布：${w.title}`
     await load()
   } catch (e) {

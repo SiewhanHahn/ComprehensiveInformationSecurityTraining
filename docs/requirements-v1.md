@@ -136,10 +136,10 @@ MVP 中一个账号可以被授予一个或多个角色，但接口必须按角�
 
 ```text
 DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED → WITHDRAWN
-                         ↘ REJECTED → DRAFT
+                         ↘ REJECTED → PENDING_REVIEW（编辑后原编号重提）
 ```
 
-未经 `APPROVED` 的预警不得进入 `PUBLISHED`。已发布预警不得被普通更新操作覆盖，只能通过撤回或新增修订记录改变状态。
+创建者可将 DRAFT / REJECTED 取消为终态 CANCELLED；不物理删除。创建及提交前必须填写影响说明。未经 `APPROVED` 的预警不得进入 `PUBLISHED`。已发布预警不得被普通更新操作覆盖，只能通过撤回或新增修订记录改变状态。
 
 ## 5. 功能需求
 

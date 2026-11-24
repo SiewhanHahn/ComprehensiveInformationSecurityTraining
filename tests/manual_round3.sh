@@ -18,7 +18,7 @@ echo "== 2. viewer 读取未发布预警反馈 =="
 curl -s -c /tmp/fb_a.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"username\":\"analyst_demo\",\"password\":\"$DEMO_ANALYST_PASSWORD\"}" > /tmp/fb_a.json
 AT=$(jget /tmp/fb_a.json csrf_token)
 curl -s -c /tmp/fb_v.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"username\":\"viewer_demo\",\"password\":\"$DEMO_VIEWER_PASSWORD\"}" > /tmp/fb_v.json
-curl -s -b /tmp/fb_a.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $AT" -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"反馈越权测试","area_text":"长沙","reasoning_text":"x"}' > /tmp/fb_w.json
+curl -s -b /tmp/fb_a.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $AT" -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"反馈越权测试","area_text":"长沙","impact_text":"低洼路段可能积水","reasoning_text":"x"}' > /tmp/fb_w.json
 WID=$(jget /tmp/fb_w.json public_id)
 ck "created_draft" "$(jget /tmp/fb_w.json status)" DRAFT
 ck "viewer_feedback_draft_404" "$(code -b /tmp/fb_v.txt $BASE/api/v1/warnings/$WID/feedback)" 404

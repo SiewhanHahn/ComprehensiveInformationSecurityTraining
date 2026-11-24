@@ -69,6 +69,34 @@
           </div>
         </div>
 
+        <form v-if="canManageDraft && editForm" style="margin-top: 16px" @submit.prevent="saveEdit">
+          <h3 class="card-title">编辑草稿</h3>
+          <div v-for="field in draftFields" :key="field.name" class="field" style="margin-top: 12px">
+            <label class="field-label" :for="'edit-' + field.name">{{ field.label }}</label>
+            <textarea
+              v-if="field.rows"
+              :id="'edit-' + field.name"
+              v-model="editForm[field.name]"
+              :rows="field.rows"
+              :maxlength="field.maxLength"
+              :required="field.required"
+              :disabled="busy"
+            ></textarea>
+            <input
+              v-else
+              :id="'edit-' + field.name"
+              v-model="editForm[field.name]"
+              :maxlength="field.maxLength"
+              :required="field.required"
+              :disabled="busy"
+            />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit" :disabled="busy">保存修改</button>
+            <button class="btn btn-ghost" type="button" :disabled="busy" @click="discardEdit">放弃修改</button>
+          </div>
+        </form>
+
         <Transition name="slide-fade">
           <div v-if="error" class="alert alert--error" role="alert" style="margin-top: 16px">
             <span class="alert-icon" aria-hidden="true">!</span>
@@ -83,15 +111,13 @@
         </Transition>
 
         <div class="action-bar">
-          <button
-            v-if="isMine && auth.hasAnyRole('ANALYST', 'ADMIN') && (w.status === 'DRAFT' || w.status === 'REJECTED')"
-            class="btn btn-primary"
-            type="button"
-            :disabled="busy"
-            @click="act('submit')"
-          >
-            提交审核
-          </button>
+          <template v-if="canManageDraft && !editForm">
+            <button class="btn btn-primary" type="button" :disabled="busy" @click="act('submit')">
+              {{ w.status === 'REJECTED' ? '重新提交审核' : '提交审核' }}
+            </button>
+            <button class="btn btn-ghost" type="button" :disabled="busy" @click="startEdit">编辑草稿</button>
+            <button class="btn btn-danger" type="button" :disabled="busy" @click="act('cancel')">取消草稿</button>
+          </template>
 
           <template v-if="!isMine && auth.hasAnyRole('REVIEWER', 'ADMIN') && w.status === 'PENDING_REVIEW'">
             <div class="review-panel">
@@ -105,6 +131,8 @@
             </button>
           </template>
 
+          <input v-if="auth.hasAnyRole('REVIEWER', 'ADMIN') && ['APPROVED', 'PUBLISHED'].includes(w.status)"
+            v-model="actionReason" maxlength="500" placeholder="发布或撤回原因（可选）" aria-label="发布或撤回原因" />
           <button
             v-if="auth.hasAnyRole('REVIEWER', 'ADMIN') && w.status === 'APPROVED'"
             class="btn btn-primary"
@@ -152,7 +180,7 @@
         </div>
       </div>
 
-      <div v-if="canUseTasks" class="card">
+      <div v-if="canUseTasks && w.status !== 'CANCELLED'" class="card">
         <div class="card-head">
           <h3 class="card-title">响应任务</h3>
           <span class="card-subtitle">发布时自动派发给预警创建者（创建者已停用时改派发布人）· 时限按配置计算</span>
@@ -334,7 +362,15 @@ const error = ref('')
 const notice = ref('')
 const loading = ref(true)
 const busy = ref(false)
+const editForm = ref(null)
+const draftFields = [
+  { name: 'title', label: '标题', maxLength: 200, required: true },
+  { name: 'area_text', label: '影响区域', maxLength: 500, required: true },
+  { name: 'impact_text', label: '影响说明', maxLength: 2000, rows: 2, required: true },
+  { name: 'reasoning_text', label: '研判依据', maxLength: 20000, rows: 3, required: true }
+]
 const comment = ref('')
+const actionReason = ref('')
 const feedbackStatus = ref('RECEIVED')
 const feedbackContent = ref('')
 
@@ -353,6 +389,11 @@ const canActOnTask = computed(() => {
 
 const isMine = computed(
   () => w.value && auth.user && w.value.created_by === auth.user.username
+)
+
+const canManageDraft = computed(() =>
+  isMine.value && auth.hasAnyRole('ANALYST', 'ADMIN') &&
+  (w.value.status === 'DRAFT' || w.value.status === 'REJECTED')
 )
 
 const modelBarOption = computed(() => {
@@ -375,7 +416,9 @@ const stages = computed(() => {
   const hasFeedback = fb.length > 0
   const completed = fb.some((f) => f.response_status === 'COMPLETED')
 
-  const warningState = s === 'DRAFT' || s === 'REJECTED' ? 'current' : 'done'
+  const warningState = s === 'CANCELLED'
+    ? 'cancelled'
+    : s === 'DRAFT' || s === 'REJECTED' ? 'current' : 'done'
   const publishState =
     s === 'PUBLISHED' || s === 'WITHDRAWN'
       ? 'done'
@@ -418,8 +461,9 @@ const stages = computed(() => {
       key: 'warning',
       label: '预警',
       state: warningState,
-      time: item.submitted_at ? formatDateTime(item.submitted_at) : '',
-      role: '分析员'
+      time: s !== 'CANCELLED' && item.submitted_at ? formatDateTime(item.submitted_at) : '',
+      role: '分析员',
+      note: s === 'CANCELLED' ? '已取消，未发布' : ''
     },
     {
       key: 'publish',
@@ -532,15 +576,74 @@ onMounted(async () => {
   await load()
 })
 
+function startEdit() {
+  if (!canManageDraft.value || busy.value || editForm.value) return
+  error.value = ''
+  notice.value = ''
+  editForm.value = Object.fromEntries(draftFields.map(({ name }) => [name, w.value[name] ?? '']))
+}
+
+function discardEdit() {
+  if (busy.value) return
+  editForm.value = null
+  error.value = ''
+}
+
+async function saveEdit() {
+  if (!canManageDraft.value || busy.value || !editForm.value) return
+  error.value = ''
+  notice.value = ''
+  const changes = {}
+  for (const { name, label, required } of draftFields) {
+    const value = editForm.value[name].trim()
+    if (required && !value) {
+      error.value = `${label}为必填项`
+      return
+    }
+    if (value !== (w.value[name] ?? '').trim()) changes[name] = value || null
+  }
+  // PATCH 只传实际变动的字段，不重写旧记录的其他内容。
+  if (Object.keys(changes).length === 0) {
+    discardEdit()
+    return
+  }
+  busy.value = true
+  try {
+    const updated = await apiFetch(`/warnings/${w.value.public_id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes)
+    })
+    w.value = { ...w.value, ...updated }
+    editForm.value = null
+    notice.value = '草稿修改已保存'
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
+}
+
 async function act(kind, decision) {
+  if (busy.value || !w.value) return
+  if (kind === 'submit' || kind === 'cancel') {
+    if (!canManageDraft.value || editForm.value) return
+    if (kind === 'submit' && !w.value.impact_text?.trim()) {
+      error.value = '请先编辑草稿，补全影响说明后再提交'
+      return
+    }
+    if (kind === 'cancel' && !window.confirm('确定取消这条草稿？取消后不能再编辑或提交审核。')) return
+  }
   error.value = ''
   notice.value = ''
   busy.value = true
-  const id = route.params.publicId
+  const id = w.value.public_id
   try {
-    if (kind === 'submit') {
-      await apiFetch(`/warnings/${id}/submit`, { method: 'POST' })
-      notice.value = '已提交审核'
+    if (kind === 'submit' || kind === 'cancel') {
+      const updated = await apiFetch(`/warnings/${id}/${kind}`, { method: 'POST' })
+      w.value = { ...w.value, ...updated }
+      notice.value = kind === 'cancel' ? '草稿已取消' : '已提交审核'
+      // 更新已由动作响应确认；取消后的详情与反馈接口会返回 404。
+      return
     } else if (kind === 'review') {
       if (decision === 'REJECT' && !comment.value.trim()) {
         error.value = '驳回时必须填写审核意见'
@@ -551,12 +654,11 @@ async function act(kind, decision) {
         body: JSON.stringify({ decision, comment: comment.value })
       })
       notice.value = decision === 'APPROVE' ? '已批准' : '已驳回'
-    } else if (kind === 'publish') {
-      await apiFetch(`/warnings/${id}/publish`, { method: 'POST' })
-      notice.value = '已发布'
-    } else if (kind === 'withdraw') {
-      await apiFetch(`/warnings/${id}/withdraw`, { method: 'POST' })
-      notice.value = '已撤回'
+    } else if (kind === 'publish' || kind === 'withdraw') {
+      const reason = actionReason.value.trim()
+      await apiFetch(`/warnings/${id}/${kind}`, { method: 'POST', ...(reason && { body: JSON.stringify({ reason }) }) })
+      actionReason.value = ''
+      notice.value = kind === 'publish' ? '已发布' : '已撤回'
     } else if (kind === 'feedback') {
       if (!feedbackContent.value.trim()) {
         error.value = '反馈内容不能为空'

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth } from './auth'
-import { apiFetch } from './api'
+import { needsAuthRefresh, refreshAuth } from './api'
 
 const routes = [
   { path: '/login', component: () => import('./views/Login.vue'), meta: { public: true } },
@@ -28,21 +28,8 @@ export const router = createRouter({
   }
 })
 
-async function refreshAuth() {
-  try {
-    const res = await apiFetch('/auth/me')
-    auth.user = res.user
-    auth.ready = true
-  } catch (e) {
-    auth.clear()
-  }
-}
-
-router.beforeEach(async (to) => {
-  if (!auth.ready) {
-    await refreshAuth()
-  }
-  if (to.meta.public) return true
+export function getRouteRedirect(to) {
+  if (to.meta.public) return
   if (!auth.user) {
     return to.fullPath && to.fullPath !== '/'
       ? { path: '/login', query: { redirect: to.fullPath } }
@@ -50,5 +37,16 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.roles && !auth.hasAnyRole(...to.meta.roles)) return '/'
   if (to.meta.role && !auth.hasRole(to.meta.role)) return '/'
-  return true
+}
+
+router.beforeEach(async (to) => {
+  if (needsAuthRefresh()) {
+    try {
+      await refreshAuth()
+    } catch {
+      // The app shell offers a retry without treating a dependency failure as logout.
+      return true
+    }
+  }
+  return getRouteRedirect(to) ?? true
 })

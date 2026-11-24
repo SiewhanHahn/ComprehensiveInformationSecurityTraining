@@ -65,6 +65,7 @@ test('WarningDetail.vue does not crash when taskError is set and currentTask is 
         feedbackStatus: 'RECEIVED',
         feedbackContent: '',
         isMine: false,
+        canManageDraft: false,
         canUseTasks: true,
         taskError: '响应任务接口超时',
         currentTask: null,
@@ -168,7 +169,7 @@ test('Notifications.vue allows REVIEWER to open withdrawn warnings and hides /ta
     '../auth': { auth: authObj },
     '../api': { apiFetch: async () => [] },
     '../notifications': { notificationState: vueRuntime.reactive({ unread: 0 }), refreshUnread: async () => {} },
-    '../ui/labels': { HAZARD_TYPE: { RAINSTORM: '暴雨' }, formatDateTime: (v) => String(v || '') },
+    '../ui/labels': { HAZARD_TYPE: { RAINSTORM: '暴雨' }, formatDateTime: (v) => String(v || ''), utcDateTimeAttribute: (v) => v },
   })
 
   // 1) VIEWER cannot open /tasks from response_task notifications
@@ -411,7 +412,7 @@ test('Replay.vue hides draft link without risk_level & uses result threshold; Wa
       apiFetch: async (url) => {
         apiCalls.push(url)
         if (url.startsWith('/replay?city_code=WUHAN')) {
-          return { data_status: 'COMPLETE', city: { code: 'WUHAN', name: '武汉' }, valid_date: '2024-03-27', models: [] }
+          return { data_status: 'COMPLETE', risk_level: 'YELLOW', city: { code: 'WUHAN', name: '武汉' }, valid_date: '2024-03-27', models: [] }
         }
         if (url.startsWith('/replay')) {
           return { data_status: 'PARTIAL', city: { code: 'CHANGSHA', name: '长沙' }, valid_date: '2024-03-27', models: [] }
@@ -838,5 +839,369 @@ test('Users.vue reuses shared roleLabel so VIEWER displays 查看用户', async 
     assert.doesNotMatch(html, /查看员/)
   } finally {
     scope.stop()
+  }
+})
+
+function lifecycleAuth(username = 'analyst_demo', roles = ['ANALYST']) {
+  const auth = vueRuntime.reactive({ user: { username, roles } })
+  auth.hasRole = (role) => auth.user.roles.includes(role)
+  auth.hasAnyRole = (...roles) => roles.some(auth.hasRole)
+  return auth
+}
+
+function warningFixture(status = 'DRAFT') {
+  return {
+    public_id: 'warning-1', status, title: '武汉暴雨预警', created_by: 'analyst_demo',
+    city_code: 'WUHAN', hazard_type: 'RAINSTORM', valid_date: '2024-03-27',
+    fused_mm: 55, risk_level: 'ORANGE', version_no: 1, area_text: '市区',
+    impact_text: null, reasoning_text: '达到阈值', models: [],
+    baseline_mm: null, proxy_label_mm: null, dataset_version: 'test',
+  }
+}
+
+async function lifecycleView(view, { auth = lifecycleAuth(), apiFetch, query = {}, push = () => {} }) {
+  const relPath = `src/views/${view}.vue`
+  const labels = await import('../frontend/src/ui/labels.js')
+  const setup = instantiateSetupScript(relPath, {
+    '../auth': { auth }, '../api': { apiFetch }, '../ui/labels': labels,
+    'vue-router': {
+      useRoute: () => ({ query, params: { publicId: 'warning-1' } }),
+      useRouter: () => ({ push }),
+    },
+  })
+  const render = compileVueTemplate(relPath)
+  return {
+    ...setup,
+    async html() {
+      const app = vueRuntime.createSSRApp({ setup: () => ({ ...setup.exposed }), render })
+      for (const name of ['StatusBadge', 'TableSkeleton', 'EmptyState', 'ClosedLoopStepper', 'ChartPanel']) {
+        app.component(name, { template: '<div><slot /></div>' })
+      }
+      return renderToString(app)
+    },
+  }
+}
+
+function deferredRequest() {
+  let resolve, reject
+  const promise = new Promise((ok, fail) => { resolve = ok; reject = fail })
+  return { promise, resolve, reject }
+}
+
+test('Review ignores stale success and error without ending the latest loading state', async () => {
+  const requests = []
+  const view = await lifecycleView('Review', {
+    auth: lifecycleAuth('reviewer_demo', ['REVIEWER']),
+    apiFetch(url) {
+      const request = deferredRequest()
+      requests.push({ url, ...request })
+      return request.promise
+    },
+  })
+  try {
+    const state = view.exposed
+    const first = state.load()
+    state.switchTab('APPROVED')
+    assert.deepEqual(requests.map(({ url }) => url), [
+      '/warnings?status=PENDING_REVIEW', '/warnings?status=APPROVED',
+    ])
+    const approved = warningFixture('APPROVED')
+    requests[1].resolve([approved])
+    await Promise.resolve()
+    requests[0].resolve([warningFixture('PENDING_REVIEW')])
+    await first
+    assert.deepEqual(state.rows.value, [approved])
+
+    const stale = state.load()
+    state.switchTab('PENDING_REVIEW')
+    requests[2].reject(new Error('旧请求失败'))
+    await stale
+    assert.equal(state.loading.value, true)
+    assert.equal(state.error.value, '')
+    requests[3].resolve([])
+    await Promise.resolve()
+    assert.equal(state.loading.value, false)
+    assert.deepEqual(state.rows.value, [])
+  } finally {
+    view.scope.stop()
+  }
+})
+
+test('Review offers actions only when each row status matches the selected tab', async () => {
+  const calls = []
+  const view = await lifecycleView('Review', {
+    auth: lifecycleAuth('reviewer_demo', ['REVIEWER']),
+    apiFetch: async (url) => { calls.push(url); return [] },
+  })
+  try {
+    const state = view.exposed
+    state.loading.value = false
+    state.rows.value = [warningFixture('APPROVED')]
+    assert.doesNotMatch(await view.html(), /<button[^>]*>[^<]*(?:批准|驳回)\s*<\/button>/)
+    await state.review(state.rows.value[0], 'APPROVE')
+    state.activeTab.value = 'APPROVED'
+    state.rows.value = [warningFixture('PENDING_REVIEW')]
+    assert.doesNotMatch(await view.html(), /<button[^>]*>[^<]*发布\s*<\/button>/)
+    await state.publish(state.rows.value[0])
+    assert.deepEqual(calls, [])
+  } finally {
+    view.scope.stop()
+  }
+})
+
+test('Warnings rejects whitespace impact text and only sends trimmed non-empty impact text', async () => {
+  const writes = []
+  const routes = []
+  const view = await lifecycleView('Warnings', {
+    query: { city: 'WUHAN', date: '2024-03-27', threshold: 'HEAVY' },
+    push: (url) => routes.push(url),
+    apiFetch: async (url, opts) => {
+      if (url.startsWith('/replay?')) return { data_status: 'COMPLETE', risk_level: 'ORANGE', models: [] }
+      if (opts?.method === 'POST') {
+        writes.push({ url, body: JSON.parse(opts.body) })
+        return warningFixture()
+      }
+      return []
+    },
+  })
+  try {
+    await view.mountedHooks[0]()
+    const state = view.exposed
+    Object.assign(state.form, { title: ' 暴雨 ', area: ' 市区 ', reason: ' 达到阈值 ', impact: ' \t\n' })
+    await state.create()
+    assert.match(state.formError.value, /影响说明/)
+    assert.deepEqual(writes, [])
+    assert.match(await view.html(), /<textarea\b[^>]*id="w-impact"[^>]*\brequired\b/)
+    state.form.impact = '  道路积水  '
+    await state.create()
+    assert.deepEqual(writes, [{
+      url: '/warnings', body: {
+        city_code: 'WUHAN', valid_date: '2024-03-27', threshold_code: 'HEAVY',
+        title: '暴雨', area_text: '市区', impact_text: '道路积水', reasoning_text: '达到阈值',
+      },
+    }])
+    assert.deepEqual(routes, ['/warnings/warning-1'])
+  } finally {
+    view.scope.stop()
+  }
+})
+
+for (const query of [{ city: 'WUHAN', date: '2024-03-27', threshold: 'HEAVY' }, {}]) {
+  const entry = query.city ? 'replay entry' : 'manual entry'
+  test(`Warnings blocks creation below the threshold (${entry})`, async () => {
+    const urls = []
+    const view = await lifecycleView('Warnings', {
+      query,
+      apiFetch: async (url) => {
+        urls.push(url)
+        if (url.startsWith('/replay?')) {
+          return { data_status: 'COMPLETE', risk_level: null, models: [] }
+        }
+        return []
+      },
+    })
+    try {
+      await view.mountedHooks[0]()
+      const state = view.exposed
+      Object.assign(state.form, { title: '暴雨', area: '市区', reason: '融合依据', impact: '道路积水' })
+      assert.ok(urls.some((url) => url.startsWith('/replay?')))
+      assert.equal(state.canCreate.value, false)
+      assert.match(await view.html(), /未达到所选阈值/)
+      const before = urls.length
+      await state.create()
+      assert.equal(urls.length, before)
+    } finally {
+      view.scope.stop()
+    }
+  })
+}
+
+test('Warnings keeps CANCELLED filter results after a prior filter resolves', async () => {
+  const older = deferredRequest()
+  const closed = warningFixture('CANCELLED')
+  const urls = []
+  const view = await lifecycleView('Warnings', {
+    apiFetch(url) {
+      urls.push(url)
+      return url === '/warnings' ? older.promise : Promise.resolve([closed])
+    },
+  })
+  try {
+    const state = view.exposed
+    const first = state.loadWarnings()
+    state.switchStatus('CANCELLED')
+    await Promise.resolve()
+    older.resolve([warningFixture()])
+    await first
+    assert.deepEqual(urls, ['/warnings', '/warnings?status=CANCELLED'])
+    assert.deepEqual(state.warnings.value, [closed])
+    const html = await view.html()
+    assert.match(html, /已取消/)
+    assert.doesNotMatch(html, /\/warnings\/warning-1/)
+  } finally {
+    view.scope.stop()
+  }
+})
+
+test('WarningDetail edits a rejected warning and resubmits the same ID after completing legacy impact', async () => {
+  let detail = warningFixture('REJECTED')
+  const writes = []
+  let rejectPatch = true
+  const view = await lifecycleView('WarningDetail', {
+    apiFetch: async (url, opts) => {
+      if (opts?.method === 'PATCH') {
+        const changes = JSON.parse(opts.body)
+        writes.push([url, 'PATCH', changes])
+        if (rejectPatch) throw new Error('暂时无法保存')
+        detail = { ...detail, ...changes }
+        return detail
+      }
+      if (opts?.method === 'POST') {
+        writes.push([url, 'POST'])
+        detail = { ...detail, status: 'PENDING_REVIEW' }
+        return detail
+      }
+      return url === '/warnings/warning-1' ? detail : []
+    },
+  })
+  try {
+    await view.mountedHooks[0]()
+    const state = view.exposed
+    assert.match(await view.html(), /编辑草稿/)
+    await state.act('submit')
+    assert.match(state.error.value, /影响说明/)
+    assert.deepEqual(writes, [])
+    state.startEdit()
+    assert.equal(state.editForm.value.title, detail.title)
+    assert.equal(state.editForm.value.impact_text, '')
+    state.editForm.value.title = '  '
+    await state.saveEdit()
+    assert.match(state.error.value, /标题/)
+    assert.deepEqual(writes, [])
+
+    state.editForm.value.title = '  修订后的标题  '
+    state.editForm.value.area_text = '  沿江地带  '
+    await state.saveEdit()
+    assert.match(state.error.value, /影响说明/)
+    assert.deepEqual(writes, [])
+    state.editForm.value.impact_text = '  道路可能积水  '
+    state.editForm.value.reasoning_text = '四模式重新核对'
+    await state.act('submit')
+    assert.deepEqual(writes, [])
+    await state.saveEdit()
+    assert.match(state.error.value, /暂时无法保存/)
+    assert.equal(state.editForm.value.title, '  修订后的标题  ')
+    assert.equal(state.w.value.title, '武汉暴雨预警')
+
+    rejectPatch = false
+    await state.saveEdit()
+    assert.deepEqual(writes[1], ['/warnings/warning-1', 'PATCH', {
+      title: '修订后的标题', area_text: '沿江地带', impact_text: '道路可能积水', reasoning_text: '四模式重新核对',
+    }])
+    assert.equal(state.w.value.impact_text, '道路可能积水')
+    assert.equal(state.w.value.status, 'REJECTED')
+    assert.equal(state.editForm.value, null)
+    await state.act('submit')
+    assert.deepEqual(writes[2], ['/warnings/warning-1/submit', 'POST'])
+    assert.equal(state.w.value.status, 'PENDING_REVIEW')
+    assert.doesNotMatch(await view.html(), /编辑草稿|取消草稿|重新提交审核/)
+  } finally {
+    view.scope.stop()
+  }
+})
+
+test('WarningDetail enforces draft ownership and role, confirms cancellation, and never fetches cancelled detail', async () => {
+  const auth = lifecycleAuth('admin_demo', ['ADMIN'])
+  const writes = []
+  const closed = warningFixture('CANCELLED')
+  const view = await lifecycleView('WarningDetail', {
+    auth,
+    apiFetch: async (url, opts) => {
+      assert.equal(opts?.method, 'POST', 'cancelled detail and feedback endpoints return 404')
+      writes.push(url)
+      return closed
+    },
+  })
+  const previousWindow = globalThis.window
+  let confirmed = false
+  globalThis.window = { confirm: () => confirmed }
+  try {
+    const state = view.exposed
+    state.w.value = warningFixture()
+    state.loading.value = false
+    assert.doesNotMatch(await view.html(), /编辑草稿|取消草稿|提交审核/)
+    await state.act('submit')
+    await state.act('cancel')
+    assert.deepEqual(writes, [])
+
+    auth.user = { username: 'analyst_demo', roles: ['REVIEWER'] }
+    assert.doesNotMatch(await view.html(), /编辑草稿|取消草稿|提交审核/)
+    auth.user = { username: 'analyst_demo', roles: ['ANALYST'] }
+    assert.match(await view.html(), /取消草稿/)
+    await state.act('cancel')
+    assert.deepEqual(writes, [])
+    confirmed = true
+    await state.act('cancel')
+    assert.deepEqual(writes, ['/warnings/warning-1/cancel'])
+    assert.equal(state.w.value.status, 'CANCELLED')
+    assert.equal(state.stages.value.find((s) => s.key === 'warning').state, 'cancelled')
+    assert.equal(state.stages.value.find((s) => s.key === 'publish').state, 'pending')
+    assert.equal(state.error.value, '')
+    assert.doesNotMatch(await view.html(), /编辑草稿|取消草稿|提交审核/)
+    await state.act('cancel')
+    assert.deepEqual(writes, ['/warnings/warning-1/cancel'])
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+    view.scope.stop()
+  }
+})
+
+test('shared labels describe cancelled warnings and their audit action', async () => {
+  const { WARNING_STATUS, AUDIT_ACTION } = await import('../frontend/src/ui/labels.js')
+  assert.equal(WARNING_STATUS.CANCELLED?.label, '已取消')
+  assert.equal(AUDIT_ACTION.WARNING_CANCEL?.label, '取消预警')
+  assert.equal(AUDIT_ACTION.PERMISSION_DENIED?.label, '权限拒绝')
+})
+
+
+test('notification UTC machine timestamp and out-of-range last page', async () => {
+  const labels = await import('../frontend/src/ui/labels.js')
+  assert.equal(labels.utcDateTimeAttribute('2024-03-27T00:00:00'), '2024-03-27T00:00:00.000Z')
+  const src = fs.readFileSync(path.join(FRONTEND, 'src/views/Notifications.vue'), 'utf8')
+  assert.match(src, /:datetime="utcDateTimeAttribute\(n.created_at\)"/)
+  const pages = []
+  const { exposed, scope } = instantiateSetupScript('src/views/Notifications.vue', { '../api': { apiFetch: async url => {
+    const page = Number(new URLSearchParams(url.split('?')[1]).get('page')); pages.push(page)
+    return { page, total: 1, items: page === 1 ? [{ id: 1 }] : [] }
+  } } })
+  try {
+    await exposed.loadNotifications(2)
+    assert.deepEqual(pages, [2, 1]); assert.equal(exposed.page.value, 1); assert.equal(exposed.items.value[0].id, 1)
+  } finally { scope.stop() }
+})
+
+test('table skeleton announces loading outside its decorative table', async () => {
+  const render = compileVueTemplate('src/components/TableSkeleton.vue')
+  const html = await renderToString(vueRuntime.createSSRApp({ render, data: () => ({ cols: 1, rows: 1 }) }))
+  assert.match(html, /role="status"[^>]*>表格加载中/); assert.match(html, /<table[^>]*aria-hidden="true"/)
+})
+
+
+test('reviewer can supply an auditable publication reason in both review entry points', async () => {
+  const w = warningFixture('APPROVED')
+  for (const viewName of ['WarningDetail', 'Review']) {
+    const writes = []
+    const view = await lifecycleView(viewName, { auth: lifecycleAuth('reviewer_demo', ['REVIEWER']),
+      apiFetch: async (path, opts) => { if (opts?.method === 'POST') writes.push(JSON.parse(opts.body)); return [] } })
+    try {
+      if (viewName === 'Review') {
+        view.exposed.activeTab.value = 'APPROVED'; view.exposed.publishReasons.value[w.public_id] = ' 同意发布 '
+        await view.exposed.publish(w)
+      } else {
+        view.exposed.w.value = w; view.exposed.actionReason.value = ' 同意发布 '; await view.exposed.act('publish')
+      }
+      assert.deepEqual(writes, [{ reason: '同意发布' }])
+    } finally { view.scope.stop() }
   }
 })

@@ -1,3 +1,6 @@
+import logging
+from threading import Lock
+from time import monotonic
 from datetime import timedelta
 from functools import lru_cache
 from typing import NoReturn
@@ -17,6 +20,19 @@ from ..services.audit import add_audit
 from ..session import create_session, delete_session
 
 router = APIRouter()
+_limit_log_lock = Lock()
+_last_limit_log: float | None = None
+
+
+def _log_rate_limit() -> None:
+    """At most one aggregate warning per minute per worker; never log credentials or flood the DB."""
+    global _last_limit_log
+    with _limit_log_lock:
+        now = monotonic()
+        if _last_limit_log is not None and now - _last_limit_log < 60:
+            return
+        _last_limit_log = now
+    logging.getLogger(__name__).warning("Login rate limit reached")
 
 
 @lru_cache
@@ -149,6 +165,7 @@ def _clear_cookies(response: Response) -> None:
 def login(body: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     ip = client_ip(request)
     if not _acquire_ip_slot(ip):
+        _log_rate_limit()
         raise HTTPException(status_code=429, detail="LOGIN_RATE_LIMITED")
 
     try:

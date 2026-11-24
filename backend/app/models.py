@@ -248,8 +248,10 @@ class Warning(Base, TimestampMixin):
     approved_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
     withdrawn_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
     published_by: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=True)
     withdrawn_by: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id"), nullable=True)
+    cancelled_by: Mapped[int | None] = mapped_column(BIGINT(unsigned=True), ForeignKey("users.id", name="fk_warnings_cancelled_by_users"), nullable=True)
 
     # 定时扫描按发布窗口取数（迁移 0005 补建）
     __table_args__ = (Index("idx_warnings_published_at", "published_at"),)
@@ -364,6 +366,7 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     result: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    resource_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

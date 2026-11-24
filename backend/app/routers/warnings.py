@@ -10,6 +10,7 @@ from ..schemas import (
     FeedbackRequest,
     ReviewOut,
     ReviewRequest,
+    WarningActionRequest,
     WarningCreate,
     WarningDetailOut,
     WarningOut,
@@ -104,10 +105,13 @@ def review_warning(
 def publish_warning(
     public_id: str,
     request: Request,
+    body: WarningActionRequest | None = None,
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(reviewer_required),
 ):
-    w = svc.publish_warning(db, public_id, current, audit_context(request, db, current))
+    w = svc.publish_warning(
+        db, public_id, current, audit_context(request, db, current), body.reason if body else None
+    )
     return _respond(db, w)
 
 
@@ -115,10 +119,27 @@ def publish_warning(
 def withdraw_warning(
     public_id: str,
     request: Request,
+    body: WarningActionRequest | None = None,
     db: Session = Depends(get_db),
     current: CurrentUser = Depends(reviewer_required),
 ):
-    w = svc.withdraw_warning(db, public_id, current, audit_context(request, db, current))
+    w = svc.withdraw_warning(
+        db, public_id, current, audit_context(request, db, current), body.reason if body else None
+    )
+    return _respond(db, w)
+
+
+@router.post("/warnings/{public_id}/cancel", response_model=WarningOut)
+def cancel_warning(
+    public_id: str,
+    request: Request,
+    body: WarningActionRequest | None = None,
+    db: Session = Depends(get_db),
+    current: CurrentUser = Depends(analyst_required),
+):
+    w = svc.cancel_warning(
+        db, public_id, current, audit_context(request, db, current), body.reason if body else None
+    )
     return _respond(db, w)
 
 

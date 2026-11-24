@@ -1,7 +1,7 @@
 <template>
-  <div aria-hidden="true">
-    <span class="sr-only">表格加载中</span>
-    <table class="table">
+  <div>
+    <span class="sr-only" role="status">表格加载中</span>
+    <table class="table" aria-hidden="true">
       <tbody>
         <tr v-for="row in rows" :key="row" class="skeleton-row">
           <td v-for="col in cols" :key="col">

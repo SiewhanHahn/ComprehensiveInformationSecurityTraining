@@ -1,3 +1,6 @@
+from datetime import date
+
+
 CITIES: dict[str, str] = {
     "WUHAN": "武汉",
     "GUANGZHOU": "广州",
@@ -24,3 +27,7 @@ DEFAULT_MODELS: list[str] = ["ecmwf_ifs025", "gfs_global", "icon_global", "gem_g
 
 # 协议固定提前量（见 docs/data-and-method.md）：24 小时
 LEAD_HOURS: int = 24
+
+# 历史样本协议日期范围，两端均包含在内。
+PROTOCOL_START_DATE = date(2024, 2, 1)
+PROTOCOL_END_DATE = date(2026, 9, 30)

@@ -85,7 +85,7 @@
               <div class="notif-top">
                 <StatusBadge kind="notificationKind" :value="n.kind" size="sm" />
                 <span v-if="!n.read_at" class="notif-dot" aria-label="未读"></span>
-                <time class="notif-time mono" :datetime="n.created_at">
+                <time class="notif-time mono" :datetime="utcDateTimeAttribute(n.created_at)">
                   {{ formatDateTime(n.created_at) }}
                 </time>
               </div>
@@ -201,7 +201,7 @@ import PaginationBar from '../components/PaginationBar.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { notificationState, refreshUnread } from '../notifications'
-import { HAZARD_TYPE, formatDateTime } from '../ui/labels'
+import { HAZARD_TYPE, formatDateTime, utcDateTimeAttribute } from '../ui/labels'
 
 const PAGE_SIZE = 20
 
@@ -265,6 +265,8 @@ async function loadNotifications(target = 1) {
     })
     const data = await apiFetch(`/notifications?${query}`)
     if (seq !== loadSeq) return
+    const lastPage = Math.max(1, Math.ceil((data.total || 0) / PAGE_SIZE))
+    if (targetPage > lastPage) return await loadNotifications(lastPage)
     items.value = data.items || []
     total.value = data.total || 0
     page.value = data.page || targetPage

@@ -1,5 +1,8 @@
 import json
+from datetime import date, datetime
 from pathlib import Path
+
+import pytest
 
 from backend.app.cities import CITIES, DEFAULT_MODELS
 from backend.app.deps import CurrentUser
@@ -132,7 +135,7 @@ def test_reasoning_text_checks_utf8_bytes_not_characters():
 
     from backend.app.schemas import WarningCreate, WarningUpdate
 
-    base = dict(city_code="WUHAN", valid_date=date(2024, 1, 1), threshold_code="HEAVY", title="t", area_text="a")
+    base = dict(city_code="WUHAN", valid_date=date(2024, 1, 1), threshold_code="HEAVY", title="t", area_text="a", impact_text="i")
     with pytest.raises(ValidationError):
         WarningCreate(**base, reasoning_text="😀" * 20000)
     with pytest.raises(ValidationError):
@@ -181,6 +184,70 @@ def test_client_ip_rejects_malformed_proxy_header(monkeypatch):
     assert deps.client_ip(make_req("1" * 60)) == "10.0.0.1"
 
 
+def test_warning_cancel_migration_and_model_metadata():
+    import importlib.util
+
+    from sqlalchemy.dialects import mysql
+    from backend.app.models import AuditLog, Warning
+
+    migration_path = ROOT / "backend/migrations/versions/0007_warning_lifecycle_audit.py"
+    spec = importlib.util.spec_from_file_location("migration_0007", migration_path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    assert migration.revision == "0007_warning_lifecycle_audit"
+    assert migration.down_revision == "0006_idx_users_active"
+    assert Warning.__table__.c.cancelled_at.nullable is True
+    assert Warning.__table__.c.cancelled_by.nullable is True
+    assert AuditLog.__table__.c.resource_version.nullable is True
+    assert any(
+        fk.name == "fk_warnings_cancelled_by_users"
+        for fk in Warning.__table__.c.cancelled_by.foreign_keys
+    )
+    assert isinstance(Warning.__table__.c.cancelled_at.type, mysql.DATETIME)
+    assert Warning.__table__.c.cancelled_at.type.fsp == 6
+
+
+    import backend.app.schemas as schemas
+
+    action = schemas.WarningActionRequest(reason="  发布说明  ")
+    assert action.reason == "发布说明"
+    assert schemas.WarningActionRequest(reason=" \t ").reason is None
+    assert schemas.WarningActionRequest().reason is None
+
+
+def test_audit_resource_version_is_persisted():
+    from backend.app.deps import CurrentUser
+    from backend.app.services.audit import AuditContext
+
+    added = []
+
+    class FakeDB:
+        def add(self, obj):
+            added.append(obj)
+
+    ctx = AuditContext(
+        db=FakeDB(),
+        actor=CurrentUser(1, "u", ["VIEWER", "ADMIN"]),
+        request_id="r" * 60,
+        ip_address="9" * 80,
+    )
+    ctx.record(
+        "ACT_" * 30,
+        resource_type="RES_" * 30,
+        resource_id="ID_" * 40,
+        result="RESULT_" * 10,
+        reason="why_" * 200,
+    )
+    ctx.record(
+        "WARNING_CANCEL",
+        resource_type="warning",
+        resource_id="warning-1",
+        resource_version=7,
+    )
+    assert added[1].resource_version == 7
+
+
 def test_audit_truncates_oversized_fields_and_sorts_roles():
     from backend.app.deps import CurrentUser
     from backend.app.services.audit import AuditContext
@@ -216,14 +283,418 @@ def test_audit_truncates_oversized_fields_and_sorts_roles():
     assert len(row.ip_address) <= 45
 
 
-def test_import_sample_handles_missing_file_gracefully(tmp_path):
+@pytest.mark.parametrize("raw_date", [
+    pytest.param("2024-01-31", id="before-protocol"),
+    pytest.param("0001-01-01", id="minimum-date"),
+    pytest.param("9999-12-31", id="maximum-date"),
+    pytest.param("20240327", id="compact-iso"),
+    pytest.param("2024-W13-3", id="iso-week"),
+    pytest.param("2024-03-27T00:00:00", id="datetime"),
+    pytest.param("2024-03-27 00:00:00", id="datetime-space"),
+    pytest.param(" 2024-03-27", id="leading-space"),
+    pytest.param("2024-03-27 ", id="trailing-space"),
+    pytest.param("2024-03-27\n", id="trailing-newline"),
+    pytest.param("", id="empty"),
+    pytest.param(None, id="null"),
+    pytest.param(20240327, id="integer"),
+    pytest.param(20240327.0, id="float"),
+    pytest.param(True, id="boolean"),
+    pytest.param(["2024-03-27"], id="list"),
+    pytest.param({"date": "2024-03-27"}, id="object"),
+    pytest.param(date(2024, 3, 27), id="date-object"),
+    pytest.param("2025-02-29", id="non-leap-year"),
+    pytest.param("2024-02-30", id="invalid-leap-day"),
+    pytest.param("2024-3-27", id="unpadded-month"),
+    pytest.param("２０２４-０３-２７", id="non-ascii-digits"),
+])
+def test_validate_days_rejects_non_protocol_dates(raw_date):
+    """非协议日期只记 INVALID_DATE，不构造记录、问题日期或期间候选。"""
+    from backend.app.services.ingest import _validate_days
+
+    staged = _validate_days([{
+        "city_code": "WUHAN", "valid_date": raw_date,
+        "models": {model: 10.0 for model in DEFAULT_MODELS}, "proxy_label_mm": 12.0,
+    }])
+
+    assert staged["fc_rows"] == []
+    assert staged["obs_rows"] == []
+    assert staged["fc_dates"] == set()
+    assert staged["obs_dates"] == set()
+    assert len(staged["issues"]) == 1
+    on_obs, issue_type, city, model, issue_date, _detail = staged["issues"][0]
+    assert (on_obs, issue_type, city, model, issue_date) == (False, "INVALID_DATE", "WUHAN", None, None)
+    assert staged["fc_has_issue"] is True
+    assert staged["obs_has_issue"] is False
+
+
+@pytest.mark.parametrize(("raw_date", "expected"), [
+    ("2024-02-01", date(2024, 2, 1)),
+    ("2024-02-29", date(2024, 2, 29)),
+    ("2026-09-30", date(2026, 9, 30)),
+])
+def test_validate_days_accepts_protocol_boundaries_and_leap_day(raw_date, expected):
+    from decimal import Decimal
+
+    from backend.app.services.ingest import _validate_days
+
+    staged = _validate_days([{
+        "city_code": "WUHAN", "valid_date": raw_date,
+        "models": {model: 10.0 for model in DEFAULT_MODELS}, "proxy_label_mm": 12.0,
+    }])
+
+    assert len(staged["fc_rows"]) == 4
+    assert {row[1] for row in staged["fc_rows"]} == set(DEFAULT_MODELS)
+    assert all(row[0] == "WUHAN" and row[2] == datetime.combine(expected, datetime.min.time())
+               and row[3] == Decimal("10.0") for row in staged["fc_rows"])
+    assert staged["obs_rows"] == [("WUHAN", expected, Decimal("12.0"))]
+    assert staged["fc_dates"] == staged["obs_dates"] == {expected}
+    assert staged["issues"] == []
+    assert staged["fc_has_issue"] is False
+    assert staged["obs_has_issue"] is False
+
+
+def test_invalid_dates_do_not_poison_duplicate_or_order_tracking():
+    from backend.app.services.ingest import _validate_days
+
+    day = {"city_code": "WUHAN", "models": {model: 10.0 for model in DEFAULT_MODELS}, "proxy_label_mm": 12.0}
+    staged = _validate_days([
+        {**day, "valid_date": "2026-10-01"},
+        {**day, "valid_date": "20240327"},
+        {**day, "valid_date": "2024-03-27"},
+    ])
+
+    assert len(staged["fc_rows"]) == 4
+    assert len(staged["obs_rows"]) == 1
+    assert staged["fc_dates"] == staged["obs_dates"] == {date(2024, 3, 27)}
+    assert [issue[1] for issue in staged["issues"]] == ["INVALID_DATE", "INVALID_DATE"]
+    assert all(issue[4] is None for issue in staged["issues"])
+
+
+@pytest.fixture
+def import_session():
+    """本地结果语义测试用 SQLite；不代替 MySQL 外键/迁移集成验证。"""
+    from sqlalchemy import Integer, MetaData, create_engine
+    from sqlalchemy.dialects.mysql import BIGINT
+    from sqlalchemy.orm import Session
+
+    from backend.app.models import Dataset, DatasetIssue, ForecastRecord, FusionInput, ObservationRecord
+
+    metadata = MetaData()
+    # 复制而不修改生产映射；SQLite 自增主键须使用 INTEGER，且不支持 CURRENT_TIMESTAMP(6)。
+    for table in Dataset.metadata.tables.values():
+        table.to_metadata(metadata)
+    tables = [metadata.tables[model.__tablename__] for model in (
+        Dataset, DatasetIssue, ForecastRecord, ObservationRecord, FusionInput,
+    )]
+    for table in tables:
+        for column in table.columns:
+            if isinstance(column.type, BIGINT):
+                column.type = Integer()
+            if column.server_default is not None and "CURRENT_TIMESTAMP" in str(column.server_default.arg):
+                column.server_default = None
+    engine = create_engine("sqlite://")
+    metadata.create_all(engine, tables=tables)
+    try:
+        with Session(engine, autoflush=False, expire_on_commit=False) as session:
+            yield session
+    finally:
+        engine.dispose()
+
+
+def _write_import_sample(tmp_path, *, version="unit-sample", days=None):
+    path = tmp_path / "sample.json"
+    path.write_text(json.dumps({"version": version, "days": days if days is not None else [{
+        "city_code": "WUHAN", "valid_date": "2024-03-27",
+        "models": {model: 10.0 for model in DEFAULT_MODELS}, "proxy_label_mm": 12.0,
+    }]}), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("unreadable", [False, True], ids=["missing", "permission-denied"])
+def test_import_sample_handles_missing_file_gracefully(import_session, tmp_path, monkeypatch, unreadable):
+    from sqlalchemy import func, select
+
+    from backend.app.models import Dataset, DatasetIssue
     from backend.app.services import ingest
 
     missing = tmp_path / "does_not_exist.json"
-    result = ingest.import_sample(session=None, path=missing, forecast_source_id=1, era5_source_id=2)
+    if unreadable:
+        def deny_read(_path):
+            raise PermissionError("sample access denied")
+        monkeypatch.setattr(Path, "read_bytes", deny_read)
+    with pytest.raises(OSError) as exc_info:
+        missing.read_bytes()
+    result = ingest.import_sample(import_session, missing, 1, 2)
     assert result["imported"] is False
     assert result.get("unusable") is True
-    assert result["forecast"] == 0
+    assert result["forecast"] == result["observation"] == result["issues"] == 0
+    assert result["error"] == str(exc_info.value)
+    assert result.get("outcome") == "file_unreadable"
+    assert result.get("has_usable_forecast") is False
+    assert import_session.scalar(select(func.count()).select_from(Dataset)) == 0
+    assert import_session.scalar(select(func.count()).select_from(DatasetIssue)) == 0
+
+
+@pytest.mark.parametrize("partial", [False, True], ids=["ready", "partial"])
+def test_import_outcome_success_and_idempotency(import_session, tmp_path, partial):
+    from backend.app.services import ingest
+
+    path = _write_import_sample(tmp_path)
+    if partial:
+        data = json.loads(path.read_text())
+        del data["days"][0]["models"]["gem_global"]
+        path.write_text(json.dumps(data), encoding="utf-8")
+    first = ingest.import_sample(import_session, path, 1, 2)
+    assert first.get("outcome") == "imported"
+    assert first.get("has_usable_forecast") is True
+    assert first["forecast"] == (3 if partial else 4)
+    second = ingest.import_sample(import_session, path, 1, 2)
+    assert second.get("outcome") == "unchanged"
+    assert second.get("has_usable_forecast") is True
+    assert second["imported"] is False
+    assert second["forecast"] == second["observation"] == second["issues"] == 0
+
+
+@pytest.mark.parametrize("payload", [
+    b'{"version":"bad","days":[]}',
+    b'{"version":"bad","days":[{"city_code":"ATLANTIS"}]}',
+    b'{"version":"bad","days":[{"city_code":"WUHAN","valid_date":"2024-03-27","models":{},"proxy_label_mm":12}]}',
+    b'{not-json',
+    b'\xff',
+    b'[]',
+], ids=["empty", "rejected", "observation-only", "invalid-json", "invalid-utf8", "non-object"])
+@pytest.mark.parametrize("existing_usable", [False, True], ids=["fresh", "older-usable"])
+def test_import_outcome_failed_uses_remaining_forecast(import_session, tmp_path, payload, existing_usable):
+    from sqlalchemy import func, select
+
+    from backend.app.models import Dataset, DatasetIssue
+    from backend.app.services import ingest
+
+    if existing_usable:
+        ingest.import_sample(import_session, _write_import_sample(tmp_path, version="older"), 1, 2)
+    path = tmp_path / "bad.json"
+    path.write_bytes(payload)
+    result = ingest.import_sample(import_session, path, 1, 2)
+    assert result.get("outcome") == "marked_failed"
+    assert result.get("has_usable_forecast") is existing_usable
+    assert result.get("unusable") is True
+    failed = import_session.scalar(select(Dataset).where(
+        Dataset.dataset_type == "FORECAST", Dataset.version != "older",
+    ))
+    assert failed.quality_status == "FAILED"
+    assert failed.row_count == 0
+    issue_count = import_session.scalar(select(func.count()).select_from(DatasetIssue))
+    assert issue_count == result["issues"]
+    second = ingest.import_sample(import_session, path, 1, 2)
+    assert second.get("outcome") == "unchanged_failed"
+    assert second.get("has_usable_forecast") is existing_usable
+    assert second["imported"] is False
+    assert second["issues"] == 0
+    assert import_session.scalar(select(func.count()).select_from(DatasetIssue)) == issue_count
+
+
+@pytest.mark.parametrize(("dataset_type", "status", "row_count", "usable"), [
+    ("FORECAST", "READY", 4, True),
+    ("FORECAST", "PARTIAL", 1, True),
+    ("FORECAST", "READY", 0, False),
+    ("FORECAST", "FAILED", 4, False),
+    ("ERA5_LABEL", "READY", 4, False),
+])
+def test_import_outcome_unreadable_checks_usable_forecast_metadata(
+    import_session, tmp_path, dataset_type, status, row_count, usable,
+):
+    from backend.app.models import Dataset
+    from backend.app.services import ingest
+
+    import_session.add(Dataset(
+        source_id=1, dataset_type=dataset_type, version="existing",
+        period_start=date(2024, 3, 27), period_end=date(2024, 3, 27),
+        quality_status=status, row_count=row_count,
+    ))
+    import_session.commit()
+    result = ingest.import_sample(import_session, tmp_path / "missing.json", 1, 2)
+    assert result.get("outcome") == "file_unreadable"
+    assert result.get("has_usable_forecast") is usable
+
+
+@pytest.mark.parametrize("days", [[], [{"city_code": "ATLANTIS"}]])
+def test_import_outcome_preserves_existing_without_persisting_issues(import_session, tmp_path, days):
+    from sqlalchemy import func, select
+
+    from backend.app.models import Dataset, DatasetIssue, ForecastRecord, ObservationRecord
+    from backend.app.services import ingest
+
+    path = _write_import_sample(tmp_path)
+    ingest.import_sample(import_session, path, 1, 2)
+    before = [(d.id, d.checksum, d.quality_status, d.row_count) for d in import_session.scalars(select(Dataset))]
+    _write_import_sample(tmp_path, days=days)
+    result = ingest.import_sample(import_session, path, 1, 2)
+    assert result.get("outcome") == "preserved_existing"
+    assert result.get("has_usable_forecast") is True
+    assert result["blocked"] == "unusable_sample"
+    assert [(d.id, d.checksum, d.quality_status, d.row_count) for d in import_session.scalars(select(Dataset))] == before
+    assert import_session.scalar(select(func.count()).select_from(DatasetIssue)) == 0
+    assert import_session.scalar(select(func.count()).select_from(ForecastRecord)) == 4
+    assert import_session.scalar(select(func.count()).select_from(ObservationRecord)) == 1
+
+
+def test_import_outcome_dataset_in_use_keeps_records(import_session, tmp_path):
+    from decimal import Decimal
+
+    from sqlalchemy import func, select
+
+    from backend.app.models import Dataset, ForecastRecord, FusionInput
+    from backend.app.services import ingest
+
+    path = _write_import_sample(tmp_path)
+    ingest.import_sample(import_session, path, 1, 2)
+    record = import_session.scalar(select(ForecastRecord))
+    import_session.add(FusionInput(
+        fusion_run_id=1, forecast_record_id=record.id, model_code=record.model_code, value_mm=Decimal("10"),
+    ))
+    import_session.commit()
+    checksums = list(import_session.scalars(select(Dataset.checksum)))
+    _write_import_sample(tmp_path, days=[])
+    result = ingest.import_sample(import_session, path, 1, 2)
+    assert result.get("outcome") == "dataset_in_use"
+    assert result.get("has_usable_forecast") is True
+    assert result["blocked"] == "dataset_in_use"
+    assert result["issues"] == 0
+    assert list(import_session.scalars(select(Dataset.checksum))) == checksums
+    assert import_session.scalar(select(func.count()).select_from(ForecastRecord)) == 4
+
+
+@pytest.mark.parametrize(("scenario", "message", "exit_code"), [
+    ("imported", "已导入", 0),
+    ("unchanged", "无需导入", 0),
+    ("marked_failed", "本次落为 FAILED", 1),
+    ("unchanged_failed", "已有 FAILED 数据集未改变", 1),
+    ("file_unreadable", "未读取", 1),
+    ("preserved_existing", "保留已有可用版本", 0),
+    ("older-usable", "本次落为 FAILED", 0),
+    ("unreadable-with-existing", "未读取", 0),
+])
+def test_seed_outcome_messages_and_exit_status(
+    import_session, tmp_path, monkeypatch, capsys, scenario, message, exit_code,
+):
+    import sys
+    from contextlib import nullcontext
+
+    from backend.app import seed
+    from backend.app.services import ingest
+
+    path = _write_import_sample(tmp_path)
+    if scenario in {"unchanged", "preserved_existing", "unreadable-with-existing"}:
+        ingest.import_sample(import_session, path, 1, 2)
+    if scenario == "older-usable":
+        ingest.import_sample(import_session, _write_import_sample(tmp_path, version="older"), 1, 2)
+    if scenario in {"marked_failed", "unchanged_failed", "preserved_existing", "older-usable"}:
+        path = _write_import_sample(tmp_path, days=[])
+    if scenario == "unchanged_failed":
+        ingest.import_sample(import_session, path, 1, 2)
+    if scenario in {"file_unreadable", "unreadable-with-existing"}:
+        path = tmp_path / "missing.json"
+    monkeypatch.setattr(seed, "_source_id", lambda _session, code: {
+        "OPEN_METEO_PREVIOUS_RUNS": 1, "OPEN_METEO_ERA5": 2,
+    }[code])
+    monkeypatch.setattr(seed, "SessionLocal", lambda: nullcontext(import_session))
+    monkeypatch.setattr(seed, "seed_reference_data", lambda _session: None)
+    monkeypatch.setattr(seed, "seed_users", lambda _session, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["seed", "--sample", str(path)])
+
+    status = seed.main()
+    output = capsys.readouterr().out
+    assert message in output
+    assert status == exit_code
+    if exit_code:
+        assert "[seed] 完成" not in output
+        assert "无可用预报数据" in output
+    if scenario in {"file_unreadable", "unreadable-with-existing"}:
+        with pytest.raises(OSError) as exc_info:
+            path.read_bytes()
+        assert str(exc_info.value) in output
+        assert "FAILED" not in output
+    if scenario == "preserved_existing":
+        assert "本次未写入" in output
+        assert "已标记为 FAILED" not in output
+        assert "已导入" not in output
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_seed_import_returns_parse_error(import_session, tmp_path, monkeypatch, capsys, existing):
+    from backend.app import seed
+    from backend.app.services import ingest
+
+    monkeypatch.setattr(seed, "_source_id", lambda _session, _code: 1)
+    path = _write_import_sample(tmp_path, version="sample")
+    if existing:
+        ingest.import_sample(import_session, path, 1, 1)
+    path.write_bytes(b'{not-json')
+    result = seed.import_sample(import_session, path)
+    output = capsys.readouterr().out
+    assert "不是合法 JSON" in output
+    assert result["outcome"] == ("preserved_existing" if existing else "marked_failed")
+    result = seed.import_sample(import_session, path)
+    assert "不是合法 JSON" in capsys.readouterr().out
+    assert result["outcome"] == ("preserved_existing" if existing else "unchanged_failed")
+
+
+def test_import_outcome_does_not_preserve_empty_forecast(import_session, tmp_path):
+    from sqlalchemy import select
+
+    from backend.app.models import Dataset
+    from backend.app.services import ingest
+
+    path = _write_import_sample(tmp_path, days=[])
+    import_session.add(Dataset(
+        source_id=1, dataset_type="FORECAST", version="unit-sample",
+        period_start=date.min, period_end=date.min, quality_status="READY", row_count=0,
+    ))
+    import_session.commit()
+    result = ingest.import_sample(import_session, path, 1, 2)
+    assert result.get("outcome") == "marked_failed"
+    assert result.get("has_usable_forecast") is False
+    assert import_session.scalar(select(Dataset.quality_status).where(Dataset.dataset_type == "FORECAST")) == "FAILED"
+
+
+def test_seed_import_returns_result_and_source_error(import_session, tmp_path, monkeypatch, capsys):
+    from backend.app import seed
+
+    monkeypatch.setattr(seed, "_source_id", lambda _session, _code: 1)
+    missing = tmp_path / "missing.json"
+    result = seed.import_sample(import_session, missing)
+    output = capsys.readouterr().out
+    assert isinstance(result, dict)
+    assert result["outcome"] == "file_unreadable"
+    assert result["has_usable_forecast"] is False
+    assert result["error"] in output
+
+
+@pytest.mark.parametrize("usable", [False, True])
+def test_seed_module_entrypoint_propagates_exit_status(monkeypatch, usable):
+    import runpy
+    import sys
+    from unittest.mock import MagicMock
+
+    from backend.app import db
+    from backend.app.services import ingest
+
+    monkeypatch.delitem(sys.modules, "backend.app.seed", raising=False)
+    monkeypatch.setattr(sys, "argv", ["seed"])
+    monkeypatch.setattr(db, "SessionLocal", MagicMock())
+    for role in ("ADMIN", "ANALYST", "REVIEWER", "VIEWER"):
+        monkeypatch.delenv(f"DEMO_{role}_PASSWORD", raising=False)
+    result = {
+        "imported": False, "forecast": 0, "observation": 0, "issues": 0,
+        "outcome": "unchanged" if usable else "unchanged_failed",
+        "has_usable_forecast": usable,
+    }
+    if not usable:
+        result["unusable"] = True
+    monkeypatch.setattr(ingest, "import_sample", lambda *_args: result)
+    with pytest.raises(SystemExit) as exc_info:
+        runpy.run_module("backend.app.seed", run_name="__main__")
+    assert exc_info.value.code == (0 if usable else 1)
 
 
 def test_seed_sync_passwords_clears_lockout_and_main_orders_users_before_sample(monkeypatch):
@@ -286,9 +757,14 @@ def test_seed_sync_passwords_clears_lockout_and_main_orders_users_before_sample(
     monkeypatch.setattr(seed, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(seed, "seed_reference_data", lambda _s: order.append("ref"))
     monkeypatch.setattr(seed, "seed_users", lambda _s, sync_passwords=False: order.append("users"))
-    monkeypatch.setattr(seed, "import_sample", lambda _s, _p: order.append("sample"))
+    def import_unchanged(_session, _path):
+        order.append("sample")
+        return {"imported": False, "forecast": 0, "observation": 0, "issues": 0,
+                "outcome": "unchanged", "has_usable_forecast": True}
+
+    monkeypatch.setattr(seed, "import_sample", import_unchanged)
     monkeypatch.setattr(sys, "argv", ["seed.py", "--sample", str(Path("data/sample/replay_sample.json"))])
-    seed.main()
+    assert seed.main() == 0
     assert order == ["ref", "users", "sample"]
 
 

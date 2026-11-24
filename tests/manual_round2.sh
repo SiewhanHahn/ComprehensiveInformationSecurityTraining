@@ -40,7 +40,7 @@ echo "== D. RBAC =="
 curl -s -c /tmp/r2_v.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"viewer_demo\",\"password\":\"$DEMO_VIEWER_PASSWORD\"}" > /tmp/r2_v.json
 VTOKEN=$(jget /tmp/r2_v.json csrf_token)
-check "viewer_create" "$(code -b /tmp/r2_v.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $VTOKEN" -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"x","area_text":"x","reasoning_text":"x"}')" 403
+check "viewer_create" "$(code -b /tmp/r2_v.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $VTOKEN" -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"x","area_text":"x","impact_text":"低洼路段可能积水","reasoning_text":"x"}')" 403
 check "analyst_audit" "$(code -b /tmp/r2_a.txt $BASE/api/v1/audit-logs)" 403
 curl -s -c /tmp/r2_r.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"reviewer_demo\",\"password\":\"$DEMO_REVIEWER_PASSWORD\"}" > /tmp/r2_r.json
@@ -61,7 +61,7 @@ check "metrics_10_delta" "$(python3 -c "import json;print(json.load(open('/tmp/r
 
 echo "== F. 状态机 + 自审 =="
 curl -s -b /tmp/r2_a.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $ATOKEN" \
-  -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"第二轮状态机测试","area_text":"长沙市","reasoning_text":"融合29.6mm"}' > /tmp/r2_w.json
+  -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"第二轮状态机测试","area_text":"长沙市","impact_text":"低洼路段可能积水","reasoning_text":"融合29.6mm"}' > /tmp/r2_w.json
 WID=$(jget /tmp/r2_w.json public_id)
 check "created_draft" "$(jget /tmp/r2_w.json status)" DRAFT
 check "publish_from_draft_invalid" "$(code -b /tmp/r2_r.txt -X POST $BASE/api/v1/warnings/$WID/publish -H "X-CSRF-Token: $RTOKEN")" 409
@@ -79,7 +79,7 @@ curl -s -c /tmp/r2_r2.txt -X POST $BASE/api/v1/auth/login -H 'Content-Type: appl
   -d "{\"username\":\"reviewer_demo\",\"password\":\"$DEMO_REVIEWER_PASSWORD\"}" > /tmp/r2_r2.json
 R2TOKEN=$(jget /tmp/r2_r2.json csrf_token)
 curl -s -b /tmp/r2_r2.txt -X POST $BASE/api/v1/warnings -H 'Content-Type: application/json' -H "X-CSRF-Token: $R2TOKEN" \
-  -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"自审测试","area_text":"长沙市","reasoning_text":"自审测试"}' > /tmp/r2_s.json
+  -d '{"city_code":"CHANGSHA","valid_date":"2024-03-27","threshold_code":"HEAVY","title":"自审测试","area_text":"长沙市","impact_text":"低洼路段可能积水","reasoning_text":"自审测试"}' > /tmp/r2_s.json
 SID=$(jget /tmp/r2_s.json public_id)
 curl -s -o /dev/null -b /tmp/r2_r2.txt -X POST $BASE/api/v1/warnings/$SID/submit -H "X-CSRF-Token: $R2TOKEN"
 check "self_review_forbidden" "$(code -b /tmp/r2_r2.txt -X POST $BASE/api/v1/warnings/$SID/review -H 'Content-Type: application/json' -H "X-CSRF-Token: $R2TOKEN" -d '{"decision":"APPROVE","comment":"self"}')" 403
