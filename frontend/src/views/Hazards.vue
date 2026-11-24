@@ -85,6 +85,7 @@
         <router-link v-if="h.code === 'THUNDERSTORM' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/lightning">查看雷电历史案例</router-link>
         <router-link v-if="h.code === 'DROUGHT' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast">试算干旱风险</router-link>
         <router-link v-if="h.code === 'HEATWAVE' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast?hazard=heat">试算高温风险</router-link>
+        <router-link v-if="h.code === 'LOW_TEMPERATURE' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast?hazard=cold">试算低温风险</router-link>
       </div>
     </div>
 
@@ -95,7 +96,7 @@
         当前有暴雨、台风、雪灾和雷电的研判与预警流程。暴雨展示九城统计对照，另三类只做历史案例核对。
       </p>
       <p class="muted" style="margin: 0">
-        干旱可输入数据做基础试算，不生成预警；待实现项不生成预测结果。这不是八灾种终验。
+        标记「基础预测」的灾种可输入数据做教学试算，不生成预警。<span v-if="summary.framework">待实现项不生成预测结果。</span>当前覆盖状态不等于八灾种终验。
       </p>
     </div>
   </div>

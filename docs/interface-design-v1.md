@@ -301,3 +301,9 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 - `POST /api/v1/basic-forecast/heat/assessment`，登录及 CSRF。提交 `location`、`start_at`（UTC 整点 `YYYY-MM-DDTHH:00:00Z` 或 `+00:00`）及 `hourly_temperature_c`（正好 24 个有限 °C 数值或 `null`，第一个值对应起点）。坏日期、非整点、非 UTC、错误长度和类型、额外字段返回 422。
 - 返回含首末时次的窗口、`usable_hours`、教学阈值 `threshold_c`、窗口最高值 `extreme_c`、所有达线的 `qualifying_hours` 和 `outcome`。完整窗口内 `≥ 35.0 °C` 为 `REACHED`；缺任一时次为 `INSUFFICIENT`，最高值为 `null`、达标时次为空。
 - 返回 `Cache-Control: no-store`；不保存输入、不创建预警，阈值仅供教学。灾种注册 `HEATWAVE` 为 `BASIC`，不计入端到端灾种。
+
+
+### 低温基础预测
+
+- `POST /api/v1/basic-forecast/cold/assessment` 与高温共用 `location`、`start_at`、`hourly_temperature_c` 的 UTC 整点和 24 小时校验，以及登录、CSRF 与 `no-store` 行为。
+- 返回 `LOW_TEMPERATURE` 及窗口**最低**气温 `extreme_c`；达线条件为 `≤ 0.0 °C`，列出全部符合的 UTC 时次。缺测处理与高温一致。不判断寒潮，不持久化、不创建预警；灾种状态为 `BASIC`。

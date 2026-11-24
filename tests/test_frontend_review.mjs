@@ -101,7 +101,7 @@ test('WarningDetail.vue does not crash when taskError is set and currentTask is 
   assert.doesNotMatch(html, /尚未派发任务/)
 })
 
-function instantiateSetupScript(relPath, moduleMocks = {}) {
+function instantiateSetupScript(relPath, moduleMocks = {}, props = {}) {
   const fullPath = path.join(FRONTEND, relPath)
   const source = fs.readFileSync(fullPath, 'utf-8')
   const { descriptor } = sfc.parse(source, { filename: fullPath })
@@ -155,7 +155,7 @@ function instantiateSetupScript(relPath, moduleMocks = {}) {
   const fn = new Function(...modArgs.map(([k]) => k), code)
   const componentDef = fn(...modArgs.map(([, v]) => v))
   const scope = vueRuntime.effectScope()
-  const exposed = scope.run(() => componentDef.setup({}, { expose: () => {} }))
+  const exposed = scope.run(() => componentDef.setup(props, { expose: () => {} }))
   return { exposed, scope, mountedHooks, unmountedHooks }
 }
 
@@ -1598,5 +1598,27 @@ test('hourly temperature trial does not silently round or shift an invalid UTC s
       assert.match(trial.error.value, /UTC/)
     }
     assert.equal(calls, 0)
+  } finally { scope.stop() }
+})
+
+
+test('low-temperature mode uses the shared form with its own API and preserves zero degrees', async () => {
+  const requests = []
+  const { exposed: trial, scope } = instantiateSetupScript('src/components/HourlyTemperatureTrial.vue', {
+    '../api': { apiFetch: async (url, options) => {
+      requests.push({ url, payload: JSON.parse(options.body) })
+      return { hazard_type: 'LOW_TEMPERATURE', outcome: 'REACHED', extreme_c: 0 }
+    } }
+  }, { mode: 'cold' })
+  try {
+    assert.equal(Math.min(...trial.temperatures.value), 0.1)
+    trial.temperatures.value[4] = 0
+    await trial.calculate()
+    assert.equal(requests[0].url, '/basic-forecast/cold/assessment')
+    assert.equal(requests[0].payload.hourly_temperature_c[4], 0)
+    assert.equal(trial.assessment.value.extreme_c, 0)
+    trial.resetSample()
+    assert.equal(trial.assessment.value, null)
+    assert.equal(trial.temperatures.value[4], 0.1)
   } finally { scope.stop() }
 })

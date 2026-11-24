@@ -1,11 +1,12 @@
 """Deterministic teaching forecasts with caller-provided inputs, no persistence."""
 import re
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeVar
 
 from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, field_validator
 
-from ..hazards import DROUGHT_DRY_DAY_BELOW_MM, DROUGHT_STREAK_THRESHOLD_DAYS, HEAT_THRESHOLD_C
+from ..hazards import COLD_THRESHOLD_C, DROUGHT_DRY_DAY_BELOW_MM, DROUGHT_STREAK_THRESHOLD_DAYS, HEAT_THRESHOLD_C
 
 DROUGHT_FORECAST_DAYS = 7
 RainMm = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -87,29 +88,56 @@ class HourlyTemperatureInput(BaseModel):
 
 
 class HourlyTemperatureAssessment(BaseModel):
-    hazard_type: Literal["HEATWAVE"] = "HEATWAVE"
-    method: Literal["hourly-heat-threshold-v1"] = "hourly-heat-threshold-v1"
     location: str
     start_at: datetime
     end_at: datetime  # Inclusive UTC time of the last forecast hour.
     usable_hours: int
-    threshold_c: float = HEAT_THRESHOLD_C
+    threshold_c: float
     extreme_c: float | None
     outcome: Literal["INSUFFICIENT", "REACHED", "NOT_REACHED"]
     qualifying_hours: list[datetime]
 
 
-def assess_heat(body: HourlyTemperatureInput) -> HourlyTemperatureAssessment:
-    """Compute the 24-hour maximum and threshold times only from a complete window."""
+class HeatAssessment(HourlyTemperatureAssessment):
+    hazard_type: Literal["HEATWAVE"] = "HEATWAVE"
+    method: Literal["hourly-heat-threshold-v1"] = "hourly-heat-threshold-v1"
+    threshold_c: float = HEAT_THRESHOLD_C
+
+
+class ColdAssessment(HourlyTemperatureAssessment):
+    hazard_type: Literal["LOW_TEMPERATURE"] = "LOW_TEMPERATURE"
+    method: Literal["hourly-cold-threshold-v1"] = "hourly-cold-threshold-v1"
+    threshold_c: float = COLD_THRESHOLD_C
+
+
+TemperatureAssessment = TypeVar("TemperatureAssessment", bound=HourlyTemperatureAssessment)
+
+
+def _assess_temperature(
+    body: HourlyTemperatureInput,
+    assessment: type[TemperatureAssessment],
+    extreme: Callable[[Iterable[float]], float],
+    qualifies: Callable[[float], bool],
+) -> TemperatureAssessment:
     readings = [(i, value) for i, value in enumerate(body.hourly_temperature_c) if value is not None]
     complete = len(readings) == TEMPERATURE_FORECAST_HOURS
-    qualifying = [body.start_at + timedelta(hours=i) for i, value in readings if value >= HEAT_THRESHOLD_C] if complete else []
-    return HourlyTemperatureAssessment(
+    qualifying = [body.start_at + timedelta(hours=i) for i, value in readings if qualifies(value)] if complete else []
+    return assessment(
         location=body.location,
         start_at=body.start_at,
         end_at=body.start_at + timedelta(hours=TEMPERATURE_FORECAST_HOURS - 1),
         usable_hours=len(readings),
-        extreme_c=max(value for _, value in readings) if complete else None,
+        extreme_c=extreme(value for _, value in readings) if complete else None,
         outcome="INSUFFICIENT" if not complete else "REACHED" if qualifying else "NOT_REACHED",
         qualifying_hours=qualifying,
     )
+
+
+def assess_heat(body: HourlyTemperatureInput) -> HeatAssessment:
+    """Compute the maximum and all hours at or above the heat teaching line."""
+    return _assess_temperature(body, HeatAssessment, max, lambda value: value >= HEAT_THRESHOLD_C)
+
+
+def assess_cold(body: HourlyTemperatureInput) -> ColdAssessment:
+    """Compute the minimum and all hours at or below the cold teaching line (not a cold-wave forecast)."""
+    return _assess_temperature(body, ColdAssessment, min, lambda value: value <= COLD_THRESHOLD_C)

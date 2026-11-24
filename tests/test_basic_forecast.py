@@ -8,6 +8,7 @@ from conftest import csrf_headers
 
 DROUGHT_URL = '/api/v1/basic-forecast/drought/assessment'
 HEAT_URL = '/api/v1/basic-forecast/heat/assessment'
+COLD_URL = '/api/v1/basic-forecast/cold/assessment'
 
 
 @pytest.fixture
@@ -88,13 +89,12 @@ def temperature_sample(**overrides):
 
 
 def test_heat_endpoint_and_basic_hazard_registration():
-    from backend.app.hazards import HAZARDS, hazard_summary
+    from backend.app.hazards import HAZARDS
     from backend.app.main import app
 
     heat = next(item for item in HAZARDS if item['code'] == 'HEATWAVE')
     assert HEAT_URL in app.openapi()['paths']
     assert heat['status'] == 'BASIC' and heat['thresholds'][0]['value'] == 35.0
-    assert hazard_summary() == {'total': 8, 'implemented': 4, 'basic': 2, 'framework': 2}
 
 
 @pytest.mark.parametrize(('values', 'outcome', 'peak', 'qualified_offsets'), [
@@ -151,3 +151,46 @@ def test_heat_trial_auth_csrf_validation_and_read_only_response(new_client, logi
     assert assessment['qualifying_hours'] == ['2024-02-29T17:00:00Z']
     assert client.post(HEAT_URL, headers=headers, json=body | {'outcome': 'REACHED'}).status_code == 422
     assert analyst.get('/api/v1/warnings').json() == before
+
+
+def test_cold_endpoint_and_basic_hazard_registration():
+    from backend.app.hazards import HAZARDS, hazard_summary
+    from backend.app.main import app
+
+    cold = next(item for item in HAZARDS if item['code'] == 'LOW_TEMPERATURE')
+    assert COLD_URL in app.openapi()['paths']
+    assert cold['status'] == 'BASIC' and cold['thresholds'][0]['value'] == 0.0
+    assert hazard_summary() == {'total': 8, 'implemented': 4, 'basic': 3, 'framework': 1}
+
+
+@pytest.mark.parametrize(('values', 'outcome', 'minimum', 'qualified_offsets'), [
+    ([0.1] * 24, 'NOT_REACHED', 0.1, []),
+    ([4.0] * 23 + [0.0], 'REACHED', 0.0, [23]),
+    ([0.0, -3.4] + [2.0] * 21 + [-0.2], 'REACHED', -3.4, [0, 1, 23]),
+    ([4.0] * 22 + [-3.4, None], 'INSUFFICIENT', None, []),
+])
+def test_cold_uses_minimum_and_complete_window(basic, values, outcome, minimum, qualified_offsets):
+    body = basic.HourlyTemperatureInput.model_validate(temperature_sample(hourly_temperature_c=values))
+    result = basic.assess_cold(body)
+    start = datetime(2024, 2, 28, 18, tzinfo=UTC)
+    assert result.hazard_type == 'LOW_TEMPERATURE' and result.location == '课程示例点'
+    assert (result.start_at, result.end_at) == (start, datetime(2024, 2, 29, 17, tzinfo=UTC))
+    assert (result.threshold_c, result.extreme_c, result.outcome) == (0.0, minimum, outcome)
+    assert result.qualifying_hours == [start + timedelta(hours=i) for i in qualified_offsets]
+    assert result.usable_hours == sum(value is not None for value in values)
+
+
+@pytest.mark.integration
+def test_cold_trial_auth_requested_mode_and_shared_validation(new_client, login):
+    body = temperature_sample(start_at='2024-02-28T18:00:00+00:00', hourly_temperature_c=[2.0] * 23 + [0.0])
+    assert new_client().post(COLD_URL, json=body).status_code == 401
+    client, token = login('viewer_demo')
+    assert client.post(COLD_URL, json=body).status_code == 403
+    headers = csrf_headers(token)
+    result = client.post(COLD_URL, headers=headers, json=body)
+    assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
+    assessment = result.json()
+    assert (assessment['hazard_type'], assessment['outcome'], assessment['extreme_c']) == ('LOW_TEMPERATURE', 'REACHED', 0.0)
+    assert assessment['qualifying_hours'] == ['2024-02-29T17:00:00Z']
+    assert client.post(COLD_URL, headers=headers, json=body | {'start_at': '2024-02-28T18:15:00Z'}).status_code == 422
+    assert client.post(COLD_URL, headers=headers, json=body | {'hazard_type': 'HEATWAVE'}).status_code == 422

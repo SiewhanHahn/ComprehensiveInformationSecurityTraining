@@ -43,7 +43,7 @@ def main():
         page.wait_for_url(base + '/')
 
         page.goto(base + '/hazards')
-        expect(page.get_by_text('4 类端到端实现 · 2 类基础预测', exact=False)).to_be_visible()
+        expect(page.get_by_text('4 类端到端实现 · 3 类基础预测', exact=False)).to_be_visible()
         page.get_by_role('link', name='试算干旱风险').click()
         page.wait_for_url(base + '/basic-forecast')
         forecast = page.get_by_role('region', name='干旱预测结果')
@@ -133,13 +133,53 @@ def main():
         page.set_viewport_size({'width': 390, 'height': 844})
         for region in (heat, forecast):
             assert region.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Heat trial overflows on mobile'
+        page.get_by_role('link', name='低温', exact=True).click()
+        expect(forecast).to_have_count(0)
+        page.wait_for_url(base + '/basic-forecast?hazard=cold')
+        cold = page.get_by_role('region', name='低温试算输入')
+        expect(cold.get_by_role('spinbutton')).to_have_count(24)
+        forecast = page.get_by_role('region', name='低温预测结果')
+        outcome = forecast.get_by_test_id('temperature-outcome')
+        minimum = forecast.get_by_test_id('temperature-extreme')
+        qualifying = forecast.get_by_test_id('temperature-qualifying')
+        calculate = cold.get_by_role('button', name='计算低温风险')
+        trial = '/api/v1/basic-forecast/cold/assessment'
+        location = cold.get_by_label('地点', exact=True)
+        location.fill('A' * 80)
+        assert compute()['extreme_c'] == 0.1
+        expect(outcome).to_have_text('未达低温教学阈值')
+        expect(minimum).to_have_text('0.1 °C')
+        assert forecast.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Long location overflows on mobile'
+
+        boundary = cold.get_by_label('第 5 小时气温', exact=False)
+        boundary.fill('0.0')
+        expect(forecast).to_have_count(0)
+        location.fill('现场教学点')
+        result = compute()
+        assert result['outcome'] == 'REACHED' and result['qualifying_hours'] == ['2025-01-12T04:00:00Z']
+        expect(outcome).to_have_text('达到低温教学阈值')
+        expect(minimum).to_have_text('0 °C')
+        expect(qualifying).to_contain_text('2025-01-12 04:00')
+        expect(forecast.get_by_text('不是寒潮预报', exact=False)).to_be_visible()
+        if args.evidence:
+            page.set_viewport_size({'width': 1360, 'height': 920})
+            forecast.screenshot(path=args.evidence / 'cold-boundary.png')
+
+        boundary.fill('')
+        result = compute()
+        assert result['usable_hours'] == 23 and result['extreme_c'] is None and result['qualifying_hours'] == []
+        expect(outcome).to_have_text('无法判断')
+        expect(minimum).to_have_count(0)
+        expect(qualifying).to_have_count(0)
         page.get_by_role('link', name='干旱', exact=True).click()
         expect(forecast).to_have_count(0)
         expect(page.get_by_role('region', name='干旱试算输入')).to_be_visible()
+        page.get_by_role('link', name='查看灾种覆盖').click()
+        expect(page.get_by_text('标记「基础预测」的灾种可输入数据做教学试算', exact=False)).to_be_visible()
         assert context.request.get(base + '/api/v1/warnings').json() == warnings
         assert not outside, f'Basic forecasts attempted external requests: {outside!r}'
         browser.close()
-    print('PASS: offline drought (16 / 2 / 14 days), heat (34.9 / 35.0 °C), missing input, mobile, no warning changes')
+    print('PASS: offline drought (16 / 2 / 14 days), heat (34.9 / 35.0 °C), cold (0.1 / 0.0 °C), missing input, mobile, no warning changes')
 
 
 if __name__ == '__main__':

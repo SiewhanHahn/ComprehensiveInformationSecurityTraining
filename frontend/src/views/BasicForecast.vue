@@ -13,7 +13,7 @@
            :aria-current="trial === selectedTrial ? 'page' : undefined" @click="navigate">{{ trial.label }}</a>
       </router-link>
     </nav>
-    <component :is="selectedTrial.component" :key="selectedTrial.key" />
+    <component :is="selectedTrial.component" :key="selectedTrial.key" v-bind="selectedTrial.props" />
   </div>
 </template>
 
@@ -26,7 +26,8 @@ import HourlyTemperatureTrial from '../components/HourlyTemperatureTrial.vue'
 const route = useRoute()
 const trials = [
   { key: 'drought', label: '干旱', to: '/basic-forecast', component: DroughtTrial },
-  { key: 'heat', label: '高温', to: '/basic-forecast?hazard=heat', component: HourlyTemperatureTrial }
+  { key: 'heat', label: '高温', to: '/basic-forecast?hazard=heat', component: HourlyTemperatureTrial },
+  { key: 'cold', label: '低温', to: '/basic-forecast?hazard=cold', component: HourlyTemperatureTrial, props: { mode: 'cold' } }
 ]
 const selectedTrial = computed(() => trials.find(trial => trial.key === route.query.hazard) ?? trials[0])
 </script>
