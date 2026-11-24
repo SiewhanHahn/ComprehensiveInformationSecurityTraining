@@ -1,0 +1,51 @@
+{
+  "source": {
+    "agency": "NOAA NCEI",
+    "product": "ISD 济南站 · FM-12 / MW1",
+    "url": "https://noaa-global-hourly-pds.s3.amazonaws.com/2025/54823099999.csv",
+    "checked_on_utc": "2026-11-24"
+  },
+  "station_id": "54823099999",
+  "observations": [
+    {
+      "observed_at": "2025-03-02T03:00:00Z",
+      "code": "60",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-02T06:00:00Z",
+      "code": "74",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-02T09:00:00Z",
+      "code": "70",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-02T12:00:00Z",
+      "code": "70",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-02T15:00:00Z",
+      "code": "00",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-02T18:00:00Z",
+      "code": "00",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-02T21:00:00Z",
+      "code": "00",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-03-03T00:00:00Z",
+      "code": "00",
+      "quality": "1"
+    }
+  ]
+}

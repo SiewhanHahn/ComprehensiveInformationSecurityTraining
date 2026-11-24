@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from conftest import csrf_headers, notifications_for, review_body
 
+PRIMARY = 'new-orleans-20250121'
 POSITIVE = 'jinan-20250302'
 CONTROL = 'jinan-20250304'
 CASES = '/api/v1/snow/cases'
@@ -17,8 +18,8 @@ def snow():
     return import_module('backend.app.services.snow')
 
 
-def draft(case_id=POSITIVE):
-    return dict(case_id=case_id, title='济南强降雪演练', area_text='济南站附近',
+def draft(case_id=PRIMARY):
+    return dict(case_id=case_id, title='强降雪演练', area_text='验证站附近',
                 impact_text='历史教学案例', reasoning_text='归档预报达到教学阈值')
 
 
@@ -31,12 +32,28 @@ def test_snow_is_a_distinct_registered_hazard_and_has_case_routes():
     assert {CASES, CASES + '/{case_id}/assessment', CREATE} <= set(app.openapi()['paths'])
 
 
+def test_original_hrrr_archive_is_dated_before_window_and_matches_station(snow):
+    replay = snow.replay(PRIMARY)
+    f = replay.forecast
+    assert (f.case.city.code, f.case.city.name) == ('NEW_ORLEANS', '新奥尔良')
+    assert f.case.archive_latest_modified_at == datetime(2025, 1, 20, 19, 34, 56, tzinfo=timezone.utc)
+    assert f.case.initialized_at < f.case.archive_latest_modified_at < f.case.window_start
+    assert f.case.window_start == datetime(2025, 1, 21, 6, tzinfo=timezone.utc)
+    assert f.outcome == 'REACHED' and f.metric.value == 20.19 and f.usable_hours == 24
+    assert replay.verification.station_id == '72231012916'
+    assert replay.verification.outcome == 'SNOW_REPORTED'
+    assert any(r.code == '75' and r.observed_at.hour == 18 for r in replay.verification.observations)
+    with pytest.raises(ValidationError, match='archive'):
+        type(f.case).model_validate(f.case.model_dump() | {'archive_latest_modified_at': f.forecast_window_end})
+
+
 def test_jinan_archive_windows_match_hand_calculation_and_independent_station(snow):
     positive, control = snow.replay(POSITIVE), snow.replay(CONTROL)
     start = datetime(2025, 3, 2, tzinfo=timezone.utc)
     f = positive.forecast
     assert f.case.city.code == 'JINAN' and f.case.forecast_grid.longitude == 117.011795
     assert f.case.initialized_at == start - timedelta(hours=12)
+    assert f.case.archive_latest_modified_at is None
     assert f.case.window_start == start and f.forecast_window_end == start + timedelta(hours=24)
     assert [h.valid_at for h in f.hours] == [start + timedelta(hours=i) for i in range(1, 25)]
     assert f.outcome == 'REACHED' and f.usable_hours == 24
@@ -115,13 +132,27 @@ def test_snow_cannot_set_window_before_availability_allowance(snow):
 def test_snow_observations_are_filtered_separately_and_cannot_change_forecast(snow, monkeypatch):
     case = snow.get_case(POSITIVE)
     expected = snow.replay(POSITIVE).forecast
-    outside = case.verification.observations[0].model_copy(update={'observed_at': case.info.window_start})
+    reports = snow._read_station_reports(POSITIVE)
+    outside = reports.observations[0].model_copy(update={'observed_at': case.info.window_start})
     future = outside.model_copy(update={'observed_at': expected.forecast_window_end + timedelta(hours=1)})
-    reference = case.verification.model_copy(update={'observations': (outside, future)})
-    monkeypatch.setattr(snow, 'get_case', lambda _: case.model_copy(update={'verification': reference}))
+    reference = reports.model_copy(update={'observations': (outside, future)})
+    monkeypatch.setattr(snow, '_read_station_reports', lambda _: reference)
     replay = snow.replay(POSITIVE)
     assert replay.forecast == expected and replay.verification is None
     assert 'verification' not in replay.forecast.model_dump()
+
+
+@pytest.mark.parametrize('extract', [None, '{"observations": "invalid"}'])
+def test_missing_or_malformed_station_file_leaves_forecast_and_catalog_intact(snow, monkeypatch, tmp_path, extract):
+    case = snow.get_case(POSITIVE)
+    forecast = snow.replay(POSITIVE).forecast
+    monkeypatch.setattr(snow, '_DATA_DIR', tmp_path)
+    monkeypatch.setattr(snow, 'get_case', lambda _: case)
+    if extract is not None:
+        (tmp_path / f'{POSITIVE}-station.json').write_text(extract, encoding='utf8')
+    assert case.info in snow.catalog().cases
+    replay = snow.replay(POSITIVE)
+    assert replay.forecast == forecast and replay.verification is None
 
 
 @pytest.mark.integration
@@ -129,9 +160,9 @@ def test_snow_allows_only_controlled_reached_case_drafts(new_client, login, snow
     assert new_client().get(CASES).status_code == 401
     analyst, a = login('analyst_demo')
     viewer, v = login('viewer_demo')
-    assert [c['case_id'] for c in viewer.get(CASES).json()['cases']] == [POSITIVE, CONTROL]
-    assert 'JINAN' not in {city['code'] for city in viewer.get('/api/v1/cities').json()}
-    assert {'code': 'JINAN', 'name': '济南'} in viewer.get('/api/v1/warning-cities').json()
+    assert [c['case_id'] for c in viewer.get(CASES).json()['cases']] == [PRIMARY, POSITIVE, CONTROL]
+    assert 'NEW_ORLEANS' not in {city['code'] for city in viewer.get('/api/v1/cities').json()}
+    assert {'code': 'NEW_ORLEANS', 'name': '新奥尔良'} in viewer.get('/api/v1/warning-cities').json()
     assert viewer.post(CREATE, json=draft(), headers=csrf_headers(v)).status_code == 403
     assert analyst.post(CREATE, json=draft()).status_code == 403
     assert analyst.get(CASES + '/nonexistent/assessment').status_code == 404
@@ -142,16 +173,21 @@ def test_snow_allows_only_controlled_reached_case_drafts(new_client, login, snow
     refused = analyst.post(CREATE, json=draft(CONTROL), headers=csrf_headers(a))
     assert refused.status_code == 409 and refused.json()['error']['code'] == 'THRESHOLD_NOT_REACHED'
 
-    case = snow.get_case(POSITIVE)
+    example = analyst.get(CASES + f'/{POSITIVE}/assessment').json()['forecast']
+    assert example['outcome'] == 'REACHED' and example['case']['archive_latest_modified_at'] is None
+    refused = analyst.post(CREATE, json=draft(POSITIVE), headers=csrf_headers(a))
+    assert refused.status_code == 409 and refused.json()['error']['code'] == 'SOURCE_NOT_VERIFIED'
+
+    case = snow.get_case(PRIMARY)
     series = case.forecast.model_copy(update={'hours': case.forecast.hours[:-1]})
     monkeypatch.setattr(snow, 'get_case', lambda _: case.model_copy(update={'forecast': series}))
-    assert analyst.get(CASES + f'/{POSITIVE}/assessment').json()['forecast']['outcome'] == 'INSUFFICIENT'
+    assert analyst.get(CASES + f'/{PRIMARY}/assessment').json()['forecast']['outcome'] == 'INSUFFICIENT'
     refused = analyst.post(CREATE, json=draft(), headers=csrf_headers(a))
     assert refused.status_code == 409 and refused.json()['error']['code'] == 'PARTIAL_DATA'
 
 
 @pytest.mark.integration
-def test_snow_publishes_forecast_only_and_uses_shared_lifecycle(login, created_warnings, subscriber, created_subscriptions):
+def test_snow_publishes_forecast_only_and_uses_shared_lifecycle(login, created_warnings, subscriber, created_subscriptions, snow, monkeypatch):
     from sqlalchemy import select
     from backend.app.db import SessionLocal
     from backend.app.models import AuditLog, Warning
@@ -159,18 +195,23 @@ def test_snow_publishes_forecast_only_and_uses_shared_lifecycle(login, created_w
     analyst, a = login('analyst_demo')
     reviewer, r = login('reviewer_demo')
     viewer, v = subscriber
-    sub = viewer.post('/api/v1/subscriptions', json={'hazard_type': 'SNOW_DISASTER', 'city_code': 'JINAN'}, headers=csrf_headers(v))
+    sub = viewer.post('/api/v1/subscriptions', json={'hazard_type': 'SNOW_DISASTER', 'city_code': 'NEW_ORLEANS'}, headers=csrf_headers(v))
     assert sub.status_code == 200, sub.text
     created_subscriptions.append(sub.json()['id'])
-    replay = analyst.get(CASES + f'/{POSITIVE}/assessment').json()
+    replay = analyst.get(CASES + f'/{PRIMARY}/assessment').json()
     assert replay['verification']['outcome'] == 'SNOW_REPORTED'
+
+    def no_station_lookup(_):
+        raise AssertionError('draft creation must not open independent station evidence')
+
+    monkeypatch.setattr(snow, '_read_station_reports', no_station_lookup)
     response = analyst.post(CREATE, json=draft(), headers=csrf_headers(a))
     assert response.status_code == 200, response.text
     saved = response.json()
     ident = saved['public_id']
     created_warnings.append(ident)
     assert (saved['hazard_type'], saved['status'], saved['fused_mm']) == ('SNOW_DISASTER', 'DRAFT', None)
-    assert saved['city_name'] == '济南' and saved['valid_date'] == '2025-03-02' and saved['metric']['value'] == 12.74
+    assert saved['city_name'] == '新奥尔良' and saved['valid_date'] == '2025-01-21' and saved['metric']['value'] == 20.19
     path = f'/api/v1/warnings/{ident}'
     assert viewer.get(path).status_code == 404 and not notifications_for(viewer, ident)
     evidence = analyst.get(path).json()['snow_assessment']
@@ -182,7 +223,7 @@ def test_snow_publishes_forecast_only_and_uses_shared_lifecycle(login, created_w
     visible = viewer.get(path).json()
     assert visible['snow_assessment'] == evidence and visible['models'] == [] and visible['proxy_label_mm'] is None
     published = notifications_for(viewer, ident)
-    assert len(published) == 1 and '12.74 cm' in published[0]['body'] and '四模式融合' not in published[0]['body']
+    assert len(published) == 1 and '20.19 cm' in published[0]['body'] and '四模式融合' not in published[0]['body']
     tasks = analyst.get('/api/v1/response-tasks', params={'warning': ident}).json()
     assert len(tasks) == 1 and tasks[0]['status'] == 'PENDING'
     task_path = f"/api/v1/response-tasks/{tasks[0]['id']}"

@@ -30,8 +30,9 @@ MESSAGES: dict[str, str] = {
     "REVIEW_CHANGED": "预警版本或提交轮次已变化，请重新加载并核对后再审核",
     "IMPACT_REQUIRED": "请先编辑草稿，补全影响说明后再提交",
     # 预警
+    "SOURCE_NOT_VERIFIED": "未核实原始归档时刻，此案例仅供回放，不能创建预警草稿",
     "PARTIAL_DATA": "数据不完整，无法创建正式预警",
-    "THRESHOLD_NOT_REACHED": "融合值未达到所选阈值，无法创建预警",
+    "THRESHOLD_NOT_REACHED": "预测结果未达到触发阈值，无法创建预警",
     "SELF_REVIEW_FORBIDDEN": "不能审核自己创建的预警",
     "REJECT_REQUIRES_COMMENT": "驳回时必须填写审核意见",
     # 用户管理

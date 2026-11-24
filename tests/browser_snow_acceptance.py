@@ -54,22 +54,24 @@ def main():
         a = login('ANALYST')
         a.goto(base + '/snow')
         evidence = a.get_by_role('region', name='雪灾预报判定')
-        expect(evidence.get_by_test_id('snow-total')).to_have_text('12.74 cm')
+        expect(evidence.get_by_test_id('snow-total')).to_have_text('20.19 cm')
         expect(evidence.get_by_text('达到强降雪教学阈值', exact=True)).to_be_visible()
+        expect(evidence.get_by_text('2025-01-20 19:34:56 UTC', exact=False)).to_be_visible()
         reference = a.get_by_role('region', name='独立事后核验')
         expect(reference.get_by_test_id('snow-verification')).to_have_text('站点记录到降雪')
         reference.locator('summary').click()
-        expect(reference.get_by_text('2025-03-02 06:00 · 74 间歇性强降雪')).to_be_visible()
+        expect(reference.get_by_text('2025-01-21 18:00 · 75 连续强降雪')).to_be_visible()
         if args.evidence:
             args.evidence.mkdir(parents=True, exist_ok=True)
-            a.locator('main').screenshot(path=args.evidence / 'snow-forecast.png')
+            a.evaluate('window.scrollTo(0, 0)')
+            a.screenshot(path=args.evidence / 'snow-forecast.png', full_page=True)
         a.set_viewport_size({'width': 390, 'height': 844})
         expect(evidence.get_by_test_id('snow-total')).to_be_visible()
         assert evidence.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Snow evidence overflows on mobile'
         a.set_viewport_size({'width': 1360, 'height': 920})
         evidence.locator('summary').click()
         expect(evidence.locator('tbody tr')).to_have_count(24)
-        expect(evidence.get_by_text('2025-03-03 00:00 UTC', exact=True)).to_be_visible()
+        expect(evidence.get_by_text('2025-01-22 06:00 UTC', exact=True)).to_be_visible()
 
         a.locator('#snow-case').select_option('jinan-20250304')
         expect(evidence.get_by_test_id('snow-total')).to_have_text('0.00 cm')
@@ -77,11 +79,15 @@ def main():
         expect(reference.get_by_test_id('snow-verification')).to_have_text('抽样时次未报告降雪')
         expect(a.get_by_role('button', name='填写雪灾演练草稿', exact=True)).to_have_count(0)
         a.locator('#snow-case').select_option('jinan-20250302')
+        expect(evidence.get_by_test_id('snow-total')).to_have_text('12.74 cm')
+        expect(evidence.get_by_text('不能创建预警草稿。', exact=False)).to_be_visible()
+        expect(a.get_by_role('button', name='填写雪灾演练草稿', exact=True)).to_have_count(0)
+        a.locator('#snow-case').select_option('new-orleans-20250121')
         a.get_by_role('button', name='填写雪灾演练草稿', exact=True).click()
         a.locator('#snow-title').fill(key + ' · 雪灾历史演练')
         created = click_write(a, '保存雪灾演练草稿', '/warnings/snow')
         assert created['hazard_type'] == 'SNOW_DISASTER' and created['status'] == 'DRAFT'
-        assert created['city_name'] == '济南' and created['fused_mm'] is None
+        assert created['city_name'] == '新奥尔良' and created['fused_mm'] is None
         detail = base + '/warnings/' + created['public_id']
         a.wait_for_url(detail)
         expect(a.get_by_role('region', name='雪灾预报判定')).to_be_visible()
@@ -91,7 +97,7 @@ def main():
         r = login('REVIEWER')
         r.goto(detail)
         expect(r.get_by_role('region', name='雪灾预报判定')).to_be_visible()
-        r.get_by_label('审核意见').fill('核对济南归档降雪预报')
+        r.get_by_label('审核意见').fill('核对 NOAA 原业务归档预报')
         assert click_write(r, '批准', '/review')['decision'] == 'APPROVE'
         r.get_by_label('发布或撤回原因').fill(key + '-演练发布')
         assert click_write(r, '发布', '/publish')['status'] == 'PUBLISHED'

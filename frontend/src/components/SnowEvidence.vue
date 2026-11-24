@@ -29,7 +29,8 @@
         <span :style="{ height: `${100 * hour.snowfall_cm / topHourly}%` }"></span>
       </div>
     </div>
-    <details class="snow-hours" v-if="assessment.hours.length">
+    <div v-if="metric" class="snow-strip-axis" aria-hidden="true"><span>起点</span><span>+6 h</span><span>+12 h</span><span>+18 h</span><span>+24 h</span></div>
+    <details v-if="assessment.hours.length" class="snow-hours">
       <summary>查看逐时预报（时间为前一小时降雪量的结束标签）</summary>
       <div class="table-wrap">
         <table class="table">
@@ -41,10 +42,14 @@
       </div>
     </details>
     <p class="muted snow-source">
-      预报：<a :href="assessment.case.forecast_source.url" target="_blank" rel="noopener noreferrer">{{ assessment.case.forecast_source.product }}</a>；
-      济南站附近的模式网格 {{ assessment.case.forecast_grid.latitude }}°N, {{ assessment.case.forecast_grid.longitude }}°E；
-      {{ assessment.case.forecast_source.checked_on_utc }} 核对。起报并非 API 实际发布时间，结论不代表站点实测、灾损或官方预警。
+      预报：{{ assessment.case.forecast_source.agency }} · <a :href="assessment.case.forecast_source.url" target="_blank" rel="noopener noreferrer">{{ assessment.case.forecast_source.product }}</a>；
+      站点附近的模式网格（纬度、经度）：{{ assessment.case.forecast_grid.latitude }}°, {{ assessment.case.forecast_grid.longitude }}°；
+      {{ assessment.case.forecast_source.checked_on_utc }} 核对。结论不代表站点实测、灾损或官方预警。
     </p>
+    <p v-if="assessment.case.archive_latest_modified_at" class="muted snow-provenance">
+      原业务归档文件的最晚修改时间：{{ stamp(assessment.case.archive_latest_modified_at, true) }}，早于研判窗口。
+    </p>
+    <p v-else class="muted snow-provenance">未能核对本批次的原始发布时间；保守回放，仅供教学，不能创建预警草稿。</p>
   </section>
 </template>
 
@@ -60,8 +65,8 @@ const resultText = computed(() => ({
 })[props.assessment.outcome])
 const topHourly = computed(() => Math.max(0.01, ...props.assessment.hours.map(hour => hour.snowfall_cm ?? 0)))
 
-function stamp(value) {
-  return `${new Date(value).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+function stamp(value, seconds = false) {
+  return `${new Date(value).toISOString().slice(0, seconds ? 19 : 16).replace('T', ' ')} UTC`
 }
 </script>
 
@@ -76,7 +81,9 @@ function stamp(value) {
 .snow-strip { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); align-items: end; height: 50px; gap: 3px; margin-bottom: 8px; }
 .snow-strip-cell { display: flex; align-items: end; height: 100%; border-bottom: 1px solid var(--border); }
 .snow-strip-cell span { display: block; width: 100%; background: #70bcdf; border-radius: 2px 2px 0 0; }
+.snow-strip-axis { display: flex; justify-content: space-between; margin: -5px 0 9px; font-size: 0.75rem; opacity: 0.85; }
 .snow-hours summary { cursor: pointer; }
 .snow-hours .table-wrap { margin-top: 8px; }
 .snow-source { margin: 12px 0 0; overflow-wrap: anywhere; }
+.snow-provenance { margin: 5px 0 0; }
 </style>

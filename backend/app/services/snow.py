@@ -2,11 +2,12 @@
 from datetime import timedelta, timezone
 from decimal import Decimal
 from functools import lru_cache
+from logging import getLogger
 from pathlib import Path
 from typing import Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from ..assessment_schemas import (
     CaseSource, HazardMetric, SnowAssessment, SnowCaseInfo, SnowCatalog, SnowForecastHour,
@@ -14,11 +15,13 @@ from ..assessment_schemas import (
 )
 from ..hazards import SNOW_24H_THRESHOLD_CM
 
+_LOG = getLogger(__name__)
 _HOUR = timedelta(hours=1)
 WINDOW_HOURS = 24
 REACHED_RISK_LEVEL = "YELLOW"  # 教学标记，不是官方预警信号。
 _DATA_DIR = Path(__file__).resolve().parents[1] / "data/snow"
-_CASE_IDS = ("jinan-20250302", "jinan-20250304")
+_CASE_IDS = ("new-orleans-20250121", "jinan-20250302", "jinan-20250304")
+_SNOW_CODES = frozenset({"70", "71", "72", "73", "74", "75"})
 
 
 class SnowForecastSeries(BaseModel):
@@ -44,7 +47,6 @@ class SnowStationReports(BaseModel):
 class SnowCase(BaseModel):
     info: SnowCaseInfo
     forecast: SnowForecastSeries
-    verification: SnowStationReports
 
 
 @lru_cache(maxsize=len(_CASE_IDS))
@@ -94,9 +96,21 @@ def assess_case(case_id: str) -> tuple[SnowCase, SnowAssessment]:
     return case, assess_forecast(case.info, case.forecast)
 
 
+def _read_station_reports(case_id: str) -> SnowStationReports | None:
+    try:
+        content = (_DATA_DIR / f"{case_id}-station.json").read_bytes()
+        return SnowStationReports.model_validate_json(content)
+    except (OSError, ValidationError):
+        # A missing or damaged verification file is unavailable evidence, not a failed forecast.
+        _LOG.warning("Snow station extract unavailable for %s", case_id)
+        return None
+
+
 def replay(case_id: str) -> SnowReplay:
     case, forecast = assess_case(case_id)
-    reference = case.verification
+    reference = _read_station_reports(case_id)
+    if reference is None:
+        return SnowReplay(forecast=forecast)
     observations = tuple(sorted(
         (report for report in reference.observations
          if case.info.window_start < report.observed_at <= forecast.forecast_window_end),
@@ -104,7 +118,7 @@ def replay(case_id: str) -> SnowReplay:
     ))
     verification = None
     if observations:
-        outcome = "SNOW_REPORTED" if any(report.code in {"70", "74"} for report in observations) else "NO_SNOW_IN_SAMPLES"
+        outcome = "SNOW_REPORTED" if any(report.code in _SNOW_CODES for report in observations) else "NO_SNOW_IN_SAMPLES"
         verification = SnowVerification(source=reference.source, station_id=reference.station_id,
                                         observations=observations, outcome=outcome)
     return SnowReplay(forecast=forecast, verification=verification)

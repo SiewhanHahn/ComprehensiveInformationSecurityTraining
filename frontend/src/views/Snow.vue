@@ -3,7 +3,7 @@
     <header class="page-head">
       <div class="page-heading">
         <h2 class="page-title">雪灾历史回放</h2>
-        <span class="page-subtitle">济南站附近 · 24 小时强降雪风险 · 教学演练</span>
+        <span class="page-subtitle">站点附近 · 24 小时强降雪风险 · 教学演练</span>
       </div>
       <router-link class="btn btn-ghost btn-sm" to="/hazards">查看灾种覆盖</router-link>
     </header>
@@ -15,7 +15,7 @@
           <option v-for="item in cases" :key="item.case_id" :value="item.case_id">{{ item.name }}</option>
         </select>
       </div>
-      <p class="muted snow-hint">切换历史日期可重算。预报和事后记录已离线打包，只有打开出处链接需要联网。</p>
+      <p class="muted snow-hint">切换案例可重算。预报和事后记录已离线打包，只有打开出处链接需要联网。</p>
     </div>
 
     <div v-if="error" class="alert alert--error" role="alert">
@@ -25,7 +25,7 @@
     <template v-else-if="result">
       <SnowEvidence :assessment="result.forecast" />
       <section class="card snow-reference" aria-label="独立事后核验">
-        <header class="card-head"><h3 class="card-title">独立事后核验 · 济南站</h3></header>
+        <header class="card-head"><h3 class="card-title">独立事后核验 · {{ result.forecast.case.city.name }}站点</h3></header>
         <template v-if="result.verification">
           <p data-testid="snow-verification">{{ result.verification.outcome === 'SNOW_REPORTED' ? '站点记录到降雪' : '抽样时次未报告降雪' }}</p>
           <p class="muted">站码只能核对天气过程，不能验证累计降雪量或证明整个窗口无雪；不会进入草稿或参与判定。</p>
@@ -37,7 +37,7 @@
               </li>
             </ul>
           </details>
-          <p class="muted snow-hint"><a :href="result.verification.source.url" target="_blank" rel="noopener noreferrer">NOAA NCEI ISD · {{ result.verification.station_id }}</a>；FM-12/MW1，{{ result.verification.source.checked_on_utc }} 核对。</p>
+          <p class="muted snow-hint"><a :href="result.verification.source.url" target="_blank" rel="noopener noreferrer">{{ result.verification.source.agency }} · {{ result.verification.source.product }}</a>（{{ result.verification.station_id }}）；{{ result.verification.source.checked_on_utc }} 核对。</p>
         </template>
         <p v-else class="muted">这个窗口没有可核对的站点编码，不代表没有降雪。</p>
       </section>
@@ -90,14 +90,17 @@ const error = ref('')
 const draftError = ref('')
 const draftOpen = ref(false)
 const draft = reactive({ title: '', area_text: '', impact_text: '', reasoning_text: '' })
-const weatherLabels = { '00': '无显著天气记录', '60': '间歇性小雨', '70': '间歇性小雪', '74': '间歇性强降雪' }
+const weatherLabels = {
+  '00': '未见云发展或无法观测', '60': '间歇性小雨', '70': '间歇性小雪', '71': '连续小雪',
+  '72': '间歇性中雪', '73': '连续中雪', '74': '间歇性强降雪', '75': '连续强降雪', '79': '冰粒'
+}
 let active = true
 let seq = 0
 
 const canDraft = computed(() => {
   const forecast = result.value?.forecast
   return auth.hasAnyRole('ANALYST', 'ADMIN') && !loading.value && forecast?.outcome === 'REACHED' &&
-    Boolean(forecast.metric) && forecast.case.case_id === caseId.value
+    Boolean(forecast.metric && forecast.case.archive_latest_modified_at) && forecast.case.case_id === caseId.value
 })
 
 function utc(value) {
@@ -144,9 +147,9 @@ async function loadAssessment() {
 
 function openDraft() {
   if (!canDraft.value) return
-  const { case: { name }, metric } = result.value.forecast
+  const { case: { name, city }, metric } = result.value.forecast
   draft.title = `${name} · 雪灾演练`
-  draft.area_text = '济南国家站附近（数值模式代表点）'
+  draft.area_text = `${city.name}站点附近（数值模式代表点）`
   draft.impact_text = '仅作课程案例研判，不代表现场灾损或官方预警。'
   draft.reasoning_text = `24 小时累计预报降雪 ${metric.value.toFixed(2)} cm，达到教学阈值 ≥ ${metric.threshold.toFixed(2)} cm。`
   draftOpen.value = true

@@ -1353,8 +1353,10 @@ test('non-rainfall teaching results are not rainfall signals or rainfall map poi
 })
 
 function snowResponse(caseId, outcome) {
-  const metric = outcome === 'INSUFFICIENT' ? null : { value: outcome === 'REACHED' ? 12.74 : 0, threshold: 10, unit: 'cm' }
-  return { forecast: { case: { case_id: caseId, name: '济南降雪案例', city: { code: 'JINAN', name: '济南' } }, outcome, metric },
+  const verified = caseId === 'new-orleans-20250121'
+  const metric = outcome === 'INSUFFICIENT' ? null : { value: outcome === 'REACHED' ? (verified ? 20.19 : 12.74) : 0, threshold: 10, unit: 'cm' }
+  return { forecast: { case: { case_id: caseId, name: '归档降雪案例',
+    city: { name: verified ? '新奥尔良' : '济南' }, archive_latest_modified_at: verified ? '2025-01-20T19:34:56Z' : null }, outcome, metric },
     verification: { outcome: 'SNOW_REPORTED' } }
 }
 
@@ -1380,16 +1382,21 @@ test('snow switches windows without keeping old risk and does not submit verific
     assert.equal(s.canDraft.value, false)
     s.openDraft(); await s.createDraft(); assert.equal(submitted.length, 0)
 
-    s.caseId.value = 'jinan-20250302'; const incomplete = s.loadAssessment()
-    requests[2].resolve(snowResponse(s.caseId.value, 'INSUFFICIENT')); await incomplete
+    s.caseId.value = 'jinan-20250302'; const teachingOnly = s.loadAssessment()
+    requests[2].resolve(snowResponse(s.caseId.value, 'REACHED')); await teachingOnly
+    assert.equal(s.canDraft.value, false)
+
+    s.caseId.value = 'new-orleans-20250121'; const incomplete = s.loadAssessment()
+    requests[3].resolve(snowResponse(s.caseId.value, 'INSUFFICIENT')); await incomplete
     assert.equal(s.canDraft.value, false)
     const recovered = s.loadAssessment()
-    requests[3].resolve(snowResponse(s.caseId.value, 'REACHED')); await recovered
+    requests[4].resolve(snowResponse(s.caseId.value, 'REACHED')); await recovered
     assert.equal(s.canDraft.value, true)
     s.openDraft(); await s.createDraft()
     assert.equal(submitted[0][0], '/warnings/snow')
     assert.deepEqual(Object.keys(submitted[0][1]).sort(), ['area_text', 'case_id', 'impact_text', 'reasoning_text', 'title'])
-    assert.match(submitted[0][1].reasoning_text, /12\.74 cm/)
+    assert.equal(submitted[0][1].case_id, 'new-orleans-20250121')
+    assert.match(submitted[0][1].reasoning_text, /20\.19 cm/)
     assert.deepEqual(destinations, ['/warnings/snow-draft-1'])
   } finally { scope.stop() }
 })

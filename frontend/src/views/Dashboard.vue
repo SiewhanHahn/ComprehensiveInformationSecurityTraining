@@ -88,7 +88,7 @@
         />
         <ChartPanel
           title="预警状态分布"
-          subtitle="综合计数（含台风教学演练）"
+          subtitle="综合计数（含各灾种教学演练）"
           :option="statusOption"
           :height="200"
           aria-label="预警状态分布条形图"

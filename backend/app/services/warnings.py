@@ -303,6 +303,8 @@ def create_snow_warning(db: Session, body: SnowWarningCreate, actor: CurrentUser
         raise HTTPException(409, "PARTIAL_DATA")
     if forecast.outcome != "REACHED":
         raise HTTPException(409, "THRESHOLD_NOT_REACHED")
+    if forecast.case.archive_latest_modified_at is None:
+        raise HTTPException(409, "SOURCE_NOT_VERIFIED")
     result = WarningResult(
         city_code=forecast.case.city.code,
         valid_date=forecast.case.window_start.astimezone(timezone.utc).date(),

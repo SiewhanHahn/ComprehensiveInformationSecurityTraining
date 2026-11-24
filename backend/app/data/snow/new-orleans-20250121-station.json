@@ -1,0 +1,36 @@
+{
+  "source": {
+    "agency": "NOAA NCEI",
+    "product": "ISD 新奥尔良机场站 · FM-12 / MW1",
+    "url": "https://noaa-global-hourly-pds.s3.amazonaws.com/2025/72231012916.csv",
+    "checked_on_utc": "2026-11-24"
+  },
+  "station_id": "72231012916",
+  "observations": [
+    {
+      "observed_at": "2025-01-21T09:00:00Z",
+      "code": "79",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-01-21T12:00:00Z",
+      "code": "71",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-01-21T15:00:00Z",
+      "code": "73",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-01-21T18:00:00Z",
+      "code": "75",
+      "quality": "1"
+    },
+    {
+      "observed_at": "2025-01-21T21:00:00Z",
+      "code": "75",
+      "quality": "1"
+    }
+  ]
+}

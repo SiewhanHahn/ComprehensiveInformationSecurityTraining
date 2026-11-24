@@ -79,6 +79,7 @@ class SnowCaseInfo(BaseModel):
     forecast_grid: GeoPoint
     initialized_at: AwareDatetime
     window_start: AwareDatetime
+    archive_latest_modified_at: AwareDatetime | None = None
     forecast_source: CaseSource
 
     @model_validator(mode="after")
@@ -88,6 +89,9 @@ class SnowCaseInfo(BaseModel):
                 or start.minute or start.second or start.microsecond
                 or start != self.initialized_at + timedelta(hours=12)):
             raise ValueError("snow window must begin on a UTC hour, 12h after model initialization")
+        dated = self.archive_latest_modified_at
+        if dated is not None and not self.initialized_at < dated < start:
+            raise ValueError("original archive objects must be dated after initialization and before the window")
         return self
 
 
@@ -114,7 +118,7 @@ class SnowAssessment(BaseModel):
 
 class SnowStationReport(BaseModel):
     observed_at: AwareDatetime
-    code: Literal["00", "60", "70", "74"]
+    code: Literal["00", "60", "70", "71", "72", "73", "74", "75", "79"]
     quality: Literal["1"]
 
 
