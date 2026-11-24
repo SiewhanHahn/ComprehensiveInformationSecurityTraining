@@ -16,7 +16,7 @@
 
 **雷电历史演练**：在「数据 → 雷电回放」切换圣路易斯 KSTL 的两个 6 小时窗口。前窗最大 LTNG 0.09、后窗 0.00；教学界线 0.05，只有六时次完整且原档案时间可证的达标案例可创建草稿。LTNG 无量纲；独立站点报告只核对天气现象。见[演练步骤](docs/user-guide-v1.md#lightning)、[来源与口径](docs/c2-lightning-source-preflight.md)和[雷电检查点验收](docs/evidence/c2-lightning-2026-11-24.md)。
 
-**干旱基础预测**：在「数据 → 基础预测」填写连续少雨日数和未来七天降水，现场改值可重算；缺测明确显示无法判断。不保存输入或创建预警。[使用步骤](docs/user-guide-v1.md#basic-forecast)。
+**干旱基础预测**：在「数据 → 基础预测」填写连续少雨日数和未来七天降水，现场改值可重算；缺测明确显示无法判断。不保存输入或创建预警。[使用步骤](docs/user-guide-v1.md#basic-forecast)和[实测验收](docs/evidence/c3-drought-2026-11-24.md)。
 
 ## 普通开发启动（非多版本并行演示）
 
@@ -45,6 +45,7 @@ docker compose ps
 
 | 目的 | 取用版本 |
 |---|---|
+| C3 干旱基础试算（含四类重点） | `checkpoint/c3-drought`（验收标签，不是八灾种终版） |
 | C2 雷电集成演示（四类重点） | `checkpoint/c2-lightning`（验收标签，不是八灾种终版） |
 | C2 雪灾集成演示（含暴雨、台风） | `checkpoint/c2-snow`（验收标签，不是八灾种终版） |
 | C1 暴雨集成演示 | `checkpoint/c1-rain`（本地验收标签，不是八灾种终版） |
