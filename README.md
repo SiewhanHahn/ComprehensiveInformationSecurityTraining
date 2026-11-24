@@ -6,7 +6,7 @@
 - 前端：Vue 3 + Vite，Nginx 反代 `/api` 到后端
 - 编排：Docker Compose，一条命令启动 frontend / api / mysql / redis
 
-**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。当前有四类重点灾种的研判和预警流程；干旱可运行基础试算，其余三个基础灾种待实现。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
+**终期范围：** 四类重点（暴雨、台风、雪灾、雷电），四类基本预测（干旱、高温、低温、风雹）。当前有四类重点灾种的研判和预警流程；干旱、高温可运行基础试算，低温和风雹待实现。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
 
 **C1 暴雨集成**：从本地验收标签 `checkpoint/c1-rain` 取源码，不从旧演示目录或 `main` 取。先核对页面实际提供的提交号，再展示指标、长沙手算和南京试算。见[当前版本与验收入口](docs/c1-rain-handoff.md)和[演示启动指南](docs/user-guide-v1.md#defense)。
 
@@ -17,6 +17,8 @@
 **雷电历史演练**：在「数据 → 雷电回放」切换圣路易斯 KSTL 的两个 6 小时窗口。前窗最大 LTNG 0.09、后窗 0.00；教学界线 0.05，只有六时次完整且原档案时间可证的达标案例可创建草稿。LTNG 无量纲；独立站点报告只核对天气现象。见[演练步骤](docs/user-guide-v1.md#lightning)、[来源与口径](docs/c2-lightning-source-preflight.md)和[雷电检查点验收](docs/evidence/c2-lightning-2026-11-24.md)。
 
 **干旱基础预测**：在「数据 → 基础预测」填写连续少雨日数和未来七天降水，现场改值可重算；缺测明确显示无法判断。不保存输入或创建预警。[使用步骤](docs/user-guide-v1.md#basic-forecast)和[实测验收](docs/evidence/c3-drought-2026-11-24.md)。
+
+**高温基础预测**：在「基础预测 → 高温」填 24 个 UTC 整点的气温预报（°C），计算最高值与达到 **35.0 °C** 教学线的时次；缺任一时次为无法判断。初始值仅供教学，不是实时数据，不创建预警。[使用步骤](docs/user-guide-v1.md#basic-forecast)
 
 ## 普通开发启动（非多版本并行演示）
 

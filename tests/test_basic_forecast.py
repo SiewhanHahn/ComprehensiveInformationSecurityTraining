@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from importlib import import_module
 
 import pytest
@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from conftest import csrf_headers
 
 DROUGHT_URL = '/api/v1/basic-forecast/drought/assessment'
+HEAT_URL = '/api/v1/basic-forecast/heat/assessment'
 
 
 @pytest.fixture
@@ -20,12 +21,11 @@ def sample(**overrides):
 
 
 def test_drought_endpoint_and_basic_hazard_registration():
-    from backend.app.hazards import HAZARDS, hazard_summary
+    from backend.app.hazards import HAZARDS
     from backend.app.main import app
 
     drought = next(item for item in HAZARDS if item['code'] == 'DROUGHT')
     assert drought['status'] == 'BASIC' and DROUGHT_URL in app.openapi()['paths']
-    assert hazard_summary() == {'total': 8, 'implemented': 4, 'basic': 1, 'framework': 3}
 
 
 @pytest.mark.parametrize(('prior_days', 'fifth_rain', 'end_days', 'outcome'), [
@@ -79,4 +79,75 @@ def test_drought_trial_is_authenticated_validated_and_does_not_create_a_warning(
     assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
     assert (result.json()['end_dry_days'], result.json()['outcome']) == (16, 'REACHED')
     assert client.post(DROUGHT_URL, headers=headers, json=sample(extra_result=0)).status_code == 422
+    assert analyst.get('/api/v1/warnings').json() == before
+
+
+def temperature_sample(**overrides):
+    return dict(location='课程示例点', start_at='2024-02-28T18:00:00Z',
+                hourly_temperature_c=[21.0] * 24) | overrides
+
+
+def test_heat_endpoint_and_basic_hazard_registration():
+    from backend.app.hazards import HAZARDS, hazard_summary
+    from backend.app.main import app
+
+    heat = next(item for item in HAZARDS if item['code'] == 'HEATWAVE')
+    assert HEAT_URL in app.openapi()['paths']
+    assert heat['status'] == 'BASIC' and heat['thresholds'][0]['value'] == 35.0
+    assert hazard_summary() == {'total': 8, 'implemented': 4, 'basic': 2, 'framework': 2}
+
+
+@pytest.mark.parametrize(('values', 'outcome', 'peak', 'qualified_offsets'), [
+    ([34.9] * 24, 'NOT_REACHED', 34.9, []),
+    ([22.0] * 23 + [35.0], 'REACHED', 35.0, [23]),
+    ([35.0, 36.2] + [22.0] * 21 + [35.0], 'REACHED', 36.2, [0, 1, 23]),
+])
+def test_heat_uses_maximum_and_all_qualifying_utc_hours(basic, values, outcome, peak, qualified_offsets):
+    body = basic.HourlyTemperatureInput.model_validate(temperature_sample(hourly_temperature_c=values))
+    result = basic.assess_heat(body)
+    start = datetime(2024, 2, 28, 18, tzinfo=UTC)
+    assert result.hazard_type == 'HEATWAVE' and result.location == '课程示例点'
+    assert (result.start_at, result.end_at, result.usable_hours) == (start, datetime(2024, 2, 29, 17, tzinfo=UTC), 24)
+    assert (result.threshold_c, result.extreme_c, result.outcome) == (35.0, peak, outcome)
+    assert result.qualifying_hours == [start + timedelta(hours=i) for i in qualified_offsets]
+
+
+@pytest.mark.parametrize('values', [[36.0] + [20.0] * 22 + [None], [None] * 24])
+def test_heat_does_not_report_peak_or_outcome_from_incomplete_hours(basic, values):
+    body = basic.HourlyTemperatureInput.model_validate(temperature_sample(hourly_temperature_c=values))
+    result = basic.assess_heat(body)
+    assert (result.outcome, result.extreme_c, result.qualifying_hours) == ('INSUFFICIENT', None, [])
+    assert result.usable_hours == sum(value is not None for value in values)
+
+
+@pytest.mark.parametrize(('field', 'invalid'), [
+    ('location', '  '), ('location', 'x' * 81),
+    ('start_at', '2024-02-28T18:00:00'), ('start_at', '2024-02-28T18:00:00+08:00'),
+    ('start_at', '2024-02-28T18:30:00Z'), ('start_at', '2024-02-28T18:00:01Z'),
+    ('start_at', '2025-02-29T18:00:00Z'), ('start_at', '9999-12-31T01:00:00Z'),
+    ('start_at', 1709143200),
+    ('hourly_temperature_c', [0] * 23), ('hourly_temperature_c', [0] * 25),
+    ('hourly_temperature_c', [0] * 23 + [True]), ('hourly_temperature_c', [0] * 23 + ['35']),
+    ('hourly_temperature_c', [0] * 23 + [float('inf')]), ('hourly_temperature_c', [0] * 23 + [float('nan')]),
+])
+def test_temperature_window_rejects_invalid_time_shape_or_number(basic, field, invalid):
+    with pytest.raises(ValidationError, match=field):
+        basic.HourlyTemperatureInput.model_validate(temperature_sample(**{field: invalid}))
+
+
+@pytest.mark.integration
+def test_heat_trial_auth_csrf_validation_and_read_only_response(new_client, login):
+    body = temperature_sample(location=' 可编辑课程点 ', hourly_temperature_c=[-0.5] * 23 + [35.0])
+    assert new_client().post(HEAT_URL, json=body).status_code == 401
+    client, token = login('viewer_demo')
+    analyst, _ = login('analyst_demo')
+    before = analyst.get('/api/v1/warnings').json()
+    assert client.post(HEAT_URL, json=body).status_code == 403
+    headers = csrf_headers(token)
+    result = client.post(HEAT_URL, headers=headers, json=body)
+    assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
+    assessment = result.json()
+    assert (assessment['outcome'], assessment['extreme_c'], assessment['location']) == ('REACHED', 35.0, '可编辑课程点')
+    assert assessment['qualifying_hours'] == ['2024-02-29T17:00:00Z']
+    assert client.post(HEAT_URL, headers=headers, json=body | {'outcome': 'REACHED'}).status_code == 422
     assert analyst.get('/api/v1/warnings').json() == before

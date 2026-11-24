@@ -1,11 +1,11 @@
 """Deterministic teaching forecasts with caller-provided inputs, no persistence."""
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, field_validator
 
-from ..hazards import DROUGHT_DRY_DAY_BELOW_MM, DROUGHT_STREAK_THRESHOLD_DAYS
+from ..hazards import DROUGHT_DRY_DAY_BELOW_MM, DROUGHT_STREAK_THRESHOLD_DAYS, HEAT_THRESHOLD_C
 
 DROUGHT_FORECAST_DAYS = 7
 RainMm = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -62,3 +62,54 @@ def assess_drought(body: DroughtInput) -> DroughtAssessment:
     return DroughtAssessment(location=body.location, start_date=body.start_date, end_date=days[-1].valid_date,
                              antecedent_dry_days=body.antecedent_dry_days, usable_days=available, days=days,
                              end_dry_days=streak, outcome=outcome)
+
+
+TEMPERATURE_FORECAST_HOURS = 24
+TemperatureC = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+
+
+def require_utc_hour(value):
+    if isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:00:00(?:Z|\+00:00)", value):
+        return value
+    raise ValueError("start_at must be a whole UTC hour (YYYY-MM-DDTHH:00:00Z)")
+
+
+UTCHour = Annotated[AwareDatetime, BeforeValidator(require_utc_hour)]
+
+
+class HourlyTemperatureInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    location: Location
+    start_at: UTCHour = Field(le=datetime.max.replace(tzinfo=UTC) - timedelta(hours=TEMPERATURE_FORECAST_HOURS - 1))
+    hourly_temperature_c: tuple[TemperatureC | None, ...] = Field(
+        min_length=TEMPERATURE_FORECAST_HOURS, max_length=TEMPERATURE_FORECAST_HOURS,
+    )
+
+
+class HourlyTemperatureAssessment(BaseModel):
+    hazard_type: Literal["HEATWAVE"] = "HEATWAVE"
+    method: Literal["hourly-heat-threshold-v1"] = "hourly-heat-threshold-v1"
+    location: str
+    start_at: datetime
+    end_at: datetime  # Inclusive UTC time of the last forecast hour.
+    usable_hours: int
+    threshold_c: float = HEAT_THRESHOLD_C
+    extreme_c: float | None
+    outcome: Literal["INSUFFICIENT", "REACHED", "NOT_REACHED"]
+    qualifying_hours: list[datetime]
+
+
+def assess_heat(body: HourlyTemperatureInput) -> HourlyTemperatureAssessment:
+    """Compute the 24-hour maximum and threshold times only from a complete window."""
+    readings = [(i, value) for i, value in enumerate(body.hourly_temperature_c) if value is not None]
+    complete = len(readings) == TEMPERATURE_FORECAST_HOURS
+    qualifying = [body.start_at + timedelta(hours=i) for i, value in readings if value >= HEAT_THRESHOLD_C] if complete else []
+    return HourlyTemperatureAssessment(
+        location=body.location,
+        start_at=body.start_at,
+        end_at=body.start_at + timedelta(hours=TEMPERATURE_FORECAST_HOURS - 1),
+        usable_hours=len(readings),
+        extreme_c=max(value for _, value in readings) if complete else None,
+        outcome="INSUFFICIENT" if not complete else "REACHED" if qualifying else "NOT_REACHED",
+        qualifying_hours=qualifying,
+    )

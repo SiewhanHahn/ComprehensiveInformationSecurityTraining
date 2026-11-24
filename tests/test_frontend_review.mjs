@@ -1548,3 +1548,55 @@ test('drought sends the edited rainfall, preserves blank as null, and invalidate
     assert.equal(d.dailyRain.value[4], 0)
   } finally { scope.stop() }
 })
+
+
+test('hourly temperature trial submits 24 slots in UTC and ignores results for edited values', async () => {
+  const requests = []
+  const { exposed: trial, scope } = instantiateSetupScript('src/components/HourlyTemperatureTrial.vue', {
+    '../api': {
+      apiFetch: (url, options) => new Promise(resolve => requests.push({ url, ...options, resolve }))
+    }
+  })
+  try {
+    trial.location.value = '  教学站点  '
+    trial.startAt.value = '2025-07-01T18:00'
+    trial.temperatures.value[0] = 0
+    const first = trial.calculate()
+    const payload = JSON.parse(requests[0].body)
+    assert.equal(requests[0].url, '/basic-forecast/heat/assessment')
+    assert.equal(requests[0].method, 'POST')
+    assert.equal(payload.location, '教学站点')
+    assert.equal(payload.start_at, '2025-07-01T18:00:00Z')
+    assert.equal(payload.hourly_temperature_c.length, 24)
+    assert.equal(payload.hourly_temperature_c[0], 0)
+    assert.equal(trial.hourLabels.value[23], '2025-07-02 17:00')
+
+    trial.temperatures.value[0] = ''
+    const second = trial.calculate()
+    assert.equal(JSON.parse(requests[1].body).hourly_temperature_c[0], null)
+    requests[0].resolve({ outcome: 'REACHED', extreme_c: 35 }); await first
+    assert.equal(trial.assessment.value, null)
+    assert.equal(trial.busy.value, true)
+    requests[1].resolve({ outcome: 'INSUFFICIENT', extreme_c: null }); await second
+    assert.equal(trial.assessment.value.outcome, 'INSUFFICIENT')
+    trial.resetSample()
+    assert.equal(trial.assessment.value, null)
+  } finally { scope.stop() }
+})
+
+
+test('hourly temperature trial does not silently round or shift an invalid UTC start', async () => {
+  let calls = 0
+  const { exposed: trial, scope } = instantiateSetupScript('src/components/HourlyTemperatureTrial.vue', {
+    '../api': { apiFetch: async () => { calls++ } }
+  })
+  try {
+    for (const value of ['2025-07-01T18:15', '2025-02-29T09:00', '0000-01-01T00:00', '9999-12-31T01:00']) {
+      trial.startAt.value = value
+      await trial.calculate()
+      assert.equal(trial.assessment.value, null)
+      assert.match(trial.error.value, /UTC/)
+    }
+    assert.equal(calls, 0)
+  } finally { scope.stop() }
+})

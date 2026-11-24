@@ -84,6 +84,7 @@
         <router-link v-if="h.code === 'SNOW_DISASTER' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/snow">查看雪灾历史案例</router-link>
         <router-link v-if="h.code === 'THUNDERSTORM' && h.status === 'IMPLEMENTED'" class="btn btn-ghost btn-sm" to="/lightning">查看雷电历史案例</router-link>
         <router-link v-if="h.code === 'DROUGHT' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast">试算干旱风险</router-link>
+        <router-link v-if="h.code === 'HEATWAVE' && h.status === 'BASIC'" class="btn btn-ghost btn-sm" to="/basic-forecast?hazard=heat">试算高温风险</router-link>
       </div>
     </div>
 

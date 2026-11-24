@@ -16,6 +16,7 @@ LIGHTNING_LTNG_THRESHOLD = 0.05  # 固定教学界线，不是官方信号或概
 
 DROUGHT_DRY_DAY_BELOW_MM = 1.0
 DROUGHT_STREAK_THRESHOLD_DAYS = 14
+HEAT_THRESHOLD_C = 35.0  # Teaching threshold; not an official warning rule.
 
 # 订阅里表示「不限灾种」的哨兵值；不能用 NULL，MySQL 唯一索引不把 NULL 视为相等
 ALL_HAZARDS = "*"
@@ -92,7 +93,17 @@ HAZARDS: list[dict] = [
         "judgement": "日总降水 < 1.00 mm 延续少雨日数；达到 1.00 mm 则清零。",
         "note": "示例可编辑；缺测无法判断。不创建预警，不用来推断土壤墒情或灾损。",
     },
-    _planned("HEATWAVE", "高温", "未来 24 小时最高气温", "°C", ["逐时气温预报"]),
+    {
+        "code": "HEATWAVE",
+        "name": "高温",
+        "status": HAZARD_STATUS_BASIC,
+        "indicator": "未来 24 小时最高气温",
+        "unit": "°C",
+        "thresholds": [{"code": "HEAT_MAX", "label": "教学高温 ≥", "value": HEAT_THRESHOLD_C}],
+        "data_sources": ["用户自填逐时气温预报（内置教学示例）"],
+        "judgement": "24 个 UTC 整点气温的最大值及达到教学线的时次；有缺测则无法判断",
+        "note": "教学试算，不是实时预报或官方高温预警；不生成预警草稿。",
+    },
     _planned("LOW_TEMPERATURE", "低温", "未来 24 小时最低气温", "°C", ["逐时气温预报"]),
     _planned("WIND_HAIL", "风雹", "未来 6 小时阵风及冰雹风险", "m/s / 风险提示", ["阵风预报", "明确的预报冰雹信号"]),
 ]

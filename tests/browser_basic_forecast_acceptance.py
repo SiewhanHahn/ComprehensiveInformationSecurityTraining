@@ -43,7 +43,7 @@ def main():
         page.wait_for_url(base + '/')
 
         page.goto(base + '/hazards')
-        expect(page.get_by_text('4 类端到端实现 · 1 类基础预测', exact=False)).to_be_visible()
+        expect(page.get_by_text('4 类端到端实现 · 2 类基础预测', exact=False)).to_be_visible()
         page.get_by_role('link', name='试算干旱风险').click()
         page.wait_for_url(base + '/basic-forecast')
         forecast = page.get_by_role('region', name='干旱预测结果')
@@ -90,10 +90,56 @@ def main():
         expect(forecast.get_by_text('缺测', exact=True)).to_be_visible()
         page.set_viewport_size({'width': 390, 'height': 844})
         assert forecast.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Drought result overflows on mobile'
+        page.set_viewport_size({'width': 1360, 'height': 920})
+        page.get_by_role('link', name='查看灾种覆盖').click()
+        page.get_by_role('link', name='试算高温风险').click()
+        page.wait_for_url(base + '/basic-forecast?hazard=heat')
+        heat = page.get_by_role('region', name='高温试算输入')
+        expect(heat.get_by_role('spinbutton')).to_have_count(24)
+        expect(page.get_by_role('link', name='高温', exact=True)).to_have_attribute('aria-current', 'page')
+        forecast = page.get_by_role('region', name='高温预测结果')
+        outcome = forecast.get_by_test_id('temperature-outcome')
+        peak = forecast.get_by_test_id('temperature-extreme')
+        qualifying = forecast.get_by_test_id('temperature-qualifying')
+        calculate = heat.get_by_role('button', name='计算高温风险')
+        trial = '/api/v1/basic-forecast/heat/assessment'
+        heat.get_by_label('地点', exact=True).fill('现场教学点')
+        heat.get_by_label('预测起点（UTC 整点）').fill('2025-07-01T18:00')
+        boundary = heat.get_by_label('第 14 小时气温', exact=False)
+        expect(heat.get_by_text('2025-07-02 07:00', exact=True)).to_be_visible()
+        result = compute()
+        assert result['outcome'] == 'NOT_REACHED' and result['extreme_c'] == 34.9
+        expect(outcome).to_have_text('未达高温教学阈值')
+        expect(peak).to_have_text('34.9 °C')
+
+        boundary.fill('35.0')
+        expect(forecast).to_have_count(0)
+        result = compute()
+        assert result['location'] == '现场教学点' and result['outcome'] == 'REACHED'
+        assert result['qualifying_hours'] == ['2025-07-02T07:00:00Z']
+        expect(outcome).to_have_text('达到高温教学阈值')
+        expect(peak).to_have_text('35 °C')
+        expect(qualifying).to_contain_text('2025-07-02 07:00')
+        expect(forecast.get_by_text('此结果不是官方高温预警', exact=False)).to_be_visible()
+        if args.evidence:
+            forecast.screenshot(path=args.evidence / 'heat-boundary.png')
+
+        boundary.fill('')
+        result = compute()
+        assert result['usable_hours'] == 23 and result['extreme_c'] is None and result['qualifying_hours'] == []
+        expect(outcome).to_have_text('无法判断')
+        expect(peak).to_have_count(0)
+        expect(qualifying).to_have_count(0)
+        page.set_viewport_size({'width': 390, 'height': 844})
+        for region in (heat, forecast):
+            assert region.evaluate('(el) => el.scrollWidth <= el.clientWidth'), 'Heat trial overflows on mobile'
+        page.get_by_role('link', name='干旱', exact=True).click()
+        expect(forecast).to_have_count(0)
+        expect(page.get_by_role('region', name='干旱试算输入')).to_be_visible()
         assert context.request.get(base + '/api/v1/warnings').json() == warnings
         assert not outside, f'Basic forecasts attempted external requests: {outside!r}'
         browser.close()
-    print('PASS: offline drought editable values (16, 2, 14 days), unknown input, mobile, no published warning changes')
+    print('PASS: offline drought (16 / 2 / 14 days), heat (34.9 / 35.0 °C), missing input, mobile, no warning changes')
 
 
 if __name__ == '__main__':
