@@ -169,6 +169,7 @@
                 {{ w.title }}
                 <small v-if="w.hazard_type === 'TYPHOON'" class="muted"> · 台风演练</small>
                 <small v-else-if="w.hazard_type === 'SNOW_DISASTER'" class="muted"> · 雪灾演练</small>
+                <small v-else-if="w.hazard_type === 'THUNDERSTORM'" class="muted"> · 雷电演练</small>
               </td>
               <td>{{ w.city_name || cityName(w.city_code) }}</td>
               <td><StatusBadge :value="w.status" size="sm" dot /></td>

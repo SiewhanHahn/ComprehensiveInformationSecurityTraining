@@ -117,7 +117,7 @@ def main():
         expect(evidence.get_by_test_id('lightning-outcome')).to_have_text('未达教学阈值')
         select.select_option(POSITIVE)
         draft_button.click()
-        analyst.get_by_label('草稿标题').fill(key + ' · 雷电历史演练')
+        analyst.get_by_label('草稿标题').fill(key + ' · 圣路易斯历史样本')
         created = click_write(analyst, '保存雷电演练草稿', '/warnings/lightning')
         assert (created['hazard_type'], created['status'], created['city_name'], created['fused_mm']) == (
             'THUNDERSTORM', 'DRAFT', '圣路易斯', None)
@@ -126,9 +126,15 @@ def main():
         expect(evidence.get_by_test_id('lightning-ltng')).to_have_text('0.09')
         expect(reference).to_have_count(0)
         expect(analyst.get_by_text('融合累计', exact=True)).to_have_count(0)
+        listing = analyst.context.new_page()
+        listing.set_default_timeout(12000)
+        listing.goto(base + '/warnings')
+        expect(listing.get_by_role('row').filter(has_text=key)).to_contain_text('雷电演练')
         assert click_write(analyst, '提交审核', '/submit')['status'] == 'PENDING_REVIEW'
 
         reviewer = login('REVIEWER')
+        reviewer.goto(base + '/review')
+        expect(reviewer.get_by_role('row').filter(has_text=key)).to_contain_text('雷电演练')
         reviewer.goto(detail)
         expect(reviewer.get_by_role('region', name='雷电预报判定')).to_be_visible()
         reviewer.get_by_label('审核意见').fill('核对六个 HRRR 有效预报时次')
@@ -136,6 +142,9 @@ def main():
         reviewer.get_by_label('发布或撤回原因').fill(key + '-演练发布')
         assert click_write(reviewer, '发布', '/publish')['status'] == 'PUBLISHED'
 
+        listing.goto(base + '/')
+        expect(listing.get_by_role('row').filter(has_text=key)).to_contain_text('雷电演练')
+        listing.close()
         analyst.reload()
         click_write(analyst, '接单', '/ack')
         analyst.get_by_placeholder('处置说明（可选）').fill('完成历史档案复核')

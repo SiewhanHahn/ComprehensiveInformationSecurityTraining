@@ -1463,16 +1463,20 @@ test('lightning ignores delayed results and blocks drafting from an incomplete o
     assert.equal(l.result.value.forecast.case.case_id, control)
     assert.equal(l.canDraft.value, false)
 
+    const staleFailure = l.loadAssessment()
     l.caseId.value = positive
     const missing = l.loadAssessment()
-    requests[2].resolve(lightningReplay(positive, 'INSUFFICIENT')); await missing
+    requests[2].reject(new Error('delayed failure for previous window')); await staleFailure
+    assert.equal(l.error.value, '')
+    assert.equal(l.loading.value, true)
+    requests[3].resolve(lightningReplay(positive, 'INSUFFICIENT')); await missing
     assert.equal(l.canDraft.value, false)
     const undated = l.loadAssessment()
-    requests[3].resolve(lightningReplay(positive, 'REACHED', false)); await undated
+    requests[4].resolve(lightningReplay(positive, 'REACHED', false)); await undated
     assert.equal(l.canDraft.value, false)
 
     const stable = l.loadAssessment()
-    requests[4].resolve(lightningReplay(positive, 'REACHED')); await stable
+    requests[5].resolve(lightningReplay(positive, 'REACHED')); await stable
     assert.equal(l.canDraft.value, true)
     l.openDraft()
     await l.createDraft()
@@ -1484,7 +1488,7 @@ test('lightning ignores delayed results and blocks drafting from an incomplete o
 
     const leaving = l.loadAssessment()
     for (const fn of unmountedHooks) fn()
-    requests[5].resolve(lightningReplay(positive, 'REACHED')); await leaving
+    requests[6].resolve(lightningReplay(positive, 'REACHED')); await leaving
     assert.equal(l.result.value, null)
   } finally { scope.stop() }
 })
