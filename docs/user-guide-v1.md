@@ -56,15 +56,27 @@ docker compose down
 
 ## 4. 终期演示：先看年份，再看提升，最后换城市
 
-**演示前**在 VM 上提前构建，使用单独的 Compose 项目和数据卷，不覆盖 B 版。以下命令要求支持 `!override` 与 `gw_priority` 的 Docker Compose（本次为 v5.5）。已经建好的实例可跳过构建，用相同项目名运行 `up -d`。
+**C1 现场演示专用**：用 `checkpoint/c1-rain` 的 Git 归档、单独的 Compose 项目与卷。普通历史 B 为 8080、历史暴雨实例为 18080、B 验收为 18181；不要占用或覆盖它们。C1 新建演示默认 **18280**，本次可丢弃 QA 使用 **18281**。B/C 若在同一主机名下，仅换端口不能隔离会话 Cookie；请使用不同浏览器配置文件（或相互独立的浏览器上下文）。
+
+在有验收标签的 VM 仓库使用 Bash，事先准备私有配置（替换 `.env.example` 的所有占位符），设置 `C1_ENV_FILE` 为其绝对路径。第一次构建可能需要联网；演示前预热镜像并准备好样本。
 
 ```bash
-docker compose -p raintrial-demo -f compose.yaml -f compose.defense.yaml up --build -d
-curl -fsS http://127.0.0.1:18080/health/db
-curl -fsS http://127.0.0.1:18080/health/redis
+set -euo pipefail
+: "${C1_ENV_FILE:?请提供私有配置的绝对路径}"
+rev=$(git rev-parse 'checkpoint/c1-rain^{commit}')
+dir=$(mktemp -d "$HOME/rain-c1-demo-XXXXXX")
+git archive "$rev" | tar -xf - -C "$dir"
+install -m 600 "$C1_ENV_FILE" "$dir/.env"
+cd "$dir"
+export COMPOSE_PROJECT_NAME=rain-c1-demo COMPOSE_FILE=compose.yaml:compose.defense.yaml DEFENSE_PORT=18280
+docker compose up --build -d
+test "$(docker compose port frontend 80)" = '127.0.0.1:18280'
+base=http://127.0.0.1:18280
+test "$(curl -fsS --retry 5 --retry-all-errors "$base/build-revision.txt")" = "$rev"
+curl -fsS "$base/health/db"; curl -fsS "$base/health/redis"
 ```
 
-在 **VM 浏览器**打开 `http://127.0.0.1:18080`；宿主机可用 `ssh -N -L 19182:127.0.0.1:18080 shawn@<VM地址>`，再打开 `http://127.0.0.1:19182`。后端和存储只接内部网络；现场不调用气象接口。不要删除 MySQL 卷。
+在 VM 浏览器打开 `http://127.0.0.1:18280`；宿主机可用 `ssh -N -L 19280:127.0.0.1:18280 shawn@<VM地址>` 再打开 `http://127.0.0.1:19280`。任一版本/端口检查失败则停止；不要把另一个实例的 200 响应当作成功。不要在演示环境跑全量写入测试或删除卷。
 
 1. **年份与来源**：分析员登录「指标对比」。九城实验用归档预报，不是实时预测；研究期 2024-02-01 至 2026-09-30，2026 年测试，原始下载日期未记录。不能说“只有往年的”，也不能说“9 月底是平台最新日期”。
 2. **一条样本**：「历史回放」默认长沙 2024-03-27，选 25 mm，点「回放」。ECMWF/GFS/ICON/GEM 的 `32.7 / 30.7 / 19.6 / 35.5` 平均为 **29.625 mm**，超过阈值。ERA5 的 **29.6 mm** 只作事后参考，两者不是同一个数。

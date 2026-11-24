@@ -58,7 +58,8 @@ def verify(page, base, evidence=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--url', default='http://127.0.0.1:18080')
+    parser.add_argument('--url', default='http://127.0.0.1:18281')
+    parser.add_argument('--expect-revision', help='verify the Git archive SHA before signing in')
     parser.add_argument('--evidence', type=Path)
     args = parser.parse_args()
     base = args.url.rstrip('/')
@@ -67,6 +68,10 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.getenv('CHROMIUM_PATH'))
         ctx = browser.new_context(viewport={'width': 1360, 'height': 920}, service_workers='block', reduced_motion='reduce')
+        if args.expect_revision:
+            stamp = ctx.request.get(base + '/build-revision.txt')
+            if not stamp.ok or stamp.text().strip() != args.expect_revision:
+                raise SystemExit('QA endpoint revision mismatch; refusing to sign in')
         page = ctx.new_page()
         page.goto(base + '/login')
         page.locator('input[autocomplete=username]').fill('analyst_demo')

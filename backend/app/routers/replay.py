@@ -48,6 +48,15 @@ def replay(
     )
 
 
+def _unique_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise HTTPException(422, 'TRIAL_DUPLICATE_FIELD')
+        result[key] = value
+    return result
+
+
 async def read_trial_file(request: Request):
     data = bytearray()
     async for chunk in request.stream():
@@ -55,7 +64,7 @@ async def read_trial_file(request: Request):
             raise HTTPException(413, 'TRIAL_TOO_LARGE')
         data.extend(chunk)
     try:
-        return json.loads(data.decode('utf-8-sig'), parse_float=Decimal)
+        return json.loads(data.decode('utf-8-sig'), parse_float=Decimal, object_pairs_hook=_unique_fields)
     except (ValueError, RecursionError, ArithmeticError):
         raise HTTPException(422, 'TRIAL_INVALID_JSON') from None
 

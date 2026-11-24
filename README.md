@@ -8,9 +8,9 @@
 
 **终期范围已更新：** 当前代码中的“1 类端到端 + 7 类框架”是旧演示的能力边界，不是最终目标。按教师反馈，C 需要四类重点实现、四类具备基本预测功能。见[八灾种验收口径](docs/c-eight-hazard-acceptance.md)和[B 最终基线](docs/b-final-acceptance.md)。
 
-**已有暴雨演示（当前工作区，未打 C 标签）：** 先看「指标对比」的数据来源和实验截止日，再到「历史回放」手算长沙、切换南京文件试算。九城冻结指标与外部文件相互独立。见 [演示步骤及离线启动](docs/user-guide-v1.md#defense) 和 [验收记录](docs/phase-c-acceptance.md)。
+**C1 暴雨集成**：从本地验收标签 `checkpoint/c1-rain` 取源码，不从旧演示目录或 `main` 取。先核对页面实际提供的提交号，再展示指标、长沙手算和南京试算。见[当前版本与验收入口](docs/c1-rain-handoff.md)和[演示启动指南](docs/user-guide-v1.md#defense)。
 
-## 一键启动
+## 普通开发启动（非多版本并行演示）
 
 ```bash
 cp .env.example .env
@@ -35,18 +35,13 @@ docker compose ps
 
 ## 版本选择
 
-完整路线、各档交付物与取用方式见 `docs/roadmap-v1.md`。
+| 目的 | 取用版本 |
+|---|---|
+| C1 暴雨集成演示 | `checkpoint/c1-rain`（本地验收标签，不是八灾种终版） |
+| B 最终基线 | `baseline/b-final-2026-11-24`，提交 `be079a3` |
+| 历史版本 | `v0.3.0-phase-b` 和 `v0.2.x-phase-a`，不含 C1 |
 
-- 最新稳定版：`main`（当前为 `v0.2.3-phase-a`）
-- 答辩演示推荐：`main` 上最新的 `v0.2.x-phase-a` 标签
-- 回退到当前已验证快照：`v0.1.0-mvp`
-
-```bash
-git fetch --tags
-git tag -l
-git switch --detach v0.2.0-phase-a   # 只读查看某个版本
-git switch main                       # 回到最新稳定版
-```
+`git rev-parse 'checkpoint/c1-rain^{commit}'` 用于核对本地标签；没有该标签时，不要把 `main` 或 Phase A 当作替代。见[版本路线](docs/roadmap-v1.md)。
 
 ## 量化结果（冻结指标）
 

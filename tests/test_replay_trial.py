@@ -123,3 +123,19 @@ def test_trial_leaves_existing_pending_review_unchanged(login, make_warning):
     for field in ['public_id', 'status', 'version_no', 'submitted_at', 'review_token', 'fused_mm']:
         assert before[field] == after[field], field
     assert reviewer.post(url + '/review', json=reviewed, headers=csrf_headers(r)).status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('raw', [b'{"rows":[],"rows":[]}',
+                                 b'{"rows":[{"models":{"gem_global":20,"gem_global":40}}]}'])
+async def test_ambiguous_json_columns_rejected_before_trial(raw):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from backend.app.routers.replay import read_trial_file
+
+    async def receive():
+        return {'type': 'http.request', 'body': raw, 'more_body': False}
+    req = Request({'type': 'http', 'headers': []}, receive)
+    with pytest.raises(HTTPException) as failure:
+        await read_trial_file(req)
+    assert (failure.value.status_code, failure.value.detail) == (422, 'TRIAL_DUPLICATE_FIELD')

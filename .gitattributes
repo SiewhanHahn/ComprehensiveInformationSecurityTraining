@@ -3,3 +3,4 @@
 # 这两个路径固定检出为 LF。
 Dockerfile text eol=lf
 *.sh text eol=lf
+frontend/public/build-revision.txt text eol=lf export-subst

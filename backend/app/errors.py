@@ -8,6 +8,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 MESSAGES: dict[str, str] = {
+    'TRIAL_DUPLICATE_FIELD': '文件含重复的 JSON 字段名，请对照模板检查后重新上传',
     'TRIAL_TOO_LARGE': '文件超过 256 KiB，请拆分批次',
     'TRIAL_INVALID_JSON': '文件不是有效的 UTF-8 JSON，请使用模板',
     # 通用

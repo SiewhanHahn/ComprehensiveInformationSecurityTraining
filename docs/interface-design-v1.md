@@ -273,6 +273,6 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 {"schema_version":1,"lead_hours":24,"rows":[{"city":"南京","valid_date":"2026-10-03","models":{"ecmwf_ifs025":2.1,"gfs_global":5.2,"icon_global":3.3,"gem_global":13.0},"reference_mm":5.4,"reference_type":"ERA5_PROXY"}]}
 ```
 
-- UTF-8，≤256 KiB，1–200 条；城市名不受内置九城限制，UTC 日期必须为 `YYYY-MM-DD`；同城市同日期不重复，未知列整批拒绝。四路必须齐全，数值 0–2000 mm、最多三位小数，不接受数字字符串。可省略两列参考值，或同时给出数值和 `ERA5_PROXY` / `STATION_OBS`。
+- UTF-8，≤256 KiB，1–200 条；城市名不受内置九城限制，UTC 日期必须为 `YYYY-MM-DD`；同城市同日期不重复，未知列或 JSON 对象内重复字段名均整批拒绝（重复字段返回 422 TRIAL_DUPLICATE_FIELD）。四路必须齐全，数值 0–2000 mm、最多三位小数，不接受数字字符串。可省略两列参考值，或同时给出数值和 `ERA5_PROXY` / `STATION_OBS`。
 - 200 返回 `threshold_mm` 和原顺序的 `rows`：城市/日期、四路 `models`、ECMWF `baseline_mm`、`fused_mm` 及两者的 `*_hit`、可空的 `reference_mm/reference_type/reference_hit`。等权均值用 Decimal 半入到三位小数后按 `>=` 判定；参考值不参与计算。响应禁止缓存。
 - 未登录 401；角色或 CSRF 不合规 403；阈值不存在 404；字节数超限 413；格式或行不合法 422（`error.message` 给出行和字段）。试算不写预报、观测、数据集、预警或实验结果；成功只记录 `REPLAY_TRIAL` 元数据审计。
