@@ -69,6 +69,10 @@ def main():
         detail = base + '/warnings/' + ident
         a.wait_for_url(detail)
         assert click_write(a, '提交审核', '/submit')['status'] == 'PENDING_REVIEW'
+        # Keep an independent reviewer's unsent opinion open across a real resubmission.
+        admin.goto(base + '/review')
+        pending_comment = admin.get_by_label('审核意见：' + key, exact=True)
+        pending_comment.fill('第一轮尚未提交的意见')
         r.goto(detail); r.get_by_label('审核意见').fill('请补充影响范围')
         assert click_write(r, '驳回', '/review')['decision'] == 'REJECT'
         a.reload(); expect(a.get_by_role('note')).to_contain_text('请补充影响范围')
@@ -76,6 +80,10 @@ def main():
         a.locator('#edit-impact_text').fill('低洼路段及学校周边积水')
         assert click_write(a, '保存修改', '/'+ident, 'PATCH')['version_no'] == 2
         assert click_write(a, '重新提交审核', '/submit')['status'] == 'PENDING_REVIEW'
+        admin.get_by_role('button', name='刷新', exact=True).click()
+        expect(pending_comment).to_have_value('')
+        admin.get_by_role('row').filter(has=pending_comment).get_by_role('button', name='驳回', exact=True).click()
+        expect(admin.get_by_role('alert')).to_contain_text('驳回时必须填写审核意见')
         r.reload()
         history = r.locator('details').filter(has=r.locator('summary', has_text='历史版本'))
         history.locator('summary').click()

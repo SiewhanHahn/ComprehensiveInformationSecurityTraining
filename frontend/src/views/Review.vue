@@ -80,7 +80,7 @@
                 <div class="row" style="gap: 6px; flex-wrap: nowrap; align-items: center">
                   <template v-if="isReviewRow(w) && w.created_by !== auth.user?.username">
                     <input
-                      v-model="comments[w.public_id]"
+                      v-model="comments[roundKey(w)]"
                       class="review-comment"
                       placeholder="审核意见（驳回必填）"
                       :aria-label="'审核意见：' + w.title"
@@ -161,6 +161,11 @@ function isReviewRow(w) {
   return activeTab.value === 'PENDING_REVIEW' && w.status === 'PENDING_REVIEW'
 }
 
+// A resubmission has a new token even when the author keeps the same text version.
+function roundKey(w) {
+  return JSON.stringify([w.public_id, w.review_token])
+}
+
 function isPublishRow(w) {
   return activeTab.value === 'APPROVED' && w.status === 'APPROVED'
 }
@@ -171,7 +176,14 @@ async function load() {
   error.value = ''
   try {
     const data = await apiFetch(`/warnings?status=${activeTab.value}`)
-    if (seq === loadSeq) rows.value = data
+    if (seq !== loadSeq) return
+    if (activeTab.value === 'PENDING_REVIEW') {
+      const pending = new Set(data.map(roundKey))
+      for (const key of Object.keys(comments.value)) {
+        if (!pending.has(key)) delete comments.value[key]
+      }
+    }
+    rows.value = data
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = e.message
@@ -190,7 +202,12 @@ function switchTab(value) {
 
 async function review(w, decision) {
   if (busyId.value || !isReviewRow(w) || w.created_by === auth.user?.username) return
-  const comment = (comments.value[w.public_id] || '').trim()
+  if (!w.review_token) {
+    error.value = '请刷新待审核列表，核对提交轮次后再审核'
+    return
+  }
+  const key = roundKey(w)
+  const comment = (comments.value[key] || '').trim()
   if (decision === 'REJECT' && !comment) {
     error.value = '驳回时必须填写审核意见'
     return
@@ -204,7 +221,7 @@ async function review(w, decision) {
       body: JSON.stringify({ decision, comment, review_token: w.review_token })
     })
     notice.value = decision === 'APPROVE' ? `已批准：${w.title}` : `已驳回：${w.title}`
-    delete comments.value[w.public_id]
+    delete comments.value[key]
     await load()
   } catch (e) {
     error.value = e.message
