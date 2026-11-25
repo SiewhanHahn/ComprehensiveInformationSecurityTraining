@@ -106,30 +106,24 @@ def seed_users(session: Session, *, sync_passwords: bool = False) -> None:
         if not password:
             print(f"[seed] 跳过账号 {username}（未设置 {env_var}）")
             continue
-        role = session.scalar(select(Role).where(Role.code == role_code))
-        if role is None:
-            print(f"[seed] 跳过账号 {username}（角色 {role_code} 不存在）")
-            continue
         user = session.scalar(select(User).where(User.username == username))
-        if user is None:
-            user = User(username=username, display_name=display_name, password_hash=hash_password(password), is_active=True)
-            session.add(user)
-            session.flush()
-            session.add(UserRole(user_id=user.id, role_id=role.id, granted_at=_now()))
-        else:
-            # 默认只补齐角色关联：密码与启用状态归管理员管，
-            # 每次 compose up 重跑 seed 时覆盖它们会悄悄撤销 UI 上的重置/停用。
-            # 需要按 .env 重置演示账号时显式加 --sync-demo-passwords。
+        if user is not None:
+            # 已有账号的角色由管理员维护，即使显式恢复凭据也不重新授权。
             if sync_passwords:
                 user.password_hash = hash_password(password)
                 user.is_active = True
                 user.failed_login_count = 0
                 user.locked_until = None
-            session.execute(
-                UserRole.__table__.insert().prefix_with("IGNORE").values(
-                    user_id=user.id, role_id=role.id, granted_at=_now()
-                )
-            )
+            continue
+
+        role = session.scalar(select(Role).where(Role.code == role_code))
+        if role is None:
+            print(f"[seed] 跳过账号 {username}（角色 {role_code} 不存在）")
+            continue
+        user = User(username=username, display_name=display_name, password_hash=hash_password(password), is_active=True)
+        session.add(user)
+        session.flush()
+        session.add(UserRole(user_id=user.id, role_id=role.id, granted_at=_now()))
     session.commit()
 
 
@@ -173,7 +167,7 @@ def main() -> int:
     parser.add_argument(
         "--sync-demo-passwords",
         action="store_true",
-        help="按 .env 覆盖既有演示账号的密码与启用状态（默认只创建缺失账号）",
+        help="按 .env 重置既有演示账号的密码，重新启用并解锁；不修改已有角色",
     )
     args = parser.parse_args()
 
