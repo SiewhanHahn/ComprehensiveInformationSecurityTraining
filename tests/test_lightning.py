@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -178,6 +179,17 @@ def test_lightning_warning_rejects_unapproved_inputs_and_unavailable_forecasts(n
     assert_refused(POSITIVE, 'SOURCE_NOT_VERIFIED')
 
 
+@pytest.mark.parametrize(('peak', 'display'), [(0.09, '0.09'), (0.1, '0.10'), (0.059, '0.059')])
+def test_notification_keeps_ltng_snapshot_precision(lightning, peak, display):
+    from backend.app.services.notifications import warning_summary
+
+    snapshot = lightning.assess_case(POSITIVE).model_dump(mode='json')
+    snapshot['metric']['value'] = peak
+    result = SimpleNamespace(city_code='ST_LOUIS', valid_date=START.date(), assessment_json=snapshot)
+    warning = SimpleNamespace(hazard_type='THUNDERSTORM', warning_result=result)
+    assert warning_summary(warning).endswith(f'6 小时最大 LTNG {display} 无量纲')
+
+
 @pytest.mark.integration
 def test_lightning_stores_forecast_only_and_keeps_existing_lifecycle(login, lightning, monkeypatch,
                                                             created_warnings, created_subscriptions):
@@ -208,5 +220,14 @@ def test_lightning_stores_forecast_only_and_keeps_existing_lifecycle(login, ligh
     review = review_body(reviewer, row['public_id'], 'APPROVE', '核对历史预报')
     assert reviewer.post(detail + '/review', headers=csrf_headers(r), json=review).status_code == 200
     assert reviewer.post(detail + '/publish', headers=csrf_headers(r)).json()['status'] == 'PUBLISHED'
-    assert notifications_for(viewer, row['public_id'])
     assert viewer.get(detail).json()['lightning_assessment'] == expected
+    assert stored['lightning_assessment']['metric']['value'] == 0.09
+    tasks = analyst.get('/api/v1/response-tasks', params={'warning': row['public_id']}).json()
+    assert len(tasks) == 1
+    assigned = notifications_for(analyst, tasks[0]['id'])
+    assert reviewer.post(detail + '/withdraw', headers=csrf_headers(r)).json()['status'] == 'WITHDRAWN'
+    inbox = notifications_for(viewer, row['public_id'])
+    assert [n['kind'] for n in inbox] == ['WARNING_WITHDRAWN', 'WARNING_PUBLISHED']
+    assert [n['kind'] for n in assigned] == ['TASK_ASSIGNED']
+    for notice in [*inbox, *assigned]:
+        assert '6 小时最大 LTNG 0.09 无量纲' in notice['body'], notice['kind']

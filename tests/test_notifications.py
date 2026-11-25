@@ -42,6 +42,7 @@ def test_publish_notifies_matching_subscriber(login, subscriber, make_warning, c
     assert items[0]["kind"] == "WARNING_PUBLISHED"
     assert items[0]["read_at"] is None
     assert "长沙" in items[0]["body"]
+    assert items[0]["body"].endswith("四模式融合 29.6mm")
 
 
 def test_publish_skips_non_matching_subscription(login, subscriber, make_warning, created_subscriptions):

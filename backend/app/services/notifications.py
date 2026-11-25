@@ -40,8 +40,16 @@ def warning_summary(w: Warning) -> str:
     hazard = HAZARD_NAMES.get(w.hazard_type, w.hazard_type)
     if result.assessment_json is not None:
         metric = result.assessment_json["metric"]
-        precision = 2 if metric["unit"] == "cm" else 1
-        return f"{city} {result.valid_date} {hazard}教学演练；{metric['label']} {metric['value']:.{precision}f} {metric['unit']}"
+        value = metric["value"]
+        if w.hazard_type == "THUNDERSTORM":
+            # 与雷电证据卡一致：常规值显示两位，不能用舍入值替代更精细的 LTNG 快照。
+            display = f"{value:.2f}"
+            if float(display) != value:
+                display = str(value)
+        else:
+            precision = 2 if metric["unit"] == "cm" else 1
+            display = f"{value:.{precision}f}"
+        return f"{city} {result.valid_date} {hazard}教学演练；{metric['label']} {display} {metric['unit']}"
     return f"{city} {result.valid_date} {hazard}；四模式融合 {float(result.fused_mm):.1f}mm"
 
 
