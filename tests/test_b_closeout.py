@@ -37,13 +37,17 @@ def test_legacy_draft_requires_repair_before_submit(monkeypatch):
 
 
 def test_revision_only_changes_when_content_changes(monkeypatch):
-    w = SimpleNamespace(status="REJECTED", created_by=1, impact_text="历史", version_no=2, public_id="draft")
+    w = SimpleNamespace(id=7, status="REJECTED", created_by=1, title="标题", area_text="区域",
+                        reasoning_text="依据", impact_text="历史", version_no=2, public_id="draft")
     monkeypatch.setattr(warnings, "get_warning", lambda *a, **kw: w)
     audit, db, actor = Mock(), Mock(), SimpleNamespace(id=1)
     warnings.update_warning(db, w.public_id, WarningUpdate(impact_text=" 历史 "), actor, audit)
     audit.record.assert_not_called()
     db.flush.assert_not_called()
+    db.add.assert_not_called()
     warnings.update_warning(db, w.public_id, WarningUpdate(impact_text=" 新说明 "), actor, audit)
+    frozen, = db.add.call_args.args
+    assert (frozen.warning_id, frozen.version_no, frozen.impact_text) == (7, 2, "历史")
     assert (w.version_no, w.impact_text) == (3, "新说明")
     assert audit.record.call_args.kwargs['resource_version'] == 3
 
@@ -113,7 +117,7 @@ def test_review_is_bound_to_one_displayed_submission(changed, monkeypatch):
     author = CurrentUser(1, 'author', ['ANALYST']); reviewer = CurrentUser(2, 'reviewer', ['REVIEWER'])
     first = datetime(2026, 1, 1)
     w = SimpleNamespace(id=3, status=warnings.PENDING_REVIEW, version_no=1, submitted_at=first,
-                        public_id='draft', created_by=1, impact_text='通勤')
+                        public_id='draft', created_by=1, impact_text='通勤', title='标题', area_text='区域', reasoning_text='依据')
     monkeypatch.setattr(warnings, 'get_warning', lambda *a, **kw: w)
     # A frozen clock must not make two different submission rounds indistinguishable.
     monkeypatch.setattr(warnings, 'utcnow', lambda: first)

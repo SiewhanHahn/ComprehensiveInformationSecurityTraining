@@ -292,6 +292,16 @@ class WarningOut(BaseModel):
     withdrawn_at: datetime | None
 
 
+class WarningTextVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    version_no: int
+    title: str
+    area_text: str
+    impact_text: str | None
+    reasoning_text: str
+
+
 class WarningDetailOut(WarningOut):
     typhoon_assessment: TyphoonAssessment | None = None
     snow_assessment: SnowAssessment | None = None

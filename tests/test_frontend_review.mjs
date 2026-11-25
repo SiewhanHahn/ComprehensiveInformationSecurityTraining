@@ -862,7 +862,7 @@ function warningFixture(status = 'DRAFT') {
   }
 }
 
-async function lifecycleView(view, { auth = lifecycleAuth(), apiFetch, query = {}, push = () => {} }) {
+async function lifecycleView(view, { auth = lifecycleAuth(), apiFetch, query = {}, push = () => {}, components = {} }) {
   const relPath = `src/views/${view}.vue`
   const labels = await import('../frontend/src/ui/labels.js')
   const setup = instantiateSetupScript(relPath, {
@@ -880,6 +880,7 @@ async function lifecycleView(view, { auth = lifecycleAuth(), apiFetch, query = {
       for (const name of ['StatusBadge', 'TableSkeleton', 'EmptyState', 'ClosedLoopStepper', 'ChartPanel']) {
         app.component(name, { template: '<div><slot /></div>' })
       }
+      for (const [name, component] of Object.entries(components)) app.component(name, component)
       return renderToString(app)
     },
   }
@@ -890,6 +891,167 @@ function deferredRequest() {
   const promise = new Promise((ok, fail) => { resolve = ok; reject = fail })
   return { promise, resolve, reject }
 }
+
+test('Warning version history entry is restricted to reviewers and admins on detail', async () => {
+  const auth = lifecycleAuth('viewer_demo', ['VIEWER'])
+  const calls = []
+  const warning = warningFixture('PUBLISHED')
+  const view = await lifecycleView('WarningDetail', {
+    auth,
+    apiFetch: async (url) => { calls.push(url); return url === '/warnings/warning-1' ? warning : [] },
+    components: {
+      WarningVersionHistory: {
+        props: ['warning'],
+        template: '<div aria-label="历史版本">{{ warning.public_id }} v{{ warning.version_no }}</div>',
+      },
+    },
+  })
+  try {
+    await view.mountedHooks[0]()
+    for (const roles of [['VIEWER'], ['ANALYST'], []]) {
+      auth.user.roles = roles
+      assert.doesNotMatch(await view.html(), /aria-label="历史版本"/)
+    }
+    for (const roles of [['REVIEWER'], ['ADMIN'], ['ANALYST', 'REVIEWER']]) {
+      auth.user.roles = roles
+      assert.match(await view.html(), /aria-label="历史版本">warning-1 v1/)
+    }
+    assert.deepEqual(calls, ['/cities', '/warnings/warning-1', '/warnings/warning-1/feedback'])
+  } finally {
+    view.scope.stop()
+  }
+})
+
+function versionHistoryFixture(warning, apiFetch) {
+  const relPath = 'src/components/WarningVersionHistory.vue'
+  const props = vueRuntime.reactive({ warning })
+  const view = instantiateSetupScript(relPath, { '../api': { apiFetch } }, props)
+  const render = compileVueTemplate(relPath)
+  return {
+    ...view, props,
+    html: () => renderToString(vueRuntime.createSSRApp({ setup: () => ({ ...view.exposed }), render })),
+  }
+}
+
+function versionBody(version_no, title) {
+  return { version_no, title, area_text: '旧版区域', impact_text: null, reasoning_text: '旧版研判' }
+}
+
+test('Warning version history is collapsed, renders v1 locally, and fetches only a selected older version', async () => {
+  const warning = { ...warningFixture('PUBLISHED'), title: '当前正文', reasoning_text: '当前研判' }
+  const calls = []
+  const view = versionHistoryFixture(warning, async (url) => {
+    calls.push(url)
+    return versionBody(2, '旧版正文')
+  })
+  try {
+    for (const mount of view.mountedHooks) await mount()
+    const v1 = await view.html()
+    assert.match(v1, /<details(?![^>]*\bopen\b)[^>]*>\s*<summary[^>]*>历史版本<\/summary>/)
+    assert.match(v1, /<label[^>]*>[\s\S]*版本号[\s\S]*<select[\s\S]*<\/select><\/label>/)
+    assert.deepEqual([...v1.matchAll(/<option value="(\d+)"/g)].map(match => match[1]), ['1'])
+    assert.match(v1, /没有更早的版本/)
+    assert.match(v1, /当前正文[\s\S]*当前研判/)
+    for (const value of ['1', '0', '2', '1.5']) await view.exposed.selectVersion(value)
+    assert.deepEqual(calls, [])
+
+    view.props.warning = { ...warning, version_no: 3 }
+    const v3 = await view.html()
+    assert.deepEqual([...v3.matchAll(/<option value="(\d+)"/g)].map(match => match[1]), ['1', '2', '3'])
+    assert.match(v3, /<option value="3"[^>]*>[^<]*当前/)
+    assert.deepEqual(calls, [])
+    await view.exposed.selectVersion('2')
+    const v2 = await view.html()
+    assert.match(v2, /旧版正文[\s\S]*旧版区域[\s\S]*影响说明[\s\S]*—[\s\S]*旧版研判/)
+    assert.doesNotMatch(v2, /当前正文|当前研判/)
+    await view.exposed.selectVersion('2')
+    await view.exposed.selectVersion('3')
+    assert.deepEqual(calls, ['/warnings/warning-1/versions/2'])
+    assert.match(await view.html(), /当前正文/)
+    assert.doesNotMatch(await view.html(), /旧版正文/)
+  } finally {
+    view.scope.stop()
+  }
+})
+
+test('Warning version history distinguishes retention 404 from resource 404 and other failures', async () => {
+  let failure
+  const view = versionHistoryFixture({ ...warningFixture('PUBLISHED'), version_no: 3, title: '当前正文' }, async () => {
+    if (failure) throw failure
+    return versionBody(1, '重试后取得的正文')
+  })
+  try {
+    for (const [status, code, message, expected] of [
+      [404, 'VERSION_NOT_RETAINED', '请求的资源不存在', /旧版正文未留存/],
+      [404, 'NOT_FOUND', '请求的资源不存在', /预警或版本不可用/],
+      [403, 'FORBIDDEN', '无权限执行此操作', /加载版本失败[\s\S]*无权限执行此操作/],
+      [undefined, undefined, '连接中断', /加载版本失败[\s\S]*连接中断/],
+    ]) {
+      failure = Object.assign(new Error(message), { status, code })
+      await view.exposed.selectVersion('1')
+      const html = await view.html()
+      assert.match(html, expected)
+      assert.doesNotMatch(html, /当前正文/)
+      if (code !== 'VERSION_NOT_RETAINED') assert.doesNotMatch(html, /旧版正文未留存/)
+      await view.exposed.selectVersion('3')
+    }
+    failure = new Error('连接中断')
+    await view.exposed.selectVersion('1')
+    assert.match(await view.html(), /<button[^>]*>重试<\/button>/)
+    failure = null
+    await view.exposed.retryVersion()
+    assert.match(await view.html(), /重试后取得的正文/)
+    assert.doesNotMatch(await view.html(), /加载版本失败/)
+  } finally {
+    view.scope.stop()
+  }
+})
+
+test('Warning version history ignores stale requests across selection, warning and revision changes', async () => {
+  const requests = []
+  const warning = { ...warningFixture('PUBLISHED'), version_no: 3, title: '第一条当前正文' }
+  const view = versionHistoryFixture(warning, (url) => {
+    const request = deferredRequest()
+    requests.push({ url, ...request })
+    return request.promise
+  })
+  try {
+    const first = view.exposed.selectVersion('1')
+    const duplicate = view.exposed.selectVersion('1')
+    assert.equal(requests.length, 1)
+    const second = view.exposed.selectVersion('2')
+    const third = view.exposed.selectVersion('1')
+    requests[0].resolve(versionBody(1, '过期的同版本响应'))
+    await Promise.all([first, duplicate])
+    assert.match(await view.html(), /role="status"[\s\S]*正在加载第 1 版/)
+    assert.doesNotMatch(await view.html(), /过期的同版本响应|第一条当前正文/)
+    requests[2].resolve(versionBody(1, '有效的历史正文'))
+    await third
+    requests[1].reject(new Error('过期错误'))
+    await second
+    assert.match(await view.html(), /有效的历史正文/)
+    assert.doesNotMatch(await view.html(), /过期错误/)
+
+    const previousWarning = view.exposed.selectVersion('2')
+    view.props.warning = { ...warning, public_id: 'warning-2', title: '第二条当前正文' }
+    assert.match(await view.html(), /第二条当前正文/)
+    const nextWarning = view.exposed.selectVersion('2')
+    requests[3].resolve(versionBody(2, '第一条历史正文'))
+    await previousWarning
+    assert.match(await view.html(), /正在加载第 2 版/)
+    assert.doesNotMatch(await view.html(), /第一条历史正文/)
+    assert.equal(requests[4].url, '/warnings/warning-2/versions/2')
+
+    view.props.warning = { ...view.props.warning, version_no: 4, title: '第二条更新后的正文' }
+    requests[4].reject(new Error('旧修订请求失败'))
+    await nextWarning
+    assert.match(await view.html(), /第二条更新后的正文/)
+    assert.doesNotMatch(await view.html(), /旧修订请求失败|正在加载/)
+    assert.equal(requests.length, 5)
+  } finally {
+    view.scope.stop()
+  }
+})
 
 test('Review ignores stale success and error without ending the latest loading state', async () => {
   const requests = []

@@ -273,6 +273,24 @@ class Warning(Base, TimestampMixin):
     )
 
 
+class WarningTextVersion(Base):
+    """Prior warning text saved by the edit service; current text stays on Warning."""
+
+    __tablename__ = "warning_text_versions"
+    __table_args__ = {"mysql_engine": "InnoDB"}
+
+    warning_id: Mapped[int] = mapped_column(
+        BIGINT(unsigned=True),
+        ForeignKey("warnings.id", name="fk_warning_text_versions_warning_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    version_no: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    area_text: Mapped[str] = mapped_column(String(500), nullable=False)
+    impact_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reasoning_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class WarningReview(Base):
     __tablename__ = "warning_reviews"
 

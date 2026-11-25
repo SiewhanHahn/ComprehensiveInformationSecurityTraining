@@ -16,12 +16,12 @@ from sqlalchemy.orm import Session
 from ..cities import DEFAULT_MODELS, LEAD_HOURS, MODEL_DISPLAY, WARNING_CITIES
 from ..clock import utcnow
 from ..deps import ROLE_ADMIN, ROLE_ANALYST, ROLE_REVIEWER, CurrentUser
-from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview
+from ..models import Dataset, ForecastRecord, FusionInput, FusionRun, User, Warning, WarningFeedback, WarningResult, WarningReview, WarningTextVersion
 from ..assessment_schemas import LightningAssessment, SnowAssessment, TyphoonAssessment
 from ..schemas import (
     FeedbackRequest, LightningWarningCreate, ModelValue, SnowWarningCreate, TyphoonWarningCreate,
     WarningCreate, WarningDetailOut,
-    WarningDraftText, WarningOut, WarningUpdate,
+    WarningDraftText, WarningOut, WarningTextVersionOut, WarningUpdate,
 )
 from ..security import new_public_id
 from . import lightning, snow, typhoon
@@ -104,6 +104,18 @@ def get_visible_warning(db: Session, public_id: str, current: CurrentUser) -> Wa
     if w is None or w.status == CANCELLED or (is_viewer_only(current) and w.status != PUBLISHED):
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     return w
+
+
+def read_text_version(db: Session, public_id: str, version_no: int, current: CurrentUser) -> WarningTextVersionOut:
+    w = get_visible_warning(db, public_id, current)
+    if version_no == w.version_no:
+        return WarningTextVersionOut.model_validate(w)
+    if version_no > w.version_no:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    old = db.get(WarningTextVersion, (w.id, version_no))
+    if old is None:
+        raise HTTPException(status_code=404, detail="VERSION_NOT_RETAINED")
+    return WarningTextVersionOut.model_validate(old)
 
 
 def list_warnings(db: Session, current: CurrentUser, status: str | None) -> list[Warning]:
@@ -385,6 +397,8 @@ def update_warning(db: Session, public_id: str, body: WarningUpdate, actor: Curr
     w = _require_own_editable(get_warning(db, public_id, lock=True), actor)
     changes = {k: v for k, v in body.model_dump(exclude_unset=True).items() if getattr(w, k) != v}
     if changes:
+        # Freeze exactly what is being replaced, under the same row lock and transaction.
+        db.add(WarningTextVersion(warning_id=w.id, **WarningTextVersionOut.model_validate(w).model_dump()))
         for field, value in changes.items():
             setattr(w, field, value)
         w.version_no += 1

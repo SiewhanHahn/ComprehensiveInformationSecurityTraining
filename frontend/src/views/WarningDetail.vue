@@ -69,6 +69,12 @@
           </div>
         </div>
 
+        <WarningVersionHistory
+          v-if="auth.hasAnyRole('REVIEWER', 'ADMIN') && w.version_no >= 1"
+          :key="w.public_id"
+          :warning="w"
+        />
+
         <p v-if="w.status === 'REJECTED' && w.rejection_comment" role="note"><strong>驳回意见：</strong>{{ w.rejection_comment }}</p>
         <form v-if="canManageDraft && editForm" style="margin-top: 16px" @submit.prevent="saveEdit">
           <h3 class="card-title">编辑草稿</h3>
@@ -357,6 +363,7 @@ import ChartPanel from '../components/ChartPanel.vue'
 import TyphoonEvidence from '../components/TyphoonEvidence.vue'
 import SnowEvidence from '../components/SnowEvidence.vue'
 import LightningEvidence from '../components/LightningEvidence.vue'
+import WarningVersionHistory from '../components/WarningVersionHistory.vue'
 import { modelBar } from '../charts/options'
 import { HAZARD_TYPE, formatDate, formatDateTime, shortId } from '../ui/labels'
 

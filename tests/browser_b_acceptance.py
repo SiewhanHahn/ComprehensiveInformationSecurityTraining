@@ -76,7 +76,18 @@ def main():
         a.locator('#edit-impact_text').fill('低洼路段及学校周边积水')
         assert click_write(a, '保存修改', '/'+ident, 'PATCH')['version_no'] == 2
         assert click_write(a, '重新提交审核', '/submit')['status'] == 'PENDING_REVIEW'
-        r.reload(); r.get_by_label('审核意见').fill('同意')
+        r.reload()
+        history = r.locator('details').filter(has=r.locator('summary', has_text='历史版本'))
+        history.locator('summary').click()
+        choose = history.get_by_label('版本号')
+        expect(choose).to_have_value('2')
+        expect(history.get_by_text('低洼路段及学校周边积水', exact=True)).to_be_visible()
+        choose.select_option('1')
+        expect(history.get_by_text('低洼路段积水', exact=True)).to_be_visible()
+        expect(history.get_by_text('低洼路段及学校周边积水', exact=True)).to_have_count(0)
+        choose.select_option('2')
+        expect(history.get_by_text('低洼路段及学校周边积水', exact=True)).to_be_visible()
+        r.get_by_label('审核意见').fill('同意')
         assert click_write(r, '批准', '/review')['decision'] == 'APPROVE'
         r.get_by_label('发布或撤回原因').fill(key + '-发布')
         assert click_write(r, '发布', '/publish')['status'] == 'PUBLISHED'
@@ -90,7 +101,7 @@ def main():
             expect(row).to_have_count(1); expect(row).to_contain_text('v2')
         assert not outside, f'Warning lifecycle attempted external requests: {outside!r}'
         browser.close()
-        print('PASS browser: create, submit, reject, edit v2, resubmit, independent approve/publish, ack/complete, feedback, withdraw, audit v2')
+        print('PASS browser: create, submit, reject, edit v2, resubmit, compare v1/v2 text, independent approve/publish, ack/complete, feedback, withdraw, audit v2')
 
 
 if __name__ == '__main__':

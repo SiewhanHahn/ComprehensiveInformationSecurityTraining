@@ -1,6 +1,6 @@
 """预警接口：参数、鉴权与序列化；业务规则见 ``services/warnings.py``。"""
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -17,6 +17,7 @@ from ..schemas import (
     WarningCreate,
     WarningDetailOut,
     WarningOut,
+    WarningTextVersionOut,
     WarningUpdate,
 )
 from ..services import warnings as svc
@@ -94,6 +95,18 @@ def get_warning(
 ):
     w = svc.get_visible_warning(db, public_id, current)
     return svc.to_detail_out(db, w, svc.usernames(db, {w.created_by}), reader_id=current.id)
+
+
+@router.get("/warnings/{public_id}/versions/{version_no}", response_model=WarningTextVersionOut)
+def get_warning_version(
+    public_id: str,
+    response: Response,
+    version_no: int = Path(ge=1, le=2147483647),
+    current: CurrentUser = Depends(reviewer_required),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return svc.read_text_version(db, public_id, version_no, current)
 
 
 @router.patch("/warnings/{public_id}", response_model=WarningOut)

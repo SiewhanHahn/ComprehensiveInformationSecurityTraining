@@ -113,6 +113,7 @@
 | POST | `/warnings` | ANALYST/ADMIN | 基于回放结果创建草稿 |
 | GET | `/warnings` | 已登录 | 列表；支持 `?status=` 筛选；普通用户只返回已发布内容 |
 | GET | `/warnings/{public_id}` | 已登录 | 详情（含融合追溯）与可执行动作 |
+| GET | `/warnings/{public_id}/versions/{version_no}` | REVIEWER/ADMIN | 按正文版本读取标题、影响区域、影响说明、研判依据 |
 | PATCH | `/warnings/{public_id}` | ANALYST/ADMIN（本人草稿） | 修改未提交草稿 |
 | POST | `/warnings/{public_id}/submit` | ANALYST/ADMIN（本人） | 提交审核，状态 `PENDING_REVIEW` |
 | POST | `/warnings/{public_id}/review` | REVIEWER/ADMIN | 批准/驳回，须回传所见提交轮次的 `review_token`；驳回必填意见；不能审批自己创建的预警 |
@@ -147,6 +148,8 @@ DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED -> WITHDRAWN
 ```
 
 创建时后端会重新执行同一回放计算并落库，不直接信任前端传入的融合值；`PARTIAL` 数据返回 `409 PARTIAL_DATA`；COMPLETE 但融合值未达到所选阈值（`risk_level` 为空）返回 `409 THRESHOLD_NOT_REACHED`。
+
+**正文历史（迁移 0009）**：审核员或管理员可按版本号读取单条正文（`version_no`、`title`、`area_text`、`impact_text`、`reasoning_text`）。当前版本来自主记录；每次实际改稿在同一事务留下被替换的正文。提交、驳回重提和无改动 PATCH 本身不新增正文版本。升级前未保存的旧版返回 `404 VERSION_NOT_RETAINED`，不猜测历史。不存在的预警、已取消预警及未来版本返回 `404 NOT_FOUND`；普通查看者即使能读已发布详情也不能读此接口。
 
 `GET /warnings/{public_id}` 返回 `WarningDetailOut`，在列表字段基础上追加融合追溯（对外 API 只增不改，列表接口仍为 `WarningOut`）：
 
