@@ -71,6 +71,58 @@ def test_withdraw_notifies_subscribers(login, subscriber, make_warning, created_
     assert kinds == ["WARNING_PUBLISHED", "WARNING_WITHDRAWN"]
 
 
+@pytest.mark.parametrize("join_at", ["before_publish", "before_withdraw", "after_withdraw"])
+def test_withdrawal_is_newest_and_backfill_preserves_notification_ids(
+    login, subscriber, make_warning, created_subscriptions, join_at
+):
+    from sqlalchemy import select
+
+    from backend.app.db import SessionLocal
+    from backend.app.models import Warning
+    from backend.app.scheduler import run_scan
+
+    analyst, analyst_csrf = login("analyst_demo")
+    reviewer, reviewer_csrf = login("reviewer_demo")
+    viewer, viewer_csrf = subscriber
+    if join_at == "before_publish":
+        _subscribe(viewer, viewer_csrf, created_subscriptions)
+    public_id = publish_warning(
+        analyst, analyst_csrf, reviewer, reviewer_csrf, make_warning, "notify-withdraw-order"
+    )
+    if join_at == "before_withdraw":
+        _subscribe(viewer, viewer_csrf, created_subscriptions)
+
+    def inbox():
+        return [(item["kind"], item["id"]) for item in notifications_for(viewer, public_id)]
+
+    # Scan only from this publication onward, not older rows in the isolated QA DB.
+    with SessionLocal() as db:
+        published_at = db.scalar(select(Warning.published_at).where(Warning.public_id == public_id))
+
+    def scan():
+        with SessionLocal() as db:
+            result = run_scan(db, now=published_at, hours=0)
+        assert result.failed == ()
+        return result.backfilled
+
+    before = inbox()
+    assert [kind for kind, _ in before] == (["WARNING_PUBLISHED"] if join_at == "before_publish" else [])
+    resp = reviewer.post(f"/api/v1/warnings/{public_id}/withdraw", headers=csrf_headers(reviewer_csrf))
+    assert resp.status_code == 200, resp.text
+    if join_at == "after_withdraw":
+        _subscribe(viewer, viewer_csrf, created_subscriptions)
+        assert inbox() == []
+        assert scan() == 2  # Only the scheduler could have delivered either notice.
+
+    expected = inbox()
+    assert [kind for kind, _ in expected] == ["WARNING_WITHDRAWN", "WARNING_PUBLISHED"]
+    if before:
+        assert expected[1:] == before  # Keep the previously delivered publication and its ID.
+    for _ in range(2):
+        assert scan() == 0
+        assert inbox() == expected
+
+
 def test_duplicate_subscription_conflict(subscriber, created_subscriptions):
     viewer, viewer_csrf = subscriber
 

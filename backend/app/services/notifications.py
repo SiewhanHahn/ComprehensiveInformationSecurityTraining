@@ -90,22 +90,27 @@ def notify_users(
 
 
 def notify_warning(db: Session, w: Warning, kind: str, *, user_ids: list[int] | None = None) -> int:
-    """给匹配订阅的用户投递一条预警通知。"""
+    """向同一批收件人按业务顺序投递至指定事件；返回本次实际新增的通知数。"""
     if user_ids is None:
         result = w.warning_result
         city_code = result.city_code if result is not None else ALL_CITIES
         user_ids = subscriber_ids(db, w.hazard_type, city_code)
-    # 标题列是 VARCHAR(200)，先把预警标题截到剩余长度再拼前缀，避免长标题被吃掉结尾
-    prefix = f"{NOTIFICATION_TITLES[kind]}："
-    return notify_users(
-        db,
-        user_ids=user_ids,
-        kind=kind,
-        title=prefix + w.title[: 200 - len(prefix)],
-        body=warning_summary(w),
-        resource_type="warning",
-        resource_id=w.public_id,
-    )
+    # 晚订阅者可能尚未收到发布；撤回与扫描都应先补齐发布，再投撤回。
+    kinds = (NOTIFY_PUBLISHED, NOTIFY_WITHDRAWN) if kind == NOTIFY_WITHDRAWN else (kind,)
+    body = warning_summary(w)
+    created = 0
+    for event in kinds:
+        prefix = f"{NOTIFICATION_TITLES[event]}："
+        created += notify_users(
+            db,
+            user_ids=user_ids,
+            kind=event,
+            title=prefix + w.title[: 200 - len(prefix)],
+            body=body,
+            resource_type="warning",
+            resource_id=w.public_id,
+        )
+    return created
 
 
 # ---- 通知中心 ----
@@ -175,8 +180,6 @@ def backfill_published(db: Session, *, hours: int, now: datetime) -> int:
         result = w.warning_result
         city_code = result.city_code if result is not None else ALL_CITIES
         user_ids = match_subscriptions(subs, w.hazard_type, city_code)
-        created += notify_warning(db, w, NOTIFY_PUBLISHED, user_ids=user_ids)
-        # withdrawn_at 只有 WITHDRAW 转换会写，等价于「当前状态是已撤回」
-        if w.withdrawn_at is not None:
-            created += notify_warning(db, w, NOTIFY_WITHDRAWN, user_ids=user_ids)
+        kind = NOTIFY_WITHDRAWN if w.withdrawn_at is not None else NOTIFY_PUBLISHED
+        created += notify_warning(db, w, kind, user_ids=user_ids)
     return created
