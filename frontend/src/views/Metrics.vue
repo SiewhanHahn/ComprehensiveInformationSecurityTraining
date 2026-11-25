@@ -13,7 +13,7 @@
         <div><dt>研究区间（UTC）</dt><dd>2024-02-01 至 2026-09-30</dd></div>
         <div><dt>按年划分</dt><dd>2024 训练 / 2025 验证 / 2026 测试</dd></div>
         <div><dt>原始获取日期</dt><dd>未记录；实验截止日不是下载日，也不是数据源的最新日期。</dd></div>
-        <div><dt>四路预报</dt><dd>Open-Meteo Previous Runs · 提前 24 小时的预报，按 UTC 日累计（mm）。</dd></div>
+        <div><dt>四路预报</dt><dd>Open-Meteo Previous Runs · 各有效小时取提前一天的归档预报，再按 UTC 日累计（mm），不保证全天同次起报。</dd></div>
         <div><dt>事后核验</dt><dd>Open-Meteo 历史归档 / ERA5 再分析。仅作代理标签，不是站点实测，不参与融合。</dd></div>
       </dl>
     </section>

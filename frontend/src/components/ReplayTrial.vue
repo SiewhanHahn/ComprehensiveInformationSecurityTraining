@@ -4,7 +4,7 @@
       <h3 id="trial-heading" class="card-title">外部城市降水试算</h3>
       <span class="card-subtitle">不保存文件，不创建预警，不计入九城实验</span>
     </div>
-    <p>每行是一个城市的一个 UTC 日，提供提前 24 小时的四路累计降水（mm）。只有实测雨量不能做四模式融合。</p>
+    <p>每行是一个城市的一个 UTC 日，提供各有效小时提前一天、再按日累计的四路降水（mm）。这不等于全天来自同一次起报。只有实测雨量不能做四模式融合。</p>
     <p class="trial-links">
       <a href="/trial/template.json" download>下载填写模板</a>
       <a href="/trial/nanjing.json" download>南京样例 · 2026-10-01 至 10-07</a>

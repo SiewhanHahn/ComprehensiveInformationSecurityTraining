@@ -3,7 +3,7 @@
     <div class="page-head">
       <div class="page-heading">
         <h2 class="page-title">历史回放</h2>
-        <span class="page-subtitle">固定 24 小时提前量 · 四模式与等权融合</span>
+        <span class="page-subtitle">逐小时提前一天 · UTC 日累计 · 四模式与等权融合</span>
       </div>
     </div>
 
@@ -113,7 +113,7 @@
         </div>
 
         <p class="muted" style="margin-top: 12px">
-          同一城市、同一 UTC 日、提前 24 小时：
+          同一城市、同一 UTC 日，各小时取提前一天的预报：
           <template v-if="result.fused_mm != null">({{ result.models.map(m => m.precipitation_mm).join(' + ') }}) ÷ 4 = {{ result.fused_mm }} mm。</template>
           ERA5 只用于事后核验，不是第五路输入。缺任一模式时显示 PARTIAL，不生成正式预警；教学风险等级不代表国家气象台官方预警信号。
         </p>

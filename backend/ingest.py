@@ -1,8 +1,7 @@
-"""按签发时刻一致的固定提前量，采集历史预报与 ERA5 代理标签。
+"""按逐小时固定偏移，采集历史预报与 ERA5 代理标签。
 
 数据源：
-  - previous-runs-api：`*_previous_dayN` 表示"在有效时刻前 N*24 小时签发的预报"，
-    因此用它模拟"预警时刻可见的信息"，不会看到未来。
+  - previous-runs-api：`*_previous_dayN` 为各有效小时的历史偏移档；按日相加不等于一次起报覆盖全天。
   - archive-api (ERA5)：事后再分析，仅作代理标签，不是站点实测。
 
 依赖：仅标准库 + numpy（环境未安装 pandas/requests/sklearn）。
